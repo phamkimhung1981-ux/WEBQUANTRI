@@ -1,0 +1,8 @@
+{
+  "name": "Hệ Thống Quản Lý Giáo Viên THPT Sơn Lương",
+  "description": "Phần mềm quản lý giáo viên, theo dõi nền nếp, giao việc và báo cáo dành cho trường THPT Sơn Lương.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
