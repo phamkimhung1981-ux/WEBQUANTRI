@@ -225,45 +225,42 @@ export default function KpiCbql() {
       </div>
 
       {/* HEADER SECTION CHÍNH */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 lg:p-6 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-blue-500/10 to-transparent pointer-events-none" />
         
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-blue-300">
-                <Award size={24} />
-              </div>
-              <span className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-extrabold uppercase tracking-wider">
-                TRƯỜNG THPT SƠN LƯƠNG
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-bold uppercase tracking-wider">
+                <Award size={13} /> TRƯỜNG THPT SƠN LƯƠNG
               </span>
             </div>
 
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight text-white uppercase drop-shadow-md">
+            <h1 className="text-lg sm:text-xl lg:text-2xl font-extrabold tracking-tight text-white uppercase drop-shadow-md leading-snug">
               ĐÁNH GIÁ KPI CÁN BỘ QUẢN LÝ
             </h1>
 
-            <p className="text-xs sm:text-sm text-blue-100/90 max-w-2xl leading-relaxed">
-              Hệ thống đánh giá kết quả thực hiện nhiệm vụ (KPI) dành riêng cho Cán bộ Quản lý theo chuẩn 100 điểm:
+            <p className="text-xs sm:text-sm text-blue-100/90 max-w-3xl leading-relaxed">
+              Dành riêng cho Cán bộ Quản lý (100 điểm):
               Chính trị tư tưởng (15đ) • Tác phong kỷ luật (15đ) • Kết quả thực hiện nhiệm vụ (70đ).
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={() => navigate('/')}
-              className="px-4 py-2.5 text-xs sm:text-sm font-bold bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-2xl transition-all flex items-center gap-2 cursor-pointer backdrop-blur-xs"
+              className="px-3 py-2 text-xs sm:text-sm font-bold bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer backdrop-blur-xs"
               title="Trở về Trang chủ Dashboard"
             >
-              <Home size={18} />
+              <Home size={15} />
               <span>Trang chủ</span>
             </button>
 
             <button
               onClick={handleOpenCreateModal}
-              className="px-5 py-2.5 text-xs sm:text-sm font-bold bg-white text-blue-950 hover:bg-blue-50 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center gap-2 cursor-pointer"
+              className="px-3.5 py-2 text-xs sm:text-sm font-bold bg-white text-blue-950 hover:bg-blue-50 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <Plus size={18} className="text-blue-600" />
+              <Plus size={16} className="text-blue-600" />
               <span>Tạo Phiếu Đánh Giá Mới</span>
             </button>
 
@@ -273,9 +270,9 @@ export default function KpiCbql() {
                 const yName = currentSelectedPeriod?.academicYear || '2026-2027';
                 exportCbqlSummaryListToExcel(filteredForms, pName, yName);
               }}
-              className="px-4 py-2.5 text-xs sm:text-sm font-semibold bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-400/30 rounded-2xl transition-colors flex items-center gap-2 cursor-pointer"
+              className="px-3 py-2 text-xs sm:text-sm font-semibold bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-400/30 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <FileSpreadsheet size={18} />
+              <FileSpreadsheet size={15} />
               <span>Xuất Báo Cáo Excel</span>
             </button>
           </div>

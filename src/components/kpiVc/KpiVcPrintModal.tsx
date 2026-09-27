@@ -29,6 +29,10 @@ export default function KpiVcPrintModal({
   const groupII = form.groupScores?.group_II ?? 0;
   const groupIII = form.groupScores?.group_III ?? 0;
 
+  const ttcmGroupI = form.ttcmGroupScores?.group_I ?? '---';
+  const ttcmGroupII = form.ttcmGroupScores?.group_II ?? '---';
+  const ttcmGroupIII = form.ttcmGroupScores?.group_III ?? '---';
+
   const mgrGroupI = form.managerGroupScores?.group_I ?? '---';
   const mgrGroupII = form.managerGroupScores?.group_II ?? '---';
   const mgrGroupIII = form.managerGroupScores?.group_III ?? '---';
@@ -38,6 +42,9 @@ export default function KpiVcPrintModal({
   const groupIItems = items.filter(it => it.groupId === 'group_I');
   const groupIIItems = items.filter(it => it.groupId === 'group_II');
   const groupIIIItems = items.filter(it => it.groupId === 'group_III');
+
+  const groupIIIaItems = groupIIIItems.filter(it => it.subGroup === 'A' || it.criterionCode.startsWith('III.A') || it.criterionCode === 'III.1');
+  const groupIIIbItems = groupIIIItems.filter(it => it.subGroup === 'B' || it.criterionCode.startsWith('GV') || it.criterionCode.startsWith('III.B') || it.criterionCode === 'III.2');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto">
@@ -96,9 +103,9 @@ export default function KpiVcPrintModal({
           >
             
             {/* 1. QUỐC HUY / CƠ QUAN */}
-            <div className="flex justify-between items-start text-center mb-6">
+            <div className="flex justify-between items-start text-center mb-5">
               <div className="w-5/12 text-center">
-                <p className="text-[12px] uppercase font-bold">SỞ GD&ĐT TỈNH PHÚ THỌ</p>
+                <p className="text-[12px] uppercase font-bold">SỞ GD&ĐT PHÚ THỌ</p>
                 <p className="text-[13px] uppercase font-bold">TRƯỜNG THPT SƠN LƯƠNG</p>
                 <div className="w-24 h-[1px] bg-black mx-auto mt-1" />
               </div>
@@ -110,262 +117,244 @@ export default function KpiVcPrintModal({
             </div>
 
             {/* 2. TIÊU ĐỀ */}
-            <div className="text-center my-6">
+            <div className="text-center my-5 space-y-0.5">
               <h1 className="text-[15px] font-bold uppercase tracking-wide">
-                PHIẾU ĐÁNH GIÁ, CHẤM ĐIỂM NĂM HỌC {form.academicYear || '2025-2026'}
+                PHIẾU ĐÁNH GIÁ, CHẤM ĐIỂM KPI GIÁO VIÊN NĂM HỌC {form.academicYear || '2026–2027'}
               </h1>
-              <p className="text-[13px] italic font-medium mt-0.5">
-                (Áp dụng đối với viên chức không giữ chức vụ lãnh đạo, quản lý)
+              <p className="text-[12px] italic font-medium">
+                (Dự thảo vận hành – đề nghị nhà trường xác nhận trước khi ban hành)
               </p>
             </div>
 
             {/* 3. THÔNG TIN */}
-            <div className="space-y-1.5 text-[13px] mb-6">
+            <div className="space-y-1 text-[12px] mb-3">
               <p>
                 <span className="font-semibold">Họ và tên:</span> {form.employeeName}
               </p>
               <p>
-                <span className="font-semibold">Chức vụ:</span> {form.position}
+                <span className="font-semibold">Chức vụ / môn:</span> {form.position} {form.subject ? `• Môn ${form.subject}` : ''}
               </p>
               <p>
-                <span className="font-semibold">Đơn vị công tác:</span> {form.department}
+                <span className="font-semibold">Tổ chuyên môn:</span> {form.department}
               </p>
+            </div>
+
+            {/* CĂN CỨ MẪU PHIẾU */}
+            <div className="text-[11px] leading-relaxed text-justify mb-4 italic">
+              Căn cứ mẫu Phiếu đánh giá, chấm điểm năm học 2025–2026 của Trường THPT Sơn Lương, phiếu này giữ cấu trúc 100 điểm gồm: (I) Chính trị tư tưởng, đạo đức lối sống 15 điểm; (II) Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật 15 điểm; (III) Kết quả thực hiện nhiệm vụ 70 điểm. Các nhiệm vụ ở phần III được chi tiết hóa để thuận lợi cho tự đánh giá, đánh giá của tổ chuyên môn và BGH. Các mức điểm KPI chi tiết dưới đây là đề xuất quản trị nội bộ, cần được nhà trường xác nhận trước khi áp dụng chính thức.
             </div>
 
             {/* 4. PHẦN A. NỘI DUNG CHẤM ĐIỂM */}
             <div className="mb-2">
-              <p className="font-bold text-[13px] uppercase">
+              <p className="font-bold text-[12px] uppercase">
                 A. NỘI DUNG CHẤM ĐIỂM
               </p>
             </div>
 
             {/* 5. BẢNG CHẤM ĐIỂM */}
-            <table className="w-full border-collapse border border-black text-[12px] mb-6">
+            <table className="w-full border-collapse border border-black text-[11px] mb-4">
               <thead>
-                <tr className="text-center font-bold border-b border-black">
-                  <th className="border border-black p-2 w-10">Stt</th>
-                  <th className="border border-black p-2 text-left">Nội dung đánh giá</th>
-                  <th className="border border-black p-2 w-16">Điểm tối đa</th>
-                  <th className="border border-black p-2 w-20">Điểm cá nhân tự chấm</th>
-                  <th className="border border-black p-2 w-24">Đánh giá của CBQL</th>
+                <tr className="text-center font-bold border-b border-black bg-slate-100">
+                  <th className="border border-black p-1.5 w-8">STT</th>
+                  <th className="border border-black p-1.5 text-left">Nội dung đánh giá / nhiệm vụ chi tiết</th>
+                  <th className="border border-black p-1.5 w-12">Điểm tối đa</th>
+                  <th className="border border-black p-1.5 w-16">Cá nhân tự chấm</th>
+                  <th className="border border-black p-1.5 w-16">TTCM đánh giá</th>
+                  <th className="border border-black p-1.5 w-16">CBQL đánh giá</th>
+                  <th className="border border-black p-1.5 w-24">Minh chứng / ghi chú</th>
                 </tr>
               </thead>
 
               <tbody>
-                
                 {/* NHÓM I */}
-                <tr className="font-bold">
-                  <td className="border border-black p-1.5 text-center font-bold">I</td>
-                  <td className="border border-black p-1.5 font-bold">Chính trị tư tưởng, đạo đức lối sống</td>
-                  <td className="border border-black p-1.5 text-center font-bold">15</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{groupI}</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{mgrGroupI}</td>
+                <tr className="font-bold bg-slate-50">
+                  <td className="border border-black p-1 text-center font-bold">I</td>
+                  <td className="border border-black p-1 font-bold uppercase">CHÍNH TRỊ TƯ TƯỞNG, ĐẠO ĐỨC LỐI SỐNG</td>
+                  <td className="border border-black p-1 text-center font-bold">15</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupI}</td>
+                  <td className="border border-black p-1 text-center font-bold">{ttcmGroupI}</td>
+                  <td className="border border-black p-1 text-center font-bold">{mgrGroupI}</td>
+                  <td className="border border-black p-1"></td>
                 </tr>
-
                 {groupIItems.map((item, idx) => (
-                  <tr key={item.criterionId}>
-                    <td className="border border-black p-1.5 text-center align-top">{idx + 1}</td>
-                    <td className="border border-black p-1.5 align-top">{item.content}</td>
-                    <td className="border border-black p-1.5 text-center align-top">{item.maxScore}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-semibold">{item.selfScore}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-semibold">{item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                  <tr key={item.criterionId || `i_${idx}`}>
+                    <td className="border border-black p-1 text-center align-top">{idx + 1}</td>
+                    <td className="border border-black p-1 align-top">{item.content}</td>
+                    <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
 
                 {/* NHÓM II */}
-                <tr className="font-bold">
-                  <td className="border border-black p-1.5 text-center font-bold">II</td>
-                  <td className="border border-black p-1.5 font-bold">Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật</td>
-                  <td className="border border-black p-1.5 text-center font-bold">15</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{groupII}</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{mgrGroupII}</td>
+                <tr className="font-bold bg-slate-50">
+                  <td className="border border-black p-1 text-center font-bold">II</td>
+                  <td className="border border-black p-1 font-bold uppercase">TÁC PHONG, LỀ LỐI LÀM VIỆC, Ý THỨC TỔ CHỨC KỶ LUẬT</td>
+                  <td className="border border-black p-1 text-center font-bold">15</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupII}</td>
+                  <td className="border border-black p-1 text-center font-bold">{ttcmGroupII}</td>
+                  <td className="border border-black p-1 text-center font-bold">{mgrGroupII}</td>
+                  <td className="border border-black p-1"></td>
                 </tr>
-
                 {groupIIItems.map((item, idx) => (
-                  <tr key={item.criterionId}>
-                    <td className="border border-black p-1.5 text-center align-top">{idx + 1}</td>
-                    <td className="border border-black p-1.5 align-top">{item.content}</td>
-                    <td className="border border-black p-1.5 text-center align-top">{item.maxScore}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-semibold">{item.selfScore}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-semibold">{item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                  <tr key={item.criterionId || `ii_${idx}`}>
+                    <td className="border border-black p-1 text-center align-top">{idx + 1}</td>
+                    <td className="border border-black p-1 align-top">{item.content}</td>
+                    <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
 
                 {/* NHÓM III */}
-                <tr className="font-bold">
-                  <td className="border border-black p-1.5 text-center font-bold">III</td>
-                  <td className="border border-black p-1.5 font-bold uppercase">KẾT QUẢ THỰC HIỆN NHIỆM VỤ</td>
-                  <td className="border border-black p-1.5 text-center font-bold">70</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{groupIII}</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{mgrGroupIII}</td>
+                <tr className="font-bold bg-slate-50">
+                  <td className="border border-black p-1 text-center font-bold">III</td>
+                  <td className="border border-black p-1 font-bold uppercase">KẾT QUẢ THỰC HIỆN NHIỆM VỤ</td>
+                  <td className="border border-black p-1 text-center font-bold">70</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIII}</td>
+                  <td className="border border-black p-1 text-center font-bold">{ttcmGroupIII}</td>
+                  <td className="border border-black p-1 text-center font-bold">{mgrGroupIII}</td>
+                  <td className="border border-black p-1"></td>
                 </tr>
 
                 {/* III.1 */}
-                {groupIIIItems.filter(i => i.scoreType !== 'select_level').map((item) => (
-                  <tr key={item.criterionId}>
-                    <td className="border border-black p-1.5 text-center align-top font-bold">1</td>
-                    <td className="border border-black p-1.5 align-top whitespace-pre-line">{item.content}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-bold">{item.maxScore}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-bold">{item.selfScore}</td>
-                    <td className="border border-black p-1.5 text-center align-top font-bold">{item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                <tr className="font-bold bg-slate-100/70">
+                  <td className="border border-black p-1 text-center">1</td>
+                  <td className="border border-black p-1 font-bold uppercase">III.1. Năng lực và kỹ năng làm việc</td>
+                  <td className="border border-black p-1 text-center font-bold">10</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.some(i => i.ttcmScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.some(i => i.managerScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.managerScore || 0), 0) : ''}</td>
+                  <td className="border border-black p-1"></td>
+                </tr>
+                {groupIIIaItems.map((item, idx) => (
+                  <tr key={item.criterionId || `iii_a_${idx}`}>
+                    <td className="border border-black p-1 text-center align-top">{idx + 1}</td>
+                    <td className="border border-black p-1 align-top">{item.content}</td>
+                    <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
 
                 {/* III.2 */}
-                <tr className="font-bold">
-                  <td className="border border-black p-1.5 text-center align-top">2</td>
-                  <td className="border border-black p-1.5 align-top">Kết quả thực hiện nhiệm vụ được giao</td>
-                  <td className="border border-black p-1.5 text-center align-top">60</td>
-                  <td className="border border-black p-1.5 text-center align-top">
-                    {groupIIIItems.find(i => i.scoreType === 'select_level')?.selfScore || 60}
-                  </td>
-                  <td className="border border-black p-1.5 text-center align-top">
-                    {groupIIIItems.find(i => i.scoreType === 'select_level')?.managerScore ?? ''}
-                  </td>
+                <tr className="font-bold bg-slate-100/70">
+                  <td className="border border-black p-1 text-center">2</td>
+                  <td className="border border-black p-1 font-bold uppercase">III.2. Kết quả thực hiện nhiệm vụ được giao</td>
+                  <td className="border border-black p-1 text-center font-bold">60</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.ttcmScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.managerScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0) : ''}</td>
+                  <td className="border border-black p-1"></td>
                 </tr>
-
-                {/* In đúng 5 mức III.2 theo mẫu PDF */}
-                {groupIIIItems.filter(i => i.scoreType === 'select_level').map((item) => {
-                  const selLevelCode = item.selectedLevelCode || '2.1';
-                  return (
-                    <React.Fragment key={item.criterionId}>
-                      <tr>
-                        <td className="border border-black p-1.5 text-center align-top">2.1</td>
-                        <td className="border border-black p-1.5 align-top">
-                          <p className="font-bold">MỨC 1</p>
-                          <p>Hoàn thành 100% công việc theo kế hoạch, lịch công tác, đúng tiến độ, bảo đảm chất lượng, hiệu quả cao, trong đó có ít nhất 50% tiêu chí, nhiệm vụ hoàn thành vượt mức: tối đa 60 điểm.</p>
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top">60</td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold">
-                          {selLevelCode === '2.1' ? `${item.selfScore}` : ''}
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold">
-                          {item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <td className="border border-black p-1.5 text-center align-top">2.2</td>
-                        <td className="border border-black p-1.5 align-top">
-                          <p className="font-bold">MỨC 2</p>
-                          <p>Hoàn thành 100% công việc theo kế hoạch, lịch công tác, đúng tiến độ, bảo đảm chất lượng, hiệu quả: tối đa 50 điểm.</p>
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top">50</td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold">
-                          {selLevelCode === '2.2' ? `${item.selfScore}` : ''}
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold"></td>
-                      </tr>
-
-                      <tr>
-                        <td className="border border-black p-1.5 text-center align-top">2.3</td>
-                        <td className="border border-black p-1.5 align-top">
-                          <p className="font-bold">MỨC 3</p>
-                          <p>Hoàn thành 100% công việc theo kế hoạch, lịch công tác, trong đó có không quá 20% nhiệm vụ chưa bảo đảm chất lượng, tiến độ hoặc hiệu quả thấp: tối đa 30 điểm.</p>
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top">30</td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold">
-                          {selLevelCode === '2.3' ? `${item.selfScore}` : ''}
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold"></td>
-                      </tr>
-
-                      <tr>
-                        <td className="border border-black p-1.5 text-center align-top">2.4</td>
-                        <td className="border border-black p-1.5 align-top">
-                          <p className="font-bold">MỨC 4</p>
-                          <p>Hoàn thành từ 50% đến dưới 100% công việc theo kế hoạch, lịch công tác: tối đa 20 điểm.</p>
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top">20</td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold">
-                          {selLevelCode === '2.4' ? `${item.selfScore}` : ''}
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold"></td>
-                      </tr>
-
-                      <tr>
-                        <td className="border border-black p-1.5 text-center align-top">2.5</td>
-                        <td className="border border-black p-1.5 align-top">
-                          <p className="font-bold">MỨC 5</p>
-                          <p>Hoàn thành dưới 50% công việc theo kế hoạch, lịch công tác: tối đa 10 điểm.</p>
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top">10</td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold">
-                          {selLevelCode === '2.5' ? `${item.selfScore}` : ''}
-                        </td>
-                        <td className="border border-black p-1.5 text-center align-top font-bold"></td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
+                {groupIIIbItems.map((item, idx) => (
+                  <tr key={item.criterionId || `iii_b_${idx}`}>
+                    <td className="border border-black p-1 text-center align-top">{idx + 1}</td>
+                    <td className="border border-black p-1 align-top">{item.content}</td>
+                    <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
+                  </tr>
+                ))}
 
                 {/* TỔNG ĐIỂM */}
-                <tr className="font-bold text-[13px]">
-                  <td className="border border-black p-2 text-center uppercase" colSpan={2}>
-                    TỔNG ĐIỂM
+                <tr className="font-bold text-[11px] bg-slate-200">
+                  <td className="border border-black p-1.5 text-center uppercase font-black" colSpan={2}>
+                    TỔNG CỘNG ĐIỂM (I + II + III)
                   </td>
-                  <td className="border border-black p-2 text-center">100</td>
-                  <td className="border border-black p-2 text-center">{form.totalScore}</td>
-                  <td className="border border-black p-2 text-center">{form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : '---'}</td>
+                  <td className="border border-black p-1.5 text-center font-black">100</td>
+                  <td className="border border-black p-1.5 text-center font-black">{form.totalScore}</td>
+                  <td className="border border-black p-1.5 text-center font-black">{form.ttcmTotalScore ?? '---'}</td>
+                  <td className="border border-black p-1.5 text-center font-black">{form.managerTotalScore ?? '---'}</td>
+                  <td className="border border-black p-1.5"></td>
                 </tr>
-
               </tbody>
             </table>
 
-            {form.managerGeneralComment && (
-              <div className="mb-4 text-[13px] border border-slate-300 p-3 rounded bg-amber-50/30">
-                <p className="font-bold">Nhận xét chung của CBQL:</p>
-                <p className="italic">{form.managerGeneralComment}</p>
-              </div>
-            )}
+            {/* QUY TẮC CHẤM ĐIỂM ĐỀ XUẤT */}
+            <div className="space-y-1 text-[11px] mb-4">
+              <p className="font-bold uppercase">QUY TẮC CHẤM ĐIỂM ĐỀ XUẤT</p>
+              <ol className="list-decimal list-inside space-y-0.5 leading-relaxed text-[10.5px]">
+                <li>Giáo viên tự chấm dựa trên kết quả thực hiện thực tế và minh chứng; không tự chấm chỉ dựa vào cảm nhận.</li>
+                <li>Mỗi nhiệm vụ được chấm trong phạm vi điểm tối đa của dòng đó; không cộng vượt 100 điểm.</li>
+                <li>Nhiệm vụ không được giao hoặc không phát sinh theo vị trí việc làm được đánh dấu “N/A – Không áp dụng”, không quy về 0 điểm; tổng điểm được chuẩn hóa theo các nhiệm vụ áp dụng.</li>
+                <li>Kết quả học tập của học sinh chỉ là một nguồn minh chứng cho chất lượng và sự tiến bộ, không sử dụng điểm thi/điểm trung bình của học sinh làm tiêu chí duy nhất để quy trách nhiệm cho giáo viên.</li>
+                <li>Nhiệm vụ chủ nhiệm/kiêm nhiệm chỉ áp dụng đối với giáo viên được phân công.</li>
+                <li>Khi có vi phạm nghiêm trọng, việc xử lý điểm phải căn cứ quy định của nhà trường và quy định hiện hành; không tự động suy diễn từ một chỉ số đơn lẻ.</li>
+              </ol>
+            </div>
 
-            {/* 6. XẾP LOẠI & KÝ TÊN */}
-            <div className="space-y-4 text-[13px]">
-              <p>
-                <span className="font-bold">Cá nhân tự xếp loại:</span> {form.selfClassification || '................................................'}
-              </p>
+            {/* GỢI Ý XẾP LOẠI KPI NỘI BỘ */}
+            <div className="space-y-1.5 text-[11px] mb-4">
+              <p className="font-bold uppercase">Gợi ý xếp loại KPI nội bộ (CẦN NHÀ TRƯỜNG XÁC NHẬN)</p>
+              <table className="border-collapse border border-black text-[10.5px] w-full max-w-md">
+                <thead>
+                  <tr className="bg-slate-100 font-bold border-b border-black">
+                    <th className="border border-black p-1 text-left w-1/2">Tổng điểm KPI</th>
+                    <th className="border border-black p-1 text-left">Mức xếp loại đề xuất</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-black p-1">Dưới 70</td>
+                    <td className="border border-black p-1">Chưa hoàn thành</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-black p-1">70 đến dưới 85</td>
+                    <td className="border border-black p-1">Hoàn thành</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-black p-1">85 đến dưới 95</td>
+                    <td className="border border-black p-1">Hoàn thành tốt</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-black p-1 font-bold">95 đến 100</td>
+                    <td className="border border-black p-1 font-bold">Hoàn thành xuất sắc</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-              <div className="flex justify-end text-center pt-2">
-                <div className="w-64 space-y-1">
-                  <p className="italic">
-                    Sơn Lương, ngày {form.selfDate ? form.selfDate.split('/')[0] : '...'} tháng {form.selfDate ? form.selfDate.split('/')[1] : '...'} năm {form.selfDate ? form.selfDate.split('/')[2] : '...'}
-                  </p>
-                  <p className="font-bold uppercase">Người đánh giá</p>
-                  <p className="text-[11px] italic">(Ký và ghi rõ họ tên)</p>
-                  <div className="h-16" />
-                  <p className="font-bold">{form.employeeName}</p>
+            {/* CÁ NHÂN TỰ XẾP LOẠI & NGÀY THÁNG */}
+            <div className="space-y-2 text-[11px] mb-6">
+              <p><span className="font-bold">Cá nhân tự xếp loại:</span> {form.selfClassification || '....................................................'}</p>
+              <p className="text-right italic">............, ngày ...... tháng ...... năm 2026</p>
+            </div>
+
+            {/* 3 KHỐI CHỮ KÝ THEO ĐÚNG TRANG 2 CỦA PDF */}
+            <div className="grid grid-cols-3 text-center text-[11px] pt-2">
+              <div>
+                <p className="font-bold uppercase">NGƯỜI TỰ ĐÁNH GIÁ</p>
+                <p className="text-[10px] italic">(Ký, ghi rõ họ tên)</p>
+                <div className="h-16 flex items-end justify-center font-bold">
+                  {form.employeeName}
                 </div>
               </div>
 
-              {/* PHẦN B */}
-              <div className="border-t border-black pt-4 mt-6 space-y-3">
-                <p className="font-bold uppercase text-[13px]">
-                  B. Ý KIẾN NHẬN XÉT, ĐÁNH GIÁ <span className="font-normal normal-case italic">(Phần dành cho người đứng đầu đơn vị)</span>
-                </p>
-
-                <p>
-                  <span className="font-bold">Mức xếp loại:</span> {form.leaderClassification || '................................................................................'}
-                </p>
-
-                {form.leaderComment && (
-                  <p>
-                    <span className="font-bold">Ý kiến nhận xét:</span> {form.leaderComment}
-                  </p>
-                )}
-
-                <div className="flex justify-end text-center pt-4">
-                  <div className="w-72 space-y-1">
-                    <p className="italic">
-                      Sơn Lương, ngày {form.leaderDate ? form.leaderDate.split('/')[0] : '...'} tháng {form.leaderDate ? form.leaderDate.split('/')[1] : '...'} năm {form.leaderDate ? form.leaderDate.split('/')[2] : '...'}
-                    </p>
-                    <p className="font-bold uppercase">NGƯỜI NHẬN XÉT, ĐÁNH GIÁ</p>
-                    <p className="text-[11px] italic">(Ký, ghi rõ họ tên; đóng dấu)</p>
-                    <div className="h-16" />
-                    <p className="font-bold">{form.leaderSignName || 'Hiệu trưởng'}</p>
-                  </div>
+              <div>
+                <p className="font-bold uppercase">TỔ CHUYÊN MÔN ĐÁNH GIÁ</p>
+                <p className="text-[10px] italic">(Ký, ghi rõ họ tên)</p>
+                <div className="h-16 flex items-end justify-center font-bold">
+                  {form.ttcmEvaluatorName || '....................'}
                 </div>
               </div>
 
+              <div>
+                <p className="font-bold uppercase">NGƯỜI CÓ THẨM QUYỀN PHÊ DUYỆT</p>
+                <p className="font-bold uppercase">DUYỆT</p>
+                <p className="text-[10px] italic">(Ký, ghi rõ họ tên)</p>
+                <div className="h-14 flex items-end justify-center font-bold">
+                  {form.evaluatorName || '....................'}
+                </div>
+              </div>
             </div>
 
           </div>

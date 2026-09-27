@@ -1831,18 +1831,35 @@ export function isTeacherYouthUnionLeader(teacher?: Partial<Teacher> | null): bo
  */
 export function isTeacherBgh(teacher?: Partial<Teacher> | null): boolean {
   if (!teacher) return false;
-  const role = teacher.role;
+  const role = String(teacher.role || '').toUpperCase();
   const pos = (teacher.position || '').toLowerCase().trim();
+  const name = (teacher.name || '').toLowerCase().trim();
+  const title = ((teacher as any).title || '').toLowerCase().trim();
+  const code = String(teacher.code || '').toUpperCase();
   return (
     role === 'BGH' ||
-    role === ('ADMIN' as any) ||
+    role === 'ADMIN' ||
+    role === 'CBQL' ||
+    role === 'HIỆU TRƯỜNG' ||
+    role === 'HIEU TRUONG' ||
+    role === 'PHÓ HIỆU TRƯỜNG' ||
+    role === 'PHO HIEU TRUONG' ||
     teacher.id === 'admin' ||
+    teacher.id === 't_hieutruong' ||
+    teacher.id === 't_phohieutruong_1' ||
+    teacher.id === 't_phohieutruong_2' ||
+    code.includes('BGH') ||
+    code.includes('HT') ||
     pos.includes('hiệu trưởng') ||
+    pos.includes('hieu truong') ||
     pos.includes('phó hiệu trưởng') ||
+    pos.includes('pho hieu truong') ||
     pos.includes('ban giám hiệu') ||
     pos.includes('bgh') ||
     pos.includes('cbql') ||
-    pos.includes('cnql')
+    pos.includes('cnql') ||
+    title.includes('hiệu trưởng') ||
+    title.includes('phó hiệu trưởng')
   );
 }
 
@@ -1990,11 +2007,15 @@ export function getEligibleEvaluators(
   }
 
   // 5. Trường hợp mặc định: GIÁO VIÊN (GV)
-  // Chỉ được chọn TỔ TRƯỞNG CHUYÊN MÔN (TTCM)
+  // Danh sách Cán bộ Quản lý đánh giá gồm:
+  // - Tổ trưởng / Tổ phó Chuyên môn của tổ mình (TTCM/TPCM)
+  // - Ban Giám hiệu (Hiệu trưởng, Phó Hiệu trưởng)
+  // - Các Tổ trưởng Chuyên môn khác
+  const bghList = activeTeachers.filter(t => t.id !== evaluatee.id && isTeacherBgh(t));
+
   const allTtcm = activeTeachers.filter(t => 
     t.id !== evaluatee.id && 
-    isTeacherTtcm(t, departments) && 
-    !isTeacherBgh(t)
+    isTeacherTtcm(t, departments)
   );
 
   // Tìm TTCM của chính tổ mà giáo viên đang công tác
@@ -2004,26 +2025,37 @@ export function getEligibleEvaluators(
     (myDept && myDept.headId === t.id)
   );
 
-  // Các TTCM khác
-  const otherTtcm = allTtcm.filter(t => !myDeptTtcm.some(m => m.id === t.id));
+  // Các TTCM tổ khác
+  const otherTtcm = allTtcm.filter(t => !myDeptTtcm.some(m => m.id === t.id) && !bghList.some(b => b.id === t.id));
 
-  // Sắp xếp: TTCM tổ mình lên đầu, sau đó đến các TTCM khác
-  let sortedEvaluators = [...myDeptTtcm, ...otherTtcm];
+  // Sắp xếp thứ tự ưu tiên hiển thị:
+  // 1. TTCM tổ trực thuộc (ưu tiên mặc định)
+  // 2. Ban Giám hiệu (Hiệu trưởng, Phó Hiệu trưởng)
+  // 3. Các TTCM khác
+  const sortedEvaluators: Teacher[] = [];
 
-  // Nếu trường hợp database chưa cấu hình TTCM, dự phòng thêm BGH
-  if (sortedEvaluators.length === 0) {
-    sortedEvaluators = activeTeachers.filter(isTeacherBgh);
-  }
+  myDeptTtcm.forEach(t => {
+    if (!sortedEvaluators.some(x => x.id === t.id)) sortedEvaluators.push(t);
+  });
 
-  const defaultEvaluator = myDeptTtcm[0] || sortedEvaluators[0] || null;
+  bghList.forEach(t => {
+    if (!sortedEvaluators.some(x => x.id === t.id)) sortedEvaluators.push(t);
+  });
+
+  otherTtcm.forEach(t => {
+    if (!sortedEvaluators.some(x => x.id === t.id)) sortedEvaluators.push(t);
+  });
+
+  const finalEvaluators = sortedEvaluators.length > 0 ? sortedEvaluators : activeTeachers;
+  const defaultEvaluator = myDeptTtcm[0] || bghList[0] || finalEvaluators[0] || null;
 
   return {
-    evaluators: sortedEvaluators,
+    evaluators: finalEvaluators,
     defaultEvaluatorId: defaultEvaluator?.id || '',
     defaultEvaluator,
     explanation: myDeptTtcm.length > 0
-      ? `Giáo viên được chọn Tổ trưởng Chuyên môn (${myDept?.name || 'Tổ chuyên môn'}) làm người đánh giá.`
-      : 'Giáo viên được chọn Tổ trưởng Chuyên môn (TTCM) làm người đánh giá.',
+      ? `Giáo viên có thể chọn Tổ trưởng Chuyên môn (${myDept?.name || 'Tổ chuyên môn'}) hoặc Ban Giám hiệu (Hiệu trưởng, Phó Hiệu trưởng) thực hiện đánh giá.`
+      : 'Giáo viên có thể chọn Tổ trưởng Chuyên môn hoặc Ban Giám hiệu (Hiệu trưởng, Phó Hiệu trưởng) thực hiện đánh giá.',
     ruleType: 'GV'
   };
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Star, Award, Check, AlertCircle, Search, Users } from 'lucide-react';
 import { Student, ConductCriterion, ConductRecord, ClassInfo } from '../../types/homeroom';
 import { useAuth } from '../../store/AuthContext';
+import { getDefaultDateForMonthAndWeek } from '../../utils/schoolWeekUtils';
 
 interface BonusPointModalProps {
   isOpen: boolean;
@@ -10,6 +11,9 @@ interface BonusPointModalProps {
   students: Student[];
   criteria: ConductCriterion[];
   onSaveBonus: (record: Omit<ConductRecord, 'id' | 'createdAt'>) => Promise<void>;
+  selectedWeek?: number;
+  selectedMonth?: string;
+  selectedSchoolYear?: string;
 }
 
 export default function BonusPointModal({
@@ -18,7 +22,10 @@ export default function BonusPointModal({
   selectedClass,
   students,
   criteria,
-  onSaveBonus
+  onSaveBonus,
+  selectedWeek,
+  selectedMonth,
+  selectedSchoolYear
 }: BonusPointModalProps) {
   const { user } = useAuth();
 
@@ -85,10 +92,11 @@ export default function BonusPointModal({
       setSubmitting(true);
       setErrorMsg('');
 
-      const recordDate = new Date().toISOString().split('T')[0];
-      const dateObj = new Date();
-      const monthNumber = dateObj.getMonth() + 1;
-      const weekNumber = Math.ceil(((dateObj.getTime() - new Date(dateObj.getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7);
+      const parsedMonth = selectedMonth ? parseInt(selectedMonth.replace(/\D/g, ''), 10) : NaN;
+      const monthNumber = !isNaN(parsedMonth) && parsedMonth > 0 ? parsedMonth : (new Date().getMonth() + 1);
+      const weekNumber = selectedWeek !== undefined ? selectedWeek : Math.ceil(((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7);
+      const schoolYear = selectedSchoolYear || selectedClass.schoolYear || '2026–2027';
+      const recordDate = getDefaultDateForMonthAndWeek(monthNumber, weekNumber, schoolYear);
 
       for (const stId of selectedStudentIds) {
         const student = students.find(s => s.id === stId);
@@ -99,7 +107,7 @@ export default function BonusPointModal({
           studentName: student.name,
           classId: selectedClass.id,
           className: selectedClass.name,
-          schoolYear: selectedClass.schoolYear || '2026–2027',
+          schoolYear,
           weekNumber,
           monthNumber,
           criterionId: bonusCriterion.id,

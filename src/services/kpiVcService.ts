@@ -26,32 +26,36 @@ import {
 } from '../lib/kpiVcData';
 
 /**
- * Hàm làm sạch dữ liệu Firestore (lọc sạch undefined ở mọi cấp độ)
+ * Hàm làm sạch dữ liệu Firestore (lọc sạch undefined và NaN ở mọi cấp độ)
  * TUYỆT ĐỐI KHÔNG GHI undefined VÀO FIRESTORE!
  */
-export const cleanFirestoreData = <T extends Record<string, any>>(obj: T): Record<string, any> => {
-  if (!obj || typeof obj !== 'object') return obj;
-
-  if (Array.isArray(obj)) {
-    return obj.map(item => (typeof item === 'object' && item !== null ? cleanFirestoreData(item) : item));
-  }
-
-  const cleaned: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      // Bỏ qua field có giá trị undefined
-      continue;
-    } else if (value === null) {
-      cleaned[key] = null;
-    } else if (Array.isArray(value)) {
-      cleaned[key] = value.map(item => (typeof item === 'object' && item !== null ? cleanFirestoreData(item) : item));
-    } else if (typeof value === 'object' && Object.prototype.toString.call(value) === '[object Object]') {
-      cleaned[key] = cleanFirestoreData(value);
-    } else {
-      cleaned[key] = value;
+export const cleanFirestoreData = <T extends Record<string, any>>(data: T): Record<string, any> => {
+  const cleanDeep = (val: any): any => {
+    if (val === undefined) return undefined;
+    if (val === null) return null;
+    if (typeof val === 'number') {
+      return Number.isNaN(val) ? 0 : val;
     }
-  }
-  return cleaned;
+    if (Array.isArray(val)) {
+      return val
+        .map(cleanDeep)
+        .filter(item => item !== undefined);
+    }
+    if (typeof val === 'object' && !(val instanceof Date)) {
+      const cleanedObj: Record<string, any> = {};
+      for (const [k, v] of Object.entries(val)) {
+        if (v !== undefined) {
+          const cv = cleanDeep(v);
+          if (cv !== undefined) {
+            cleanedObj[k] = cv;
+          }
+        }
+      }
+      return cleanedObj;
+    }
+    return val;
+  };
+  return (cleanDeep(data) || {}) as Record<string, any>;
 };
 
 // Collection references
@@ -68,19 +72,25 @@ export const VC_COLLECTIONS = {
  */
 export const seedVcInitialDataIfNeeded = async () => {
   try {
-    // 1. Groups
-    const groupsSnap = await getDocs(collection(db, VC_COLLECTIONS.GROUPS));
-    if (groupsSnap.empty) {
-      for (const grp of DEFAULT_VC_GROUPS) {
-        await setDoc(doc(db, VC_COLLECTIONS.GROUPS, grp.id), cleanFirestoreData(grp));
-      }
+    // 1. Groups - Upsert standard groups
+    for (const grp of DEFAULT_VC_GROUPS) {
+      await setDoc(doc(db, VC_COLLECTIONS.GROUPS, grp.id), cleanFirestoreData(grp), { merge: true });
     }
 
-    // 2. Criteria
+    // 2. Criteria - Ensure all 23 criteria are updated in Firestore
     const criteriaSnap = await getDocs(collection(db, VC_COLLECTIONS.CRITERIA));
-    if (criteriaSnap.empty) {
-      for (const crit of DEFAULT_VC_CRITERIA) {
-        await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, crit.id), cleanFirestoreData(crit));
+    const defaultIds = new Set(DEFAULT_VC_CRITERIA.map(c => c.id));
+
+    for (const crit of DEFAULT_VC_CRITERIA) {
+      await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, crit.id), cleanFirestoreData(crit), { merge: true });
+    }
+
+    // Clean up outdated criteria documents from earlier schema versions if present
+    if (!criteriaSnap.empty) {
+      for (const docSnap of criteriaSnap.docs) {
+        if (!defaultIds.has(docSnap.id)) {
+          await deleteDoc(doc(db, VC_COLLECTIONS.CRITERIA, docSnap.id));
+        }
       }
     }
 
@@ -372,6 +382,49 @@ export const deleteVcForm = async (
     actorRole: actor.role,
     targetName: data?.employeeName || formId,
     description: `Xóa phiếu đánh giá KPI của: ${data?.employeeName || formId}`
+  });
+};
+
+/**
+ * XÓA HÀNG LOẠT PHIẾU ĐÁNH GIÁ (BULK DELETE)
+ */
+export const bulkDeleteVcForms = async (
+  formIds: string[],
+  actor: { id: string; name: string; role?: string },
+  filterInfo?: { periodName?: string; deptName?: string }
+) => {
+  if (!formIds || formIds.length === 0) return;
+
+  const formIdSet = new Set(formIds);
+
+  // Delete from Firestore in parallel chunks or loop
+  const deletePromises = formIds.map(async (id) => {
+    try {
+      const docRef = doc(db, VC_COLLECTIONS.FORMS, id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error(`Lỗi khi xóa form ${id}:`, err);
+    }
+  });
+
+  await Promise.all(deletePromises);
+
+  // Update local cache immediately
+  const cachedForms = getVcFormsCache().filter(f => !formIdSet.has(f.id));
+  saveVcFormsCache(cachedForms);
+
+  const contextStr = [
+    filterInfo?.periodName ? `Kỳ: ${filterInfo.periodName}` : null,
+    filterInfo?.deptName ? `Đơn vị: ${filterInfo.deptName}` : null
+  ].filter(Boolean).join(' | ');
+
+  await addVcAuditLog({
+    action: 'bulk_delete_forms',
+    actorId: actor.id,
+    actorName: actor.name,
+    actorRole: actor.role,
+    targetName: `${formIds.length} phiếu KPI`,
+    description: `Xóa hàng loạt ${formIds.length} phiếu đánh giá KPI. Người thực hiện: ${actor.name}${contextStr ? ` (${contextStr})` : ''}`
   });
 };
 

@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   updateDoc,
@@ -19,14 +20,22 @@ import {
   ConductCriterion,
   ConductRecord,
   ConductEvaluation,
-  ConductSettings
+  ConductSettings,
+  SeriousViolationConfig,
+  TeacherAssessment,
+  EvaluationRatingConfig,
+  EvaluationRatingConfigHistory,
+  RatingTierItem,
+  EvaluationPeriodScopeType
 } from '../types/homeroom';
 import {
   DEFAULT_CONDUCT_CATEGORIES,
   DEFAULT_CONDUCT_CRITERIA,
   DEFAULT_CLASSES,
   SAMPLE_STUDENTS,
-  DEFAULT_CONDUCT_SETTINGS
+  DEFAULT_CONDUCT_SETTINGS,
+  DEFAULT_SERIOUS_VIOLATION_CONFIGS,
+  DEFAULT_RATING_TIERS
 } from '../lib/homeroomData';
 
 const sanitize = <T extends Record<string, any>>(data: T): T => {
@@ -61,9 +70,13 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   console.error('Firestore Homeroom Error: ', JSON.stringify(errInfo));
 }
 
+let hasSeeded = false;
+
 export const homeroomService = {
   // 1. SEED DEFAULT DATA IF EMPTY
   async seedIfEmpty() {
+    if (hasSeeded) return;
+    hasSeeded = true;
     try {
       // Seed Categories
       const catCol = collection(db, 'conduct_categories');
@@ -98,16 +111,8 @@ export const homeroomService = {
         await batch.commit();
       }
 
-      // Seed Students
-      const stdCol = collection(db, 'students');
-      const stdSnap = await getDocs(stdCol);
-      if (stdSnap.empty) {
-        const batch = writeBatch(db);
-        SAMPLE_STUDENTS.forEach(s => {
-          batch.set(doc(db, 'students', s.id), sanitize(s));
-        });
-        await batch.commit();
-      }
+      // Seed Students: Do NOT auto-seed fake sample students (Requirement 13)
+      // Empty classes remain empty until user imports real Excel files.
 
       // Seed Homeroom Assignments
       const assignCol = collection(db, 'homeroom_assignments');
@@ -130,6 +135,38 @@ export const homeroomService = {
       const setSnap = await getDocs(setCol);
       if (setSnap.empty) {
         await setDoc(doc(db, 'conduct_settings', DEFAULT_CONDUCT_SETTINGS.id), sanitize(DEFAULT_CONDUCT_SETTINGS));
+      }
+
+      // Seed Serious Violation Configs
+      const vioCol = collection(db, 'serious_violation_configs');
+      const vioSnap = await getDocs(vioCol);
+      if (vioSnap.empty) {
+        const batch = writeBatch(db);
+        DEFAULT_SERIOUS_VIOLATION_CONFIGS.forEach(v => {
+          batch.set(doc(db, 'serious_violation_configs', v.id), sanitize(v));
+        });
+        await batch.commit();
+      }
+
+      // Seed Default Rating Config
+      const ratingCol = collection(db, 'evaluation_rating_configs');
+      const ratingSnap = await getDocs(ratingCol);
+      if (ratingSnap.empty) {
+        const defaultRatingConfig: EvaluationRatingConfig = {
+          id: 'rating_config_default_2026_2027',
+          school_id: 'thpt_son_luong',
+          name: 'Cấu hình xếp loại rèn luyện chuẩn (2026–2027)',
+          school_year: '2026–2027',
+          evaluation_period_type: 'all',
+          evaluation_period_id: 'all',
+          tiers: DEFAULT_RATING_TIERS,
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          created_by: 'Hệ thống',
+          updated_by: 'Hệ thống'
+        };
+        await setDoc(doc(db, 'evaluation_rating_configs', defaultRatingConfig.id), sanitize(defaultRatingConfig));
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'homeroom_seed');
@@ -324,8 +361,26 @@ export const homeroomService = {
   async addStudent(student: Omit<Student, 'id'>) {
     try {
       const id = `std_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const payload: Student = { ...student, id };
+      const trimmedName = (student.name || '').trim();
+      const payload: Student = {
+        ...student,
+        id,
+        name: trimmedName,
+        full_name: trimmedName,
+        fullName: trimmedName,
+        code: (student.code || '').trim(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
       await setDoc(doc(db, 'students', id), sanitize(payload));
+
+      // Sync class total
+      if (student.classId) {
+        const q = query(collection(db, 'students'), where('classId', '==', student.classId));
+        const snap = await getDocs(q);
+        await updateDoc(doc(db, 'classes', student.classId), { totalStudents: snap.size });
+      }
+
       return payload;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'students');
@@ -333,24 +388,171 @@ export const homeroomService = {
     }
   },
 
-  async addStudentsBulk(studentsList: Omit<Student, 'id'>[]) {
+  /**
+   * Smart Upsert Students Bulk from Excel
+   * - Uses student code as unique identifier
+   * - If student exists -> UPDATE existing record (keeps existing student.id to preserve all records and evaluations)
+   * - If student does not exist -> INSERT new record
+   * - Accurately updates class totalStudents in database
+   */
+  async upsertStudentsBulk(
+    studentsList: Array<Omit<Student, 'id'> & { id?: string }>,
+    defaultClassId?: string,
+    defaultClassName?: string
+  ): Promise<{
+    totalProcessed: number;
+    newCount: number;
+    updatedCount: number;
+    byClass: Record<string, number>;
+  }> {
     try {
-      const batch = writeBatch(db);
-      const created: Student[] = [];
+      if (!studentsList || studentsList.length === 0) {
+        return { totalProcessed: 0, newCount: 0, updatedCount: 0, byClass: {} };
+      }
 
-      studentsList.forEach((s, idx) => {
-        const id = `std_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
-        const payload: Student = { ...s, id };
-        batch.set(doc(db, 'students', id), sanitize(payload));
-        created.push(payload);
+      // 1. Fetch all classes to resolve target class IDs by class name
+      const clsSnap = await getDocs(collection(db, 'classes'));
+      const classesList: ClassInfo[] = clsSnap.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
+      const classMapByName = new Map<string, ClassInfo>();
+      const classMapById = new Map<string, ClassInfo>();
+      classesList.forEach(c => {
+        if (c.name) classMapByName.set(c.name.trim().toLowerCase(), c);
+        classMapById.set(c.id, c);
       });
 
-      await batch.commit();
-      return created;
+      // 2. Fetch all existing students to perform upsert indexing
+      const stdSnap = await getDocs(collection(db, 'students'));
+      const existingStudents: Student[] = stdSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+
+      const existingByCode = new Map<string, Student>();
+      const existingByNameAndClass = new Map<string, Student>();
+
+      existingStudents.forEach(s => {
+        if (s.code) {
+          existingByCode.set(s.code.trim().toLowerCase(), s);
+        }
+        if (s.name && s.classId) {
+          const key = `${s.classId}::${s.name.trim().toLowerCase()}`;
+          existingByNameAndClass.set(key, s);
+        }
+      });
+
+      let newCount = 0;
+      let updatedCount = 0;
+      const byClassSummary: Record<string, number> = {};
+      const affectedClassIds = new Set<string>();
+
+      // Track operations to perform
+      const operations: Array<{ docId: string; payload: Student; isUpdate: boolean }> = [];
+
+      studentsList.forEach((s, idx) => {
+        const rawName = (s.name || '').trim();
+        const rawCode = (s.code || '').trim();
+        const rawClassName = (s.className || defaultClassName || '').trim();
+
+        // Resolve target class
+        let targetClassId = s.classId || defaultClassId || '';
+        let targetClassName = rawClassName;
+
+        if (rawClassName) {
+          const matchedCls = classMapByName.get(rawClassName.toLowerCase());
+          if (matchedCls) {
+            targetClassId = matchedCls.id;
+            targetClassName = matchedCls.name;
+          }
+        }
+
+        if (targetClassId) affectedClassIds.add(targetClassId);
+        byClassSummary[targetClassName || 'Chưa phân lớp'] = (byClassSummary[targetClassName || 'Chưa phân lớp'] || 0) + 1;
+
+        // Check if student already exists in DB
+        let existing: Student | undefined = undefined;
+        if (rawCode) {
+          existing = existingByCode.get(rawCode.toLowerCase());
+        }
+        if (!existing && targetClassId && rawName) {
+          existing = existingByNameAndClass.get(`${targetClassId}::${rawName.toLowerCase()}`);
+        }
+
+        if (existing) {
+          // UPDATE EXISTING RECORD: Keep existing.id so all records/evaluations are preserved
+          const updatedPayload: Student = {
+            ...existing,
+            classId: targetClassId || existing.classId,
+            className: targetClassName || existing.className,
+            code: rawCode || existing.code,
+            name: rawName || existing.name,
+            full_name: rawName || existing.name,
+            fullName: rawName || existing.name,
+            gender: s.gender || existing.gender || 'Nam',
+            dob: s.dob || existing.dob,
+            stt: s.stt !== undefined ? s.stt : existing.stt,
+            parentPhone: s.parentPhone || existing.parentPhone,
+            parentName: s.parentName || existing.parentName,
+            address: s.address || existing.address,
+            updatedAt: new Date().toISOString()
+          };
+          operations.push({ docId: existing.id, payload: updatedPayload, isUpdate: true });
+          updatedCount++;
+        } else {
+          // INSERT NEW RECORD
+          const newId = s.id || `std_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
+          const newPayload: Student = {
+            id: newId,
+            classId: targetClassId,
+            className: targetClassName,
+            code: rawCode || `HS${String(idx + 1).padStart(3, '0')}`,
+            name: rawName,
+            full_name: rawName,
+            fullName: rawName,
+            gender: s.gender || 'Nam',
+            dob: s.dob || '2009-01-01',
+            stt: s.stt !== undefined ? s.stt : idx + 1,
+            parentPhone: s.parentPhone,
+            parentName: s.parentName,
+            address: s.address,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          operations.push({ docId: newId, payload: newPayload, isUpdate: false });
+          // Index this new student for subsequent rows in same import
+          if (rawCode) existingByCode.set(rawCode.toLowerCase(), newPayload);
+          if (targetClassId && rawName) existingByNameAndClass.set(`${targetClassId}::${rawName.toLowerCase()}`, newPayload);
+          newCount++;
+        }
+      });
+
+      // Commit batches (max 400 per batch)
+      for (let i = 0; i < operations.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = operations.slice(i, i + 400);
+        chunk.forEach(op => {
+          batch.set(doc(db, 'students', op.docId), sanitize(op.payload), { merge: true });
+        });
+        await batch.commit();
+      }
+
+      // 3. Recalculate and update totalStudents in classes
+      for (const cId of affectedClassIds) {
+        const q = query(collection(db, 'students'), where('classId', '==', cId));
+        const snap = await getDocs(q);
+        await updateDoc(doc(db, 'classes', cId), { totalStudents: snap.size });
+      }
+
+      return {
+        totalProcessed: studentsList.length,
+        newCount,
+        updatedCount,
+        byClass: byClassSummary
+      };
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'students_bulk');
+      handleFirestoreError(err, OperationType.WRITE, 'students_upsert_bulk');
       throw err;
     }
+  },
+
+  async addStudentsBulk(studentsList: Omit<Student, 'id'>[]) {
+    return this.upsertStudentsBulk(studentsList);
   },
 
   async updateStudent(id: string, updates: Partial<Student>) {
@@ -371,15 +573,117 @@ export const homeroomService = {
     }
   },
 
-  async deleteStudentsBulk(ids: string[]) {
+  async deleteStudentsBulk(ids: string[], classId?: string) {
     try {
-      const batch = writeBatch(db);
-      ids.forEach(id => {
-        batch.delete(doc(db, 'students', id));
-      });
-      await batch.commit();
+      if (ids.length === 0) return;
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = ids.slice(i, i + 400);
+        chunk.forEach(id => {
+          batch.delete(doc(db, 'students', id));
+        });
+        await batch.commit();
+      }
+
+      if (classId) {
+        const q = query(collection(db, 'students'), where('classId', '==', classId));
+        const snap = await getDocs(q);
+        await updateDoc(doc(db, 'classes', classId), { totalStudents: snap.size });
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students_bulk');
+      throw err;
+    }
+  },
+
+  async syncAllClassStudentCounts() {
+    try {
+      const clsSnap = await getDocs(collection(db, 'classes'));
+      const stdSnap = await getDocs(collection(db, 'students'));
+      const students = stdSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+
+      for (const cDoc of clsSnap.docs) {
+        const clsData = cDoc.data() as ClassInfo;
+        const count = students.filter(s => 
+          s.classId === cDoc.id || 
+          (s.className && clsData.name && s.className.trim().toLowerCase() === clsData.name.trim().toLowerCase())
+        ).length;
+        if (clsData.totalStudents !== count) {
+          await updateDoc(cDoc.ref, { totalStudents: count });
+        }
+      }
+    } catch (err) {
+      console.error('Error syncing class student counts:', err);
+    }
+  },
+
+  async deleteAllStudentsOfClass(classId: string, options?: { deleteRecordsAndAssessments?: boolean }) {
+    try {
+      if (!classId) return { deletedCount: 0 };
+
+      // 1. Get all students of this class
+      const q = query(collection(db, 'students'), where('classId', '==', classId));
+      const snap = await getDocs(q);
+      const studentIds = snap.docs.map(d => d.id);
+
+      if (studentIds.length > 0) {
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = writeBatch(db);
+          const chunk = snap.docs.slice(i, i + 400);
+          chunk.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+
+      // 2. Also clean up related conduct records, evaluations, teacher assessments
+      if (options?.deleteRecordsAndAssessments !== false && studentIds.length > 0) {
+        // Conduct records
+        const recQuery = query(collection(db, 'conduct_records'), where('classId', '==', classId));
+        const recSnap = await getDocs(recQuery);
+        if (!recSnap.empty) {
+          for (let i = 0; i < recSnap.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            const chunk = recSnap.docs.slice(i, i + 400);
+            chunk.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+
+        // Conduct evaluations
+        const evalQuery = query(collection(db, 'conduct_evaluations'), where('classId', '==', classId));
+        const evalSnap = await getDocs(evalQuery);
+        if (!evalSnap.empty) {
+          for (let i = 0; i < evalSnap.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            const chunk = evalSnap.docs.slice(i, i + 400);
+            chunk.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+
+        // Teacher assessments
+        const taQuery = query(collection(db, 'teacher_assessments'), where('classId', '==', classId));
+        const taSnap = await getDocs(taQuery);
+        if (!taSnap.empty) {
+          for (let i = 0; i < taSnap.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            const chunk = taSnap.docs.slice(i, i + 400);
+            chunk.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+      }
+
+      // 3. Update totalStudents in class
+      try {
+        await updateDoc(doc(db, 'classes', classId), { totalStudents: 0 });
+      } catch (e) {
+        // ignore if class doc missing
+      }
+
+      return { deletedCount: studentIds.length };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'students_deleteAll');
       throw err;
     }
   },
@@ -567,5 +871,691 @@ export const homeroomService = {
       handleFirestoreError(err, OperationType.DELETE, 'classes');
       throw err;
     }
+  },
+
+  // 10. SERIOUS VIOLATION CONFIGS CRUD
+  subscribeViolationConfigs(callback: (configs: SeriousViolationConfig[]) => void) {
+    const q = collection(db, 'serious_violation_configs');
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as SeriousViolationConfig));
+      callback(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'serious_violation_configs'));
+  },
+
+  async saveViolationConfig(config: SeriousViolationConfig) {
+    try {
+      const id = config.id || `cfg_${Date.now()}`;
+      await setDoc(doc(db, 'serious_violation_configs', id), sanitize({ ...config, id }));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'serious_violation_configs');
+      throw err;
+    }
+  },
+
+  async deleteViolationConfig(id: string) {
+    try {
+      await deleteDoc(doc(db, 'serious_violation_configs', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'serious_violation_configs');
+      throw err;
+    }
+  },
+
+  // 11. BGH RECORD & EVALUATION APPROVAL
+  async updateRecordBghApproval(
+    recordId: string, 
+    bghApprovalStatus: 'Chưa duyệt' | 'Đã duyệt' | 'Điều chỉnh' | 'Yêu cầu bổ sung',
+    bghComment?: string,
+    bghApprovedBy?: string,
+    proposedRating?: string
+  ) {
+    try {
+      const ref = doc(db, 'conduct_records', recordId);
+      const payload: any = {
+        bghApprovalStatus,
+        bghComment: bghComment || '',
+        bghApprovedBy: bghApprovedBy || 'BGH',
+        bghApprovedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      if (proposedRating) {
+        payload.proposedRating = proposedRating;
+      }
+      await updateDoc(ref, sanitize(payload));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'conduct_records');
+      throw err;
+    }
+  },
+
+  async updateEvaluationBghStatus(
+    evaluationId: string,
+    confirmationStatus: 'Chờ GVCN đánh giá' | 'Đã GVCN đánh giá' | 'Chờ BGH xác nhận' | 'Đã xác nhận' | 'Yêu cầu điều chỉnh',
+    classification?: any,
+    principalComment?: string,
+    confirmedBy?: string
+  ) {
+    try {
+      const ref = doc(db, 'conduct_evaluations', evaluationId);
+      const updatePayload: any = {
+        confirmationStatus,
+        principalComment: principalComment || '',
+        confirmedBy: confirmedBy || 'BGH',
+        confirmedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      if (classification) {
+        updatePayload.classification = classification;
+      }
+      await updateDoc(ref, sanitize(updatePayload));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'conduct_evaluations');
+      throw err;
+    }
+  },
+
+  // 12. RESET / DELETE ALL CONDUCT RESULTS BY EXACT SCOPE
+  async clearConductData(options: {
+    schoolYear: string;
+    classId: string;
+    weekNumber: number;
+    monthNumber: number;
+    monthLabel?: string;
+    resetTeacherAssessments?: boolean;
+    // Backward compatibility if called with old signature
+    scope?: 'all' | 'class' | 'student';
+    targetId?: string;
+    deleteRecords?: boolean;
+    deleteEvaluations?: boolean;
+  }) {
+    try {
+      const {
+        schoolYear,
+        classId,
+        weekNumber,
+        monthNumber,
+        monthLabel = `Tháng ${String(monthNumber).padStart(2, '0')}`,
+        resetTeacherAssessments = true,
+        scope,
+        targetId
+      } = options;
+
+      let deletedRecordsCount = 0;
+      let deletedEvaluationsCount = 0;
+      let deletedAssessmentsCount = 0;
+
+      const targetClassId = classId || (scope === 'class' ? targetId : '');
+
+      if (targetClassId) {
+        // 1. Delete conduct_records matching classId + schoolYear + weekNumber + monthNumber
+        const recQuery = query(collection(db, 'conduct_records'), where('classId', '==', targetClassId));
+        const recSnap = await getDocs(recQuery);
+        if (!recSnap.empty) {
+          const matchingRecDocs = recSnap.docs.filter(docSnap => {
+            const data = docSnap.data();
+            const matchYear = !schoolYear || !data.schoolYear || data.schoolYear === schoolYear;
+            const matchWeek = weekNumber === undefined || Number(data.weekNumber) === Number(weekNumber);
+            const matchMonth = monthNumber === undefined || !data.monthNumber || Number(data.monthNumber) === Number(monthNumber);
+            return matchYear && matchWeek && matchMonth;
+          });
+
+          if (matchingRecDocs.length > 0) {
+            for (let i = 0; i < matchingRecDocs.length; i += 400) {
+              const batch = writeBatch(db);
+              const chunk = matchingRecDocs.slice(i, i + 400);
+              chunk.forEach(d => batch.delete(d.ref));
+              await batch.commit();
+            }
+            deletedRecordsCount = matchingRecDocs.length;
+          }
+        }
+
+        // 2. Delete conduct_evaluations matching classId + schoolYear + period
+        const evalQuery = query(collection(db, 'conduct_evaluations'), where('classId', '==', targetClassId));
+        const evalSnap = await getDocs(evalQuery);
+        if (!evalSnap.empty) {
+          const matchingEvalDocs = evalSnap.docs.filter(docSnap => {
+            const data = docSnap.data();
+            const matchYear = !schoolYear || !data.schoolYear || data.schoolYear === schoolYear;
+            const matchPeriod = !monthLabel ||
+              data.period === monthLabel ||
+              (weekNumber !== undefined && (
+                data.period === `Tuần ${String(weekNumber).padStart(2, '0')}` ||
+                data.period === `Tuần ${weekNumber}`
+              ));
+            return matchYear && matchPeriod;
+          });
+
+          if (matchingEvalDocs.length > 0) {
+            for (let i = 0; i < matchingEvalDocs.length; i += 400) {
+              const batch = writeBatch(db);
+              const chunk = matchingEvalDocs.slice(i, i + 400);
+              chunk.forEach(d => batch.delete(d.ref));
+              await batch.commit();
+            }
+            deletedEvaluationsCount = matchingEvalDocs.length;
+          }
+        }
+
+        // 3. Reset/Delete teacher_assessments (Ghi nhận GVCN) for this class + schoolYear
+        if (resetTeacherAssessments) {
+          const taQuery = query(collection(db, 'teacher_assessments'), where('classId', '==', targetClassId));
+          const taSnap = await getDocs(taQuery);
+          if (!taSnap.empty) {
+            const matchingTaDocs = taSnap.docs.filter(docSnap => {
+              const data = docSnap.data();
+              const matchYear = !schoolYear || !data.schoolYear || data.schoolYear === schoolYear;
+              const matchMonth = !monthNumber || Number(data.monthNumber) === Number(monthNumber) || data.month === monthLabel;
+              return matchYear && matchMonth;
+            });
+
+            if (matchingTaDocs.length > 0) {
+              for (let i = 0; i < matchingTaDocs.length; i += 400) {
+                const batch = writeBatch(db);
+                const chunk = matchingTaDocs.slice(i, i + 400);
+                chunk.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+              }
+              deletedAssessmentsCount = matchingTaDocs.length;
+            }
+          }
+        }
+      }
+
+      return {
+        deletedRecordsCount,
+        deletedEvaluationsCount,
+        deletedAssessmentsCount
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'clear_conduct_data');
+      throw err;
+    }
+  },
+
+  // 13. TEACHER ASSESSMENTS (GHI NHẬN GVCN)
+  subscribeTeacherAssessments(callback: (assessments: TeacherAssessment[]) => void) {
+    const q = collection(db, 'teacher_assessments');
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TeacherAssessment));
+      callback(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'teacher_assessments'));
+  },
+
+  async saveTeacherAssessment(assessmentPayload: Partial<TeacherAssessment>): Promise<{ payload: TeacherAssessment; isUpdate: boolean }> {
+    try {
+      const now = new Date().toISOString();
+      const month = assessmentPayload.month || 'Tháng 09';
+      const parsedMonth = parseInt(month.replace(/\D/g, ''), 10);
+      const monthNumber = assessmentPayload.monthNumber !== undefined ? assessmentPayload.monthNumber : (!isNaN(parsedMonth) ? parsedMonth : 9);
+      const schoolYear = assessmentPayload.schoolYear || '2026–2027';
+      const studentId = assessmentPayload.studentId || '';
+
+      // Determine existing doc to distinguish UPDATE vs INSERT
+      let targetId = assessmentPayload.id || '';
+      let existingDocData: any = null;
+
+      if (targetId) {
+        const docRef = doc(db, 'teacher_assessments', targetId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          existingDocData = docSnap.data();
+        }
+      }
+
+      // If no doc found by targetId, check by (studentId + schoolYear + semester + month / monthNumber) to prevent any duplicate insertion
+      if (!existingDocData && studentId) {
+        const q = query(
+          collection(db, 'teacher_assessments'),
+          where('studentId', '==', studentId),
+          where('schoolYear', '==', schoolYear)
+        );
+        const snap = await getDocs(q);
+        const found = snap.docs.find(d => {
+          const data = d.data();
+          const matchSemester = !assessmentPayload.semester || !data.semester || data.semester === assessmentPayload.semester;
+          return (Number(data.monthNumber) === monthNumber || data.month === month) && matchSemester;
+        });
+        if (found) {
+          targetId = found.id;
+          existingDocData = found.data();
+        }
+      }
+
+      const isUpdate = !!existingDocData;
+
+      if (!targetId) {
+        const semesterSlug = (assessmentPayload.semester || 'HocKyI').replace(/[^a-zA-Z0-9]/g, '_');
+        targetId = `ta_${studentId}_${schoolYear.replace(/[^a-zA-Z0-9]/g, '_')}_${semesterSlug}_m${monthNumber}`;
+      }
+
+      const recordDate = assessmentPayload.recordDate || existingDocData?.recordDate || now.split('T')[0];
+
+      // Keep original creator if updating, unless newly provided
+      const recordedBy = existingDocData?.recordedBy || assessmentPayload.recordedBy || 'GVCN';
+      const teacherId = existingDocData?.teacherId || assessmentPayload.teacherId || 'gvcn';
+      const teacherName = existingDocData?.teacherName || assessmentPayload.teacherName || 'Giáo viên chủ nhiệm';
+      const createdAt = existingDocData?.createdAt || assessmentPayload.createdAt || now;
+
+      const payload: TeacherAssessment = {
+        id: targetId,
+        studentId,
+        studentName: assessmentPayload.studentName || existingDocData?.studentName || '',
+        studentCode: assessmentPayload.studentCode || existingDocData?.studentCode || '',
+        classId: assessmentPayload.classId || existingDocData?.classId || '',
+        className: assessmentPayload.className || existingDocData?.className || '',
+        teacherId,
+        teacherName,
+        semester: assessmentPayload.semester || existingDocData?.semester || 'Học kỳ I',
+        schoolYear,
+        month,
+        monthNumber,
+        recordDate,
+        assessment: assessmentPayload.assessment || existingDocData?.assessment || {},
+        comment: assessmentPayload.comment !== undefined ? assessmentPayload.comment : (existingDocData?.comment || ''),
+        levelRating: assessmentPayload.levelRating || existingDocData?.levelRating || 'Tốt',
+        needsMonitoring: assessmentPayload.needsMonitoring !== undefined ? !!assessmentPayload.needsMonitoring : (!!existingDocData?.needsMonitoring),
+        teacherProposedRating: assessmentPayload.teacherProposedRating || existingDocData?.teacherProposedRating || 'Tốt',
+        specialWarning: assessmentPayload.specialWarning !== undefined ? !!assessmentPayload.specialWarning : (!!existingDocData?.specialWarning),
+        recordedBy,
+        createdAt,
+        updatedAt: now,
+        updatedBy: assessmentPayload.updatedBy || 'GVCN'
+      };
+
+      await setDoc(doc(db, 'teacher_assessments', targetId), sanitize(payload), { merge: true });
+
+      return { payload, isUpdate };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacher_assessments');
+      throw err;
+    }
+  },
+
+  async bulkSaveTeacherAssessments(params: {
+    students: Student[];
+    classId: string;
+    className: string;
+    schoolYear: string;
+    semester?: string;
+    month: string;
+    monthNumber?: number;
+    assessment?: {
+      ruleCompliance?: string;
+      learningAttitude?: string;
+      responsibility?: string;
+      collectiveActivities?: string;
+      relationships?: string;
+      selfDiscipline?: string;
+    };
+    content?: string;
+    comment: string;
+    levelRating?: 'Tốt' | 'Khá' | 'Đạt' | 'Chưa đạt';
+    teacherProposedRating?: 'Tốt' | 'Khá' | 'Đạt' | 'Yếu / Chưa đạt';
+    needsMonitoring?: boolean;
+    recordDate?: string;
+    teacherId?: string;
+    teacherName?: string;
+    recordedBy?: string;
+    updatedBy?: string;
+    skipDuplicates?: boolean;
+  }): Promise<{
+    totalProcessed: number;
+    successCount: number;
+    failedCount: number;
+    failedStudents: { id: string; name: string; reason: string }[];
+    skippedDuplicatesCount: number;
+    updatedCount: number;
+    newCount: number;
+    savedAssessments: TeacherAssessment[];
+  }> {
+    try {
+      const {
+        students,
+        classId,
+        className,
+        schoolYear = '2026–2027',
+        semester = 'Học kỳ I',
+        month = 'Tháng 09',
+        monthNumber = parseInt(month.replace(/\D/g, ''), 10) || 9,
+        assessment = {},
+        content,
+        comment,
+        levelRating = 'Tốt',
+        teacherProposedRating = 'Tốt',
+        needsMonitoring = false,
+        recordDate = new Date().toISOString().split('T')[0],
+        teacherId = 'gvcn',
+        teacherName = 'Giáo viên chủ nhiệm',
+        recordedBy = 'GVCN',
+        updatedBy = 'GVCN',
+        skipDuplicates = false
+      } = params;
+
+      if (students.length === 0) {
+        return {
+          totalProcessed: 0,
+          successCount: 0,
+          failedCount: 0,
+          failedStudents: [],
+          skippedDuplicatesCount: 0,
+          updatedCount: 0,
+          newCount: 0,
+          savedAssessments: []
+        };
+      }
+
+      // Query existing assessments for this class & schoolYear
+      const q = query(
+        collection(db, 'teacher_assessments'),
+        where('classId', '==', classId),
+        where('schoolYear', '==', schoolYear)
+      );
+      const snap = await getDocs(q);
+      const existingMap = new Map<string, any>();
+      snap.docs.forEach(d => {
+        const data = d.data();
+        const matchMonth = Number(data.monthNumber) === monthNumber || data.month === month;
+        const matchSemester = !data.semester || data.semester === semester;
+        if (matchMonth && matchSemester && data.studentId) {
+          existingMap.set(data.studentId, { id: d.id, ...data });
+        }
+      });
+
+      const now = new Date().toISOString();
+      const savedAssessments: TeacherAssessment[] = [];
+      const failedStudents: { id: string; name: string; reason: string }[] = [];
+      let updatedCount = 0;
+      let newCount = 0;
+      let skippedDuplicatesCount = 0;
+
+      const operations: { id: string; payload: any; isUpdate: boolean }[] = [];
+      const semesterSlug = semester.replace(/[^a-zA-Z0-9]/g, '_');
+      const yearSlug = schoolYear.replace(/[^a-zA-Z0-9]/g, '_');
+      const finalContent = content || comment || 'Thực hiện nghiêm túc nội quy nhà trường.';
+
+      students.forEach(st => {
+        try {
+          if (!st.id) {
+            failedStudents.push({ id: 'unknown', name: st.name || 'Học sinh', reason: 'Không tìm thấy student_id hợp lệ.' });
+            return;
+          }
+
+          const existing = existingMap.get(st.id);
+
+          // Check duplicate condition: same date, same levelRating, same content/comment
+          if (existing && skipDuplicates) {
+            const sameDate = (existing.recordDate || existing.date) === recordDate;
+            const sameContent = (existing.comment || existing.content || '').trim() === finalContent.trim();
+            const sameRating = existing.levelRating === levelRating;
+            if (sameDate && sameContent && sameRating) {
+              skippedDuplicatesCount++;
+              return;
+            }
+          }
+
+          const studentName = st.full_name || st.fullName || st.name || (existing ? existing.studentName : '');
+          const studentCode = st.code || (existing ? existing.studentCode : '');
+
+          if (existing) {
+            const payload: any = {
+              ...existing,
+              id: existing.id,
+              // Strictly save student_id, class_id, teacher_id as per Section 11
+              studentId: st.id,
+              student_id: st.id,
+              studentName,
+              studentCode,
+              classId,
+              class_id: classId,
+              className,
+              teacherId,
+              teacher_id: teacherId,
+              teacherName,
+              semester,
+              schoolYear,
+              month,
+              monthNumber,
+              date: recordDate || existing.recordDate || now.split('T')[0],
+              recordDate: recordDate || existing.recordDate || now.split('T')[0],
+              content: finalContent,
+              evaluation_type: 'GHI_NHAN_GVCN',
+              result: levelRating,
+              note: finalContent,
+              assessment: {
+                ruleCompliance: assessment.ruleCompliance || existing.assessment?.ruleCompliance || finalContent,
+                learningAttitude: assessment.learningAttitude || existing.assessment?.learningAttitude || 'Đi học đầy đủ, đúng giờ, hăng hái phát biểu xây dựng bài.',
+                responsibility: assessment.responsibility || existing.assessment?.responsibility || 'Có tinh thần trách nhiệm cao trong công việc được giao.',
+                collectiveActivities: assessment.collectiveActivities || existing.assessment?.collectiveActivities || 'Nhiệt tình tham gia các phong trào, hoạt động của trường lớp.',
+                relationships: assessment.relationships || existing.assessment?.relationships || 'Kính trọng thầy cô, hòa đồng, thân thiện với bạn bè.',
+                selfDiscipline: assessment.selfDiscipline || existing.assessment?.selfDiscipline || 'Có ý thức tự giác cao trong học tập và rèn luyện.'
+              },
+              comment: finalContent,
+              levelRating,
+              needsMonitoring: Boolean(needsMonitoring),
+              teacherProposedRating,
+              updatedAt: now,
+              updated_at: now,
+              updatedBy
+            };
+            operations.push({ id: existing.id, payload, isUpdate: true });
+            savedAssessments.push(payload as TeacherAssessment);
+            updatedCount++;
+          } else {
+            const targetId = `ta_${st.id}_${yearSlug}_${semesterSlug}_m${monthNumber}`;
+            const payload: any = {
+              id: targetId,
+              // Strictly save student_id, class_id, teacher_id as per Section 11
+              studentId: st.id,
+              student_id: st.id,
+              studentName,
+              studentCode,
+              classId,
+              class_id: classId,
+              className,
+              teacherId,
+              teacher_id: teacherId,
+              teacherName,
+              semester,
+              schoolYear,
+              month,
+              monthNumber,
+              date: recordDate,
+              recordDate,
+              content: finalContent,
+              evaluation_type: 'GHI_NHAN_GVCN',
+              result: levelRating,
+              note: finalContent,
+              assessment: {
+                ruleCompliance: assessment.ruleCompliance || finalContent,
+                learningAttitude: assessment.learningAttitude || 'Đi học đầy đủ, đúng giờ, hăng hái phát biểu xây dựng bài.',
+                responsibility: assessment.responsibility || 'Có tinh thần trách nhiệm cao trong công việc được giao.',
+                collectiveActivities: assessment.collectiveActivities || 'Nhiệt tình tham gia các phong trào, hoạt động của trường lớp.',
+                relationships: assessment.relationships || 'Kính trọng thầy cô, hòa đồng, thân thiện với bạn bè.',
+                selfDiscipline: assessment.selfDiscipline || 'Có ý thức tự giác cao trong học tập và rèn luyện.'
+              },
+              comment: finalContent,
+              levelRating,
+              needsMonitoring: Boolean(needsMonitoring),
+              teacherProposedRating,
+              specialWarning: false,
+              recordedBy,
+              createdAt: now,
+              created_at: now,
+              updatedAt: now,
+              updated_at: now,
+              updatedBy
+            };
+            operations.push({ id: targetId, payload, isUpdate: false });
+            savedAssessments.push(payload as TeacherAssessment);
+            newCount++;
+          }
+        } catch (err: any) {
+          failedStudents.push({ id: st.id, name: st.name || 'Học sinh', reason: err.message || 'Lỗi không xác định' });
+        }
+      });
+
+      // Commit batches (max 400 per batch)
+      for (let i = 0; i < operations.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = operations.slice(i, i + 400);
+        chunk.forEach(op => {
+          batch.set(doc(db, 'teacher_assessments', op.id), sanitize(op.payload), { merge: true });
+        });
+        await batch.commit();
+      }
+
+      return {
+        totalProcessed: operations.length,
+        successCount: operations.length,
+        failedCount: failedStudents.length,
+        failedStudents,
+        skippedDuplicatesCount,
+        updatedCount,
+        newCount,
+        savedAssessments
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacher_assessments_bulk');
+      throw err;
+    }
+  },
+
+  async bulkSaveGoodTeacherAssessments(params: {
+    students: Student[];
+    classId: string;
+    className: string;
+    schoolYear: string;
+    semester?: string;
+    month: string;
+    monthNumber?: number;
+    assessment: {
+      ruleCompliance: string;
+      learningAttitude: string;
+      responsibility: string;
+      collectiveActivities: string;
+      relationships: string;
+      selfDiscipline: string;
+    };
+    comment: string;
+    levelRating?: 'Tốt' | 'Khá' | 'Đạt' | 'Chưa đạt';
+    teacherProposedRating?: 'Tốt' | 'Khá' | 'Đạt' | 'Yếu / Chưa đạt';
+    needsMonitoring?: boolean;
+    recordDate?: string;
+    teacherId?: string;
+    teacherName?: string;
+    recordedBy?: string;
+    updatedBy?: string;
+  }): Promise<{
+    totalProcessed: number;
+    updatedCount: number;
+    newCount: number;
+    savedAssessments: TeacherAssessment[];
+  }> {
+    return this.bulkSaveTeacherAssessments(params);
+  },
+
+  async deleteTeacherAssessment(id: string) {
+    try {
+      await deleteDoc(doc(db, 'teacher_assessments', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'teacher_assessments');
+      throw err;
+    }
+  },
+
+  // 14. EVALUATION RATING CONFIGS & AUDIT LOGS
+  subscribeRatingConfigs(callback: (configs: EvaluationRatingConfig[]) => void) {
+    const q = collection(db, 'evaluation_rating_configs');
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as EvaluationRatingConfig));
+      callback(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'evaluation_rating_configs'));
+  },
+
+  subscribeRatingHistory(callback: (history: EvaluationRatingConfigHistory[]) => void) {
+    const q = collection(db, 'evaluation_rating_config_history');
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as EvaluationRatingConfigHistory));
+      callback(data.sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime()));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'evaluation_rating_config_history'));
+  },
+
+  async saveRatingConfig(
+    config: EvaluationRatingConfig,
+    userPerformed: { name: string; role?: string },
+    previousTiers?: RatingTierItem[] | null,
+    note?: string
+  ): Promise<EvaluationRatingConfig> {
+    try {
+      const now = new Date().toISOString();
+      const periodIdSlug = (config.evaluation_period_id || 'all').replace(/[^a-zA-Z0-9]/g, '_');
+      const yearSlug = config.school_year.replace(/[^a-zA-Z0-9]/g, '_');
+      const id = config.id || `rating_cfg_${yearSlug}_${config.evaluation_period_type}_${periodIdSlug}`;
+
+      const payload: EvaluationRatingConfig = {
+        ...config,
+        id,
+        updated_at: now,
+        updated_by: userPerformed.name || 'BGH'
+      };
+      if (!payload.created_at) {
+        payload.created_at = now;
+        payload.created_by = userPerformed.name || 'BGH';
+      }
+
+      await setDoc(doc(db, 'evaluation_rating_configs', id), sanitize(payload), { merge: true });
+
+      // Record audit history (Requirement 12)
+      const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const historyEntry: EvaluationRatingConfigHistory = {
+        id: historyId,
+        config_id: id,
+        action: previousTiers ? 'update' : 'create',
+        performed_by: userPerformed.name || 'BGH',
+        performed_by_role: userPerformed.role || 'BGH',
+        performed_at: now,
+        before_change: previousTiers || null,
+        after_change: config.tiers,
+        note: note || `Cập nhật cấu hình xếp loại ${config.evaluation_period_type === 'all' ? 'mặc định' : config.evaluation_period_id} (${config.school_year})`
+      };
+
+      await setDoc(doc(db, 'evaluation_rating_config_history', historyId), sanitize(historyEntry));
+
+      return payload;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'evaluation_rating_configs');
+      throw err;
+    }
+  },
+
+  async restoreDefaultRatingConfig(
+    schoolYear: string,
+    periodType: EvaluationPeriodScopeType,
+    periodId: string,
+    userPerformed: { name: string; role?: string },
+    previousTiers?: RatingTierItem[]
+  ): Promise<EvaluationRatingConfig> {
+    const periodIdSlug = (periodId || 'all').replace(/[^a-zA-Z0-9]/g, '_');
+    const yearSlug = schoolYear.replace(/[^a-zA-Z0-9]/g, '_');
+    const configId = `rating_cfg_${yearSlug}_${periodType}_${periodIdSlug}`;
+
+    const payload: EvaluationRatingConfig = {
+      id: configId,
+      school_id: 'thpt_son_luong',
+      name: `Cấu hình xếp loại rèn luyện (${schoolYear})`,
+      school_year: schoolYear,
+      evaluation_period_type: periodType,
+      evaluation_period_id: periodId,
+      tiers: DEFAULT_RATING_TIERS,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      created_by: userPerformed.name || 'BGH',
+      updated_by: userPerformed.name || 'BGH'
+    };
+
+    return this.saveRatingConfig(payload, userPerformed, previousTiers, 'Khôi phục về cấu hình xếp loại mặc định của nhà trường');
   }
 };
+

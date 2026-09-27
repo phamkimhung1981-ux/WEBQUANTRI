@@ -5,8 +5,265 @@ import {
   Student,
   HomeroomAssignment,
   ConductSettings,
-  ClassificationType
+  ClassificationType,
+  SeriousViolationConfig,
+  ConductRecord,
+  ViolationCategoryType,
+  ViolationSeverity,
+  WarningLevel,
+  RatingTierItem,
+  EvaluationRatingConfig,
+  StudentRatingResult
 } from '../types/homeroom';
+
+export const DEFAULT_SERIOUS_VIOLATION_CONFIGS: SeriousViolationConfig[] = [
+  {
+    id: 'cfg_atgt_light',
+    categoryType: 'ATGT',
+    title: 'Vi phạm An toàn giao thông - Mức Nhẹ',
+    severity: 'Nhẹ',
+    minusPoint: -5,
+    hasConductWarning: false,
+    warningLevel: 'mild',
+    proposedRating: 'Cần nhắc nhở',
+    requiresBghApproval: false,
+    note: 'Không đội mũ bảo hiểm khi đi xe máy điện, đỗ xe sai nơi quy định',
+    isActive: true
+  },
+  {
+    id: 'cfg_atgt_serious',
+    categoryType: 'ATGT',
+    title: 'Vi phạm An toàn giao thông - Nghiêm trọng',
+    severity: 'Nghiêm trọng',
+    minusPoint: -10,
+    hasConductWarning: true,
+    warningLevel: 'serious',
+    proposedRating: 'Xem xét mức rèn luyện thấp',
+    requiresBghApproval: false,
+    note: 'Lạng lách, kẹp 3, không có bằng lái, chở quá số người quy định',
+    isActive: true
+  },
+  {
+    id: 'cfg_atgt_critical',
+    categoryType: 'ATGT',
+    title: 'Vi phạm An toàn giao thông - Rất nghiêm trọng',
+    severity: 'Rất nghiêm trọng',
+    minusPoint: -20,
+    hasConductWarning: true,
+    warningLevel: 'critical',
+    proposedRating: 'Chưa đạt – cần xem xét',
+    requiresBghApproval: true,
+    note: 'Gây tai nạn giao thông, vi phạm pháp luật giao thông có văn bản công an',
+    isActive: true
+  },
+  {
+    id: 'cfg_violence_serious',
+    categoryType: 'BẠO LỰC HỌC ĐƯỜNG',
+    title: 'Bạo lực học đường - Nghiêm trọng',
+    severity: 'Nghiêm trọng',
+    minusPoint: -20,
+    hasConductWarning: true,
+    warningLevel: 'critical',
+    proposedRating: 'Chưa đạt – cần xem xét',
+    requiresBghApproval: true,
+    note: 'Gây xô xát, đe dọa, lăng mạ, xâm phạm danh dự thân thể học sinh khác',
+    isActive: true
+  },
+  {
+    id: 'cfg_violence_critical',
+    categoryType: 'BẠO LỰC HỌC ĐƯỜNG',
+    title: 'Bạo lực học đường - Rất nghiêm trọng',
+    severity: 'Rất nghiêm trọng',
+    minusPoint: -30,
+    hasConductWarning: true,
+    warningLevel: 'critical',
+    proposedRating: 'Chưa đạt – cần xem xét',
+    requiresBghApproval: true,
+    note: 'Đánh nhau tập thể, gây thương tích, quay clip kích động bạo lực',
+    isActive: true
+  },
+  {
+    id: 'cfg_cheating_serious',
+    categoryType: 'GIAN LẬN THI CỬ',
+    title: 'Gian lận kiểm tra / Thi cử - Nghiêm trọng',
+    severity: 'Nghiêm trọng',
+    minusPoint: -15,
+    hasConductWarning: true,
+    warningLevel: 'serious',
+    proposedRating: 'Xem xét mức rèn luyện phù hợp',
+    requiresBghApproval: true,
+    note: 'Sử dụng tài liệu, mang thiết bị vào phòng thi, chép bài bạn, nhờ thi hộ',
+    isActive: true
+  },
+  {
+    id: 'cfg_rules_serious',
+    categoryType: 'NỘI QUY',
+    title: 'Vi phạm Nội quy nhà trường - Nghiêm trọng',
+    severity: 'Nghiêm trọng',
+    minusPoint: -10,
+    hasConductWarning: true,
+    warningLevel: 'serious',
+    proposedRating: 'Xem xét mức rèn luyện',
+    requiresBghApproval: false,
+    note: 'Nghỉ học không phép nhiều lần, vô lễ với giáo viên',
+    isActive: true
+  }
+];
+
+export function isSpecialWarningCategory(categoryType?: string): boolean {
+  if (!categoryType) return false;
+  const upper = categoryType.toUpperCase().trim();
+  return (
+    upper === 'ATGT' ||
+    upper.includes('BẠO LỰC') ||
+    upper.includes('GIAN LẬN')
+  );
+}
+
+export function checkStudentHasSpecialWarning(studentRecords: ConductRecord[]): boolean {
+  return studentRecords.some(r =>
+    isSpecialWarningCategory(r.categoryType) ||
+    r.special_warning === true ||
+    (r.hasConductWarning && (
+      r.warningLabel?.includes('ATGT') ||
+      r.warningLabel?.includes('BẠO LỰC') ||
+      r.warningLabel?.includes('GIAN LẬN')
+    ))
+  );
+}
+
+export interface StudentRuleEvaluationResult {
+  hasWarning: boolean;
+  hasSpecialWarning: boolean;
+  specialWarningMessage: string | null;
+  warningBadges: {
+    type: ViolationCategoryType;
+    badgeLabel: string;
+    subtext: string;
+    colorClass: string;
+    proposedRating: string;
+    requiresBghApproval: boolean;
+  }[];
+  highestWarningLevel: WarningLevel;
+  primaryBadge: string | null;
+  primarySubtext: string | null;
+  proposedRating: string | null;
+  requiresBghApproval: boolean;
+  seriousViolationRecords: ConductRecord[];
+}
+
+export function evaluateStudentConductRules(
+  studentRecords: ConductRecord[],
+  configs: SeriousViolationConfig[] = DEFAULT_SERIOUS_VIOLATION_CONFIGS
+): StudentRuleEvaluationResult {
+  const hasSpecial = checkStudentHasSpecialWarning(studentRecords);
+
+  const seriousRecords = studentRecords.filter(r => {
+    if (r.special_warning || isSpecialWarningCategory(r.categoryType)) return true;
+    if (r.hasConductWarning) return true;
+    if (r.level === 'Nghiêm trọng' || r.level === 'Rất nghiêm trọng') return true;
+    return false;
+  });
+
+  if (seriousRecords.length === 0 && !hasSpecial) {
+    return {
+      hasWarning: false,
+      hasSpecialWarning: false,
+      specialWarningMessage: null,
+      warningBadges: [],
+      highestWarningLevel: 'none',
+      primaryBadge: null,
+      primarySubtext: null,
+      proposedRating: null,
+      requiresBghApproval: false,
+      seriousViolationRecords: []
+    };
+  }
+
+  const warningBadges: StudentRuleEvaluationResult['warningBadges'] = [];
+  let highestWarningLevel: WarningLevel = 'none';
+  let requiresBghApproval = false;
+
+  // RULE 01 - ATGT
+  const atgtRecords = seriousRecords.filter(r => r.categoryType === 'ATGT' || r.warningLabel?.includes('ATGT'));
+  if (atgtRecords.length > 0) {
+    warningBadges.push({
+      type: 'ATGT',
+      badgeLabel: '⚠ ATGT',
+      subtext: 'Cảnh báo đặc biệt - Tự động xếp Yếu/Chưa đạt',
+      colorClass: 'bg-rose-100 text-rose-900 border-rose-400 font-bold',
+      proposedRating: 'YẾU / CHƯA ĐẠT',
+      requiresBghApproval: true
+    });
+    highestWarningLevel = 'critical';
+    requiresBghApproval = true;
+  }
+
+  // RULE 02 - BẠO LỰC HỌC ĐƯỜNG
+  const violenceRecords = seriousRecords.filter(r => r.categoryType === 'BẠO LỰC HỌC ĐƯỜNG' || r.warningLabel?.includes('BẠO LỰC') || r.criterionName.toLowerCase().includes('đánh nhau') || r.criterionName.toLowerCase().includes('xúc phạm'));
+  if (violenceRecords.length > 0) {
+    warningBadges.push({
+      type: 'BẠO LỰC HỌC ĐƯỜNG',
+      badgeLabel: '🔴 BẠO LỰC HỌC ĐƯỜNG',
+      subtext: 'Cảnh báo đặc biệt - Tự động xếp Yếu/Chưa đạt',
+      colorClass: 'bg-rose-100 text-rose-900 border-rose-400 font-bold',
+      proposedRating: 'YẾU / CHƯA ĐẠT',
+      requiresBghApproval: true
+    });
+    highestWarningLevel = 'critical';
+    requiresBghApproval = true;
+  }
+
+  // RULE 03 - GIAN LẬN THI CỬ
+  const cheatingRecords = seriousRecords.filter(r => r.categoryType === 'GIAN LẬN THI CỬ' || r.warningLabel?.includes('GIAN LẬN') || r.criterionName.toLowerCase().includes('gian lận'));
+  if (cheatingRecords.length > 0) {
+    warningBadges.push({
+      type: 'GIAN LẬN THI CỬ',
+      badgeLabel: '🔴 GIAN LẬN THI CỬ',
+      subtext: 'Cảnh báo đặc biệt - Tự động xếp Yếu/Chưa đạt',
+      colorClass: 'bg-rose-100 text-rose-900 border-rose-400 font-bold',
+      proposedRating: 'YẾU / CHƯA ĐẠT',
+      requiresBghApproval: true
+    });
+    highestWarningLevel = 'critical';
+    requiresBghApproval = true;
+  }
+
+  // Other serious rules
+  const otherSerious = seriousRecords.filter(r => 
+    !isSpecialWarningCategory(r.categoryType) &&
+    !r.special_warning
+  );
+  if (otherSerious.length > 0 && warningBadges.length === 0) {
+    warningBadges.push({
+      type: 'NỘI QUY',
+      badgeLabel: '🟠 VI PHẠM NGHIÊM TRỌNG',
+      subtext: 'Cần xem xét đánh giá',
+      colorClass: 'bg-orange-100 text-orange-900 border-orange-300',
+      proposedRating: 'Xem xét mức rèn luyện',
+      requiresBghApproval: otherSerious.some(r => r.requiresBghApproval)
+    });
+    if (highestWarningLevel === 'none') highestWarningLevel = 'serious';
+    if (otherSerious.some(r => r.requiresBghApproval)) requiresBghApproval = true;
+  }
+
+  const primaryBadge = warningBadges.length > 0 ? warningBadges[0].badgeLabel : null;
+  const primarySubtext = warningBadges.length > 0 ? warningBadges[0].subtext : null;
+  const proposedRating = hasSpecial ? 'YẾU / CHƯA ĐẠT' : (warningBadges.length > 0 ? warningBadges[0].proposedRating : null);
+
+  return {
+    hasWarning: warningBadges.length > 0 || hasSpecial,
+    hasSpecialWarning: hasSpecial,
+    specialWarningMessage: hasSpecial ? 'Học sinh có vi phạm thuộc nhóm cảnh báo đặc biệt.' : null,
+    warningBadges,
+    highestWarningLevel: hasSpecial ? 'critical' : highestWarningLevel,
+    primaryBadge,
+    primarySubtext,
+    proposedRating,
+    requiresBghApproval: hasSpecial || requiresBghApproval,
+    seriousViolationRecords: seriousRecords
+  };
+}
 
 export const DEFAULT_CONDUCT_CATEGORIES: ConductCategory[] = [
   { id: 'cat_1', code: 'NH_HT', name: 'NỀN NẾP HỌC TẬP', sortOrder: 1, status: 'active' },
@@ -308,29 +565,220 @@ export const DEFAULT_CONDUCT_SETTINGS: ConductSettings = {
   }
 };
 
+export const DEFAULT_RATING_TIERS: RatingTierItem[] = [
+  { id: 'tier_tot', name: 'Tốt', min_score: 90, max_score: 100, color: 'emerald', sort_order: 1, is_active: true },
+  { id: 'tier_kha', name: 'Khá', min_score: 80, max_score: 89, color: 'blue', sort_order: 2, is_active: true },
+  { id: 'tier_dat', name: 'Đạt', min_score: 65, max_score: 79, color: 'amber', sort_order: 3, is_active: true },
+  { id: 'tier_chuadat', name: 'Chưa đạt', min_score: 0, max_score: 64, color: 'rose', sort_order: 4, is_active: true },
+];
+
+export const RATING_COLOR_MAP: Record<string, { label: string; badge: string; bg: string; text: string; border: string; dot: string; hex: string }> = {
+  emerald: { label: 'Xanh lá', badge: 'bg-emerald-100 text-emerald-800 border-emerald-300', bg: 'bg-emerald-500', text: 'text-emerald-700', border: 'border-emerald-300', dot: 'bg-emerald-500', hex: '#10B981' },
+  blue: { label: 'Xanh dương', badge: 'bg-blue-100 text-blue-800 border-blue-300', bg: 'bg-blue-500', text: 'text-blue-700', border: 'border-blue-300', dot: 'bg-blue-500', hex: '#3B82F6' },
+  amber: { label: 'Vàng', badge: 'bg-amber-100 text-amber-800 border-amber-300', bg: 'bg-amber-500', text: 'text-amber-700', border: 'border-amber-300', dot: 'bg-amber-500', hex: '#F59E0B' },
+  rose: { label: 'Đỏ', badge: 'bg-rose-100 text-rose-800 border-rose-300', bg: 'bg-rose-500', text: 'text-rose-700', border: 'border-rose-300', dot: 'bg-rose-500', hex: '#EF4444' },
+  purple: { label: 'Tím', badge: 'bg-purple-100 text-purple-800 border-purple-300', bg: 'bg-purple-500', text: 'text-purple-700', border: 'border-purple-300', dot: 'bg-purple-500', hex: '#8B5CF6' },
+  cyan: { label: 'Xanh ngọc', badge: 'bg-cyan-100 text-cyan-800 border-cyan-300', bg: 'bg-cyan-500', text: 'text-cyan-700', border: 'border-cyan-300', dot: 'bg-cyan-500', hex: '#06B6D4' },
+  slate: { label: 'Xám', badge: 'bg-slate-100 text-slate-800 border-slate-300', bg: 'bg-slate-500', text: 'text-slate-700', border: 'border-slate-300', dot: 'bg-slate-500', hex: '#64748B' },
+};
+
+export function getRatingBadgeStyle(colorKey?: string, tierName?: string): string {
+  if (colorKey && RATING_COLOR_MAP[colorKey]) {
+    return RATING_COLOR_MAP[colorKey].badge;
+  }
+  // Fallback by name
+  if (tierName === 'Tốt') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  if (tierName === 'Khá') return 'bg-blue-100 text-blue-800 border-blue-300';
+  if (tierName === 'Đạt') return 'bg-amber-100 text-amber-800 border-amber-300';
+  return 'bg-rose-100 text-rose-800 border-rose-300';
+}
+
+/**
+ * Validates rating tiers according to Requirement 4:
+ * - min_score <= max_score
+ * - Scores within [0, 100]
+ * - No duplicate tier names
+ * - No overlaps or gaps (must completely cover 0 to 100)
+ */
+export function validateRatingTiers(tiers: RatingTierItem[]): { isValid: boolean; error?: string } {
+  if (!tiers || tiers.length === 0) {
+    return { isValid: false, error: 'Phải có ít nhất một mức xếp loại.' };
+  }
+
+  // 1. Check duplicate tier names
+  const nameSet = new Set<string>();
+  for (const t of tiers) {
+    const trimmed = (t.name || '').trim().toLowerCase();
+    if (!trimmed) {
+      return { isValid: false, error: 'Tên xếp loại không được để trống.' };
+    }
+    if (nameSet.has(trimmed)) {
+      return { isValid: false, error: `Tên mức xếp loại "${t.name}" bị trùng lặp.` };
+    }
+    nameSet.add(trimmed);
+  }
+
+  // 2. Check each tier min <= max and bounds [0, 100]
+  for (const t of tiers) {
+    const min = Number(t.min_score);
+    const max = Number(t.max_score);
+    if (isNaN(min) || isNaN(max)) {
+      return { isValid: false, error: `Điểm của mức "${t.name}" không hợp lệ.` };
+    }
+    if (min < 0 || max > 100) {
+      return { isValid: false, error: `Điểm của mức "${t.name}" phải nằm trong khoảng từ 0 đến 100.` };
+    }
+    if (min > max) {
+      return { isValid: false, error: `Điểm tối thiểu (${min}) không được lớn hơn điểm tối đa (${max}) tại mức "${t.name}".` };
+    }
+  }
+
+  // 3. Sort ascending by min_score
+  const sorted = [...tiers].sort((a, b) => Number(a.min_score) - Number(b.min_score));
+
+  // 4. Must start at 0 and end at 100
+  if (Number(sorted[0].min_score) !== 0) {
+    return { isValid: false, error: `Thang điểm phải bắt đầu từ 0 (hiện tại bắt đầu từ ${sorted[0].min_score}).` };
+  }
+  if (Number(sorted[sorted.length - 1].max_score) !== 100) {
+    return { isValid: false, error: `Thang điểm phải kết thúc tại 100 (hiện tại kết thúc tại ${sorted[sorted.length - 1].max_score}).` };
+  }
+
+  // 5. Check gaps and overlaps
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const curr = sorted[i];
+    const next = sorted[i + 1];
+    const currMax = Number(curr.max_score);
+    const nextMin = Number(next.min_score);
+
+    if (nextMin <= currMax) {
+      return {
+        isValid: false,
+        error: `Khoảng điểm bị trùng lặp hoặc chồng lấn giữa "${curr.name}" (${curr.min_score}–${curr.max_score}) và "${next.name}" (${next.min_score}–${next.max_score}).`
+      };
+    }
+    if (nextMin > currMax + 1) {
+      return {
+        isValid: false,
+        error: `Khoảng điểm bị bỏ trống từ ${currMax + 1} đến ${nextMin - 1} giữa "${curr.name}" và "${next.name}". Thang điểm phải bao phủ liên tục đầy đủ từ 0 đến 100.`
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * Unified calculation function: calculateStudentRating(score, config, hasSpecialWarning)
+ * Requirement 15: Single source of truth for rating calculation.
+ */
+export function calculateStudentRating(
+  score: number,
+  config?: EvaluationRatingConfig | RatingTierItem[] | null,
+  hasSpecialWarning: boolean = false
+): StudentRatingResult {
+  let tiers: RatingTierItem[] = DEFAULT_RATING_TIERS;
+  if (config) {
+    if (Array.isArray(config) && config.length > 0) {
+      tiers = config.filter(t => t.is_active !== false);
+    } else if ('tiers' in config && Array.isArray(config.tiers) && config.tiers.length > 0) {
+      tiers = config.tiers.filter(t => t.is_active !== false);
+    }
+  }
+
+  // Sorted descending so highest score checked first
+  const sortedDesc = [...tiers].sort((a, b) => Number(b.max_score) - Number(a.max_score));
+  const sortedAsc = [...tiers].sort((a, b) => Number(a.min_score) - Number(b.min_score));
+  const lowestTier = sortedAsc[0] || DEFAULT_RATING_TIERS[DEFAULT_RATING_TIERS.length - 1];
+
+  if (hasSpecialWarning) {
+    const badge_style = 'bg-rose-100 text-rose-800 border-rose-300 font-bold';
+    return {
+      rating_name: lowestTier.name || 'Chưa đạt',
+      min_score: lowestTier.min_score,
+      max_score: lowestTier.max_score,
+      color: lowestTier.color || 'rose',
+      badge_style,
+      tier: lowestTier
+    };
+  }
+
+  const roundedScore = Math.round(score);
+
+  // Find matching tier
+  const matched = sortedDesc.find(t => roundedScore >= Number(t.min_score) && roundedScore <= Number(t.max_score));
+
+  if (matched) {
+    return {
+      rating_name: matched.name,
+      min_score: Number(matched.min_score),
+      max_score: Number(matched.max_score),
+      color: matched.color,
+      badge_style: getRatingBadgeStyle(matched.color, matched.name),
+      tier: matched
+    };
+  }
+
+  // If score > 100, return highest tier
+  if (roundedScore > 100 && sortedDesc.length > 0) {
+    const highest = sortedDesc[0];
+    return {
+      rating_name: highest.name,
+      min_score: Number(highest.min_score),
+      max_score: Number(highest.max_score),
+      color: highest.color,
+      badge_style: getRatingBadgeStyle(highest.color, highest.name),
+      tier: highest
+    };
+  }
+
+  // Otherwise return lowest tier
+  return {
+    rating_name: lowestTier.name,
+    min_score: Number(lowestTier.min_score),
+    max_score: Number(lowestTier.max_score),
+    color: lowestTier.color,
+    badge_style: getRatingBadgeStyle(lowestTier.color, lowestTier.name),
+    tier: lowestTier
+  };
+}
+
 /**
  * Calculates student score and classification
+ * Uses unified calculateStudentRating internally
  */
 export function calculateConductScore(
   baseScore: number,
   totalPlus: number,
   totalMinus: number,
-  thresholds = DEFAULT_CONDUCT_SETTINGS.thresholds
-): { totalScore: number; classification: ClassificationType } {
+  thresholds?: any,
+  hasSpecialWarning: boolean = false,
+  ratingConfig?: EvaluationRatingConfig | RatingTierItem[] | null
+): { totalScore: number; classification: ClassificationType | string; specialWarning: boolean; ratingResult: StudentRatingResult } {
   // totalMinus is positive magnitude (e.g. 8 points lost) or negative point sum (e.g. -8)
   const minusMagnitude = Math.abs(totalMinus);
   const totalScore = baseScore + totalPlus - minusMagnitude;
 
-  let classification: ClassificationType = 'Chưa đạt';
-  if (totalScore >= thresholds.totMin) {
-    classification = 'Tốt';
-  } else if (totalScore >= thresholds.khaMin) {
-    classification = 'Khá';
-  } else if (totalScore >= thresholds.datMin) {
-    classification = 'Đạt';
-  } else {
-    classification = 'Chưa đạt';
+  // If threshold overrides were given without full config (legacy fallback)
+  let activeConfig = ratingConfig;
+  if (!activeConfig && thresholds && (thresholds.totMin !== undefined || thresholds.khaMin !== undefined)) {
+    const totMin = thresholds.totMin ?? 90;
+    const khaMin = thresholds.khaMin ?? 80;
+    const datMin = thresholds.datMin ?? 65;
+    activeConfig = [
+      { id: 't_tot', name: 'Tốt', min_score: totMin, max_score: 100, color: 'emerald', sort_order: 1, is_active: true },
+      { id: 't_kha', name: 'Khá', min_score: khaMin, max_score: totMin - 1, color: 'blue', sort_order: 2, is_active: true },
+      { id: 't_dat', name: 'Đạt', min_score: datMin, max_score: khaMin - 1, color: 'amber', sort_order: 3, is_active: true },
+      { id: 't_cd', name: 'Chưa đạt', min_score: 0, max_score: datMin - 1, color: 'rose', sort_order: 4, is_active: true }
+    ];
   }
 
-  return { totalScore, classification };
+  const ratingResult = calculateStudentRating(totalScore, activeConfig, hasSpecialWarning);
+
+  return {
+    totalScore,
+    classification: ratingResult.rating_name as ClassificationType,
+    specialWarning: hasSpecialWarning,
+    ratingResult
+  };
 }

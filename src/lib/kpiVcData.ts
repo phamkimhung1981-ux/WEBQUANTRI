@@ -23,7 +23,7 @@ export const DEFAULT_VC_GROUPS: KpiVcCriteriaGroup[] = [
     name: 'Chính trị tư tưởng, đạo đức lối sống',
     maxScore: 15,
     order: 1,
-    description: 'Đánh giá việc chấp hành đường lối chính trị, đạo đức công vụ, lối sống giản dị, tinh thần đoàn kết.',
+    description: 'Chấp hành chủ trương của Đảng, pháp luật Nhà nước, lối sống trung thực, giản dị, tinh thần đoàn kết.',
     isActive: true
   },
   {
@@ -32,7 +32,7 @@ export const DEFAULT_VC_GROUPS: KpiVcCriteriaGroup[] = [
     name: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     maxScore: 15,
     order: 2,
-    description: 'Đánh giá tinh thần trách nhiệm, phương pháp làm việc, văn hóa ứng xử công vụ và chấp hành nội quy.',
+    description: 'Tinh thần trách nhiệm, phương pháp làm việc, văn hóa công sở, chấp hành nội quy và sự phân công.',
     isActive: true
   },
   {
@@ -41,7 +41,7 @@ export const DEFAULT_VC_GROUPS: KpiVcCriteriaGroup[] = [
     name: 'Kết quả thực hiện nhiệm vụ',
     maxScore: 70,
     order: 3,
-    description: 'Đánh giá năng lực chuyên môn, kỹ năng làm việc và kết quả hoàn thành nhiệm vụ được giao theo 5 mức.',
+    description: 'Bao gồm Năng lực & Kỹ năng làm việc (10 điểm) và Kết quả thực hiện nhiệm vụ được giao (60 điểm).',
     isActive: true
   }
 ];
@@ -52,7 +52,7 @@ export const DEFAULT_VC_LEVELS_III_2: KpiVcLevel[] = [
     code: '2.1',
     name: 'MỨC 1',
     score: 60,
-    description: 'Hoàn thành 100% công việc theo kế hoạch, lịch công tác, đúng tiến độ, bảo đảm chất lượng, hiệu quả cao, trong đó có ít nhất 50% tiêu chí, nhiệm vụ hoàn thành vượt mức: tối đa 60 điểm.',
+    description: 'Hoàn thành 100% công việc theo kế hoạch, lịch công tác, đúng tiến độ, bảo đảm chất lượng, hiệu quả cao: tối đa 60 điểm.',
     order: 1
   },
   {
@@ -68,7 +68,7 @@ export const DEFAULT_VC_LEVELS_III_2: KpiVcLevel[] = [
     code: '2.3',
     name: 'MỨC 3',
     score: 30,
-    description: 'Hoàn thành 100% công việc theo kế hoạch, lịch công tác, trong đó có không quá 20% nhiệm vụ chưa bảo đảm chất lượng, tiến độ hoặc hiệu quả thấp: tối đa 30 điểm.',
+    description: 'Hoàn thành 100% công việc theo kế hoạch, lịch công tác, có nhiệm vụ hiệu quả thấp: tối đa 30 điểm.',
     order: 3
   },
   {
@@ -76,7 +76,7 @@ export const DEFAULT_VC_LEVELS_III_2: KpiVcLevel[] = [
     code: '2.4',
     name: 'MỨC 4',
     score: 20,
-    description: 'Hoàn thành từ 50% đến dưới 100% công việc theo kế hoạch, lịch công tác: tối đa 20 điểm.',
+    description: 'Hoàn thành từ 50% đến dưới 100% công việc theo kế hoạch: tối đa 20 điểm.',
     order: 4
   },
   {
@@ -84,20 +84,20 @@ export const DEFAULT_VC_LEVELS_III_2: KpiVcLevel[] = [
     code: '2.5',
     name: 'MỨC 5',
     score: 10,
-    description: 'Hoàn thành dưới 50% công việc theo kế hoạch, lịch công tác: tối đa 10 điểm.',
+    description: 'Hoàn thành dưới 50% công việc theo kế hoạch: tối đa 10 điểm.',
     order: 5
   }
 ];
 
 export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
-  // --- NHÓM I: 8 TIÊU CHÍ (15 ĐIỂM) ---
+  // --- NHÓM I: CHÍNH TRỊ TƯ TƯỞNG, ĐẠO ĐỨC LỐI SỐNG (15 ĐIỂM - 8 TIÊU CHÍ) ---
   {
     id: 'crit_I_1',
     code: 'I.1',
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 1,
-    content: 'Chấp hành chủ trương, đường lối, quy định của Đảng, chính sách, pháp luật của Nhà nước và các nguyên tắc tổ chức, kỷ luật của Đảng, nhất là nguyên tắc tập trung dân chủ, tự phê bình và phê bình.',
+    content: 'Chấp hành chủ trương, đường lối của Đảng, chính sách, pháp luật của Nhà nước; thực hiện đúng quy định của ngành và của nhà trường.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -108,7 +108,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 2,
-    content: 'Có quan điểm, bản lĩnh chính trị vững vàng; kiên định lập trường; không dao động trước mọi khó khăn, thách thức.',
+    content: 'Có lập trường, bản lĩnh chính trị vững vàng; có ý thức trách nhiệm, không dao động trước khó khăn; thực hiện nghiêm nhiệm vụ được giao.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -119,7 +119,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 3,
-    content: 'Đặt lợi ích của Đảng, quốc gia - dân tộc, nhân dân, tập thể lên trên lợi ích cá nhân.',
+    content: 'Đặt lợi ích của tập thể, học sinh và nhà trường lên trên lợi ích cá nhân; có tinh thần trách nhiệm với chất lượng giáo dục.',
     maxScore: 1.5,
     scoreType: 'input_score',
     isActive: true
@@ -130,7 +130,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 4,
-    content: 'Có ý thức nghiên cứu, học tập, vận dụng chủ nghĩa Mác - Lênin, tư tưởng Hồ Chí Minh, nghị quyết, chỉ thị, quyết định và các văn bản của Đảng.',
+    content: 'Chủ động nghiên cứu, học tập, cập nhật nghị quyết, chỉ thị, văn bản chỉ đạo và vận dụng phù hợp vào nhiệm vụ giáo dục.',
     maxScore: 1.5,
     scoreType: 'input_score',
     isActive: true
@@ -141,7 +141,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 5,
-    content: 'Không tham ô, tham nhũng, tiêu cực, lãng phí, quan liêu, cơ hội, vụ lợi, hách dịch, cửa quyền; không có biểu hiện suy thoái về đạo đức, lối sống, tự diễn biến, tự chuyển hóa.',
+    content: 'Không tham ô, tham nhũng, tiêu cực, lãng phí; không gian lận trong đánh giá học sinh; không có hành vi gây ảnh hưởng quyền lợi chính đáng của học sinh.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -152,7 +152,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 6,
-    content: 'Có lối sống trung thực, khiêm tốn, chân thành, trong sáng, giản dị.',
+    content: 'Trung thực, khiêm tốn, chân thành, chuẩn mực; giữ gìn phẩm chất, uy tín và danh dự nhà giáo.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -163,7 +163,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 7,
-    content: 'Có tinh thần đoàn kết, xây dựng cơ quan, tổ chức, đơn vị trong sạch, vững mạnh.',
+    content: 'Đoàn kết, tôn trọng, hỗ trợ đồng nghiệp; phối hợp xây dựng tổ chuyên môn và nhà trường.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -174,20 +174,20 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_I',
     groupName: 'Chính trị tư tưởng, đạo đức lối sống',
     order: 8,
-    content: 'Không để người thân, người quen lợi dụng chức vụ, quyền hạn của mình để trục lợi.',
+    content: 'Không để người thân, người quen lợi dụng vị trí công tác để trục lợi; không lợi dụng nhiệm vụ giáo dục để vụ lợi cá nhân.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
   },
 
-  // --- NHÓM II: 8 TIÊU CHÍ (15 ĐIỂM) ---
+  // --- NHÓM II: TÁC PHONG, LỀ LỐI LÀM VIỆC, Ý THỨC TỔ CHỨC KỶ LUẬT (15 ĐIỂM - 8 TIÊU CHÍ) ---
   {
     id: 'crit_II_1',
     code: 'II.1',
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 1,
-    content: 'Có trách nhiệm với công việc; năng động, sáng tạo, dám nghĩ, dám làm, linh hoạt trong thực hiện nhiệm vụ.',
+    content: 'Có trách nhiệm với công việc; chủ động, năng động, sáng tạo; hoàn thành nhiệm vụ đúng thời hạn.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -198,7 +198,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 2,
-    content: 'Phương pháp làm việc khoa học, dân chủ, đúng nguyên tắc.',
+    content: 'Lập kế hoạch công việc khoa học; thực hiện nhiệm vụ theo thứ tự ưu tiên; lưu trữ hồ sơ, minh chứng đầy đủ.',
     maxScore: 1.5,
     scoreType: 'input_score',
     isActive: true
@@ -209,7 +209,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 3,
-    content: 'Có tinh thần trách nhiệm và phối hợp trong thực hiện nhiệm vụ.',
+    content: 'Có tinh thần phối hợp với TTCM, GVCN, giáo viên bộ môn, BGH, Đoàn trường và các bộ phận liên quan.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -220,7 +220,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 4,
-    content: 'Có thái độ đúng mực và phong cách ứng xử, lề lối làm việc chuẩn mực, đáp ứng yêu cầu của văn hóa công vụ.',
+    content: 'Ứng xử chuẩn mực với học sinh, cha mẹ học sinh, đồng nghiệp; thực hiện văn hóa công sở và văn hóa nhà trường.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -231,7 +231,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 5,
-    content: 'Chấp hành sự phân công của tổ chức.',
+    content: 'Chấp hành sự phân công của tổ chức; thực hiện nghiêm nhiệm vụ chuyên môn, kiêm nhiệm và nhiệm vụ đột xuất được giao.',
     maxScore: 1.5,
     scoreType: 'input_score',
     isActive: true
@@ -242,7 +242,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 6,
-    content: 'Thực hiện các quy định, quy chế, nội quy của cơ quan, tổ chức, đơn vị nơi công tác.',
+    content: 'Thực hiện đúng quy chế chuyên môn, nội quy, quy chế làm việc; bảo đảm giờ giấc, thời khóa biểu, quy trình xin nghỉ, dạy thay, đổi tiết, dạy bù.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -253,7 +253,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 7,
-    content: 'Thực hiện việc kê khai và công khai tài sản, thu nhập theo quy định.',
+    content: 'Thực hiện đầy đủ, đúng hạn các báo cáo; cung cấp thông tin chính xác, khách quan; cập nhật dữ liệu trên các phần mềm được giao.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
@@ -264,38 +264,181 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     groupId: 'group_II',
     groupName: 'Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật',
     order: 8,
-    content: 'Báo cáo đầy đủ, trung thực, cung cấp thông tin chính xác, khách quan về những nội dung liên quan đến việc thực hiện chức trách, nhiệm vụ được giao và hoạt động của cơ quan, tổ chức, đơn vị với cấp trên khi được yêu cầu.',
+    content: 'Tham gia đầy đủ họp hội đồng, sinh hoạt tổ/nhóm chuyên môn, tập huấn và hoạt động chung theo phân công; có tinh thần hợp tác.',
     maxScore: 2,
     scoreType: 'input_score',
     isActive: true
   },
 
-  // --- NHÓM III: KẾT QUẢ THỰC HIỆN NHIỆM VỤ (70 ĐIỂM) ---
+  // --- NHÓM III.1: NĂNG LỰC VÀ KỸ NĂNG LÀM VIỆC (10 ĐIỂM - 4 TIÊU CHÍ) ---
   {
-    id: 'crit_III_1',
-    code: 'III.1',
+    id: 'crit_III_A_1',
+    code: 'III.1.1',
     groupId: 'group_III',
     groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'A',
     order: 1,
-    content: `1. Năng lực và kỹ năng làm việc:
-- Năng lực chuyên môn, nghiệp vụ theo yêu cầu của vị trí việc làm.
-- Khả năng đáp ứng yêu cầu thực thi nhiệm vụ được giao thường xuyên, đột xuất.
-- Sử dụng thành thạo các phần mềm, ứng dụng công nghệ thông tin đáp ứng yêu cầu công việc.
-- Sẵn sàng tham gia thực hiện nhiệm vụ chính trị đặc biệt quan trọng, nhiệm vụ có tính chất đột xuất, phức tạp hoặc trong điều kiện khó khăn.`,
-    maxScore: 10,
+    content: 'Năng lực chuyên môn, nghiệp vụ theo vị trí việc làm; nắm vững chương trình, nội dung môn học/hoạt động giáo dục.',
+    maxScore: 3,
     scoreType: 'input_score',
     isActive: true
   },
   {
-    id: 'crit_III_2',
-    code: 'III.2',
+    id: 'crit_III_A_2',
+    code: 'III.1.2',
     groupId: 'group_III',
     groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'A',
     order: 2,
-    content: '2. Kết quả thực hiện nhiệm vụ được giao (Chọn 1 trong 5 mức tương ứng kết quả đạt được)',
-    maxScore: 60,
-    scoreType: 'select_level',
-    levels: DEFAULT_VC_LEVELS_III_2,
+    content: 'Khả năng đáp ứng nhiệm vụ thường xuyên và nhiệm vụ đột xuất; chủ động xử lý công việc trong phạm vi trách nhiệm.',
+    maxScore: 2,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_A_3',
+    code: 'III.1.3',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'A',
+    order: 3,
+    content: 'Sử dụng thành thạo phần mềm quản lý, hồ sơ điện tử, công cụ CNTT và công cụ số phục vụ công việc.',
+    maxScore: 2,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_A_4',
+    code: 'III.1.4',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'A',
+    order: 4,
+    content: 'Có khả năng phân tích dữ liệu học tập, phát hiện vấn đề, điều chỉnh biện pháp dạy học và hỗ trợ học sinh.',
+    maxScore: 3,
+    scoreType: 'input_score',
+    isActive: true
+  },
+
+  // --- NHÓM III.2: KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO (60 ĐIỂM - 10 TIÊU CHÍ) ---
+  {
+    id: 'crit_III_B_GV01',
+    code: '1',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 5,
+    content: 'Thực hiện đúng chương trình, thời khóa biểu và tiến độ dạy học; không tự ý bỏ tiết/đổi tiết; báo cáo và xử lý kịp thời khi có phát sinh.',
+    maxScore: 6,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV02',
+    code: '2',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 6,
+    content: 'Xây dựng và thực hiện kế hoạch giáo dục môn học; kế hoạch bài dạy đầy đủ, đúng yêu cầu, đúng tiến độ; cập nhật kho hồ sơ điện tử theo quy định.',
+    maxScore: 6,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV03',
+    code: '3',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 7,
+    content: 'Tổ chức giờ dạy hiệu quả: quản lý nền nếp, phát huy hoạt động học của học sinh, sử dụng phương pháp/kỹ thuật dạy học phù hợp đối tượng.',
+    maxScore: 6,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV04',
+    code: '4',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 8,
+    content: 'Đổi mới phương pháp, ứng dụng CNTT/AI và học liệu số phù hợp, có kiểm soát; không lạm dụng công nghệ; có sản phẩm hoặc minh chứng sử dụng.',
+    maxScore: 5,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV05',
+    code: '5',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 9,
+    content: 'Theo dõi sự tiến bộ của học sinh; xác định học sinh cần hỗ trợ; thực hiện phụ đạo, bồi dưỡng hoặc biện pháp hỗ trợ theo phân công.',
+    maxScore: 7,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV06',
+    code: '6',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 10,
+    content: 'Thực hiện kiểm tra, đánh giá đúng kế hoạch; xây dựng ma trận/đặc tả/đề/đáp án theo thống nhất chuyên môn; bảo đảm phân hóa và công bằng.',
+    maxScore: 6,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV07',
+    code: '7',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 11,
+    content: 'Chấm, chữa, nhận xét; trả bài; cập nhật điểm và hồ sơ điện tử đúng thời hạn; sửa điểm/thông tin học sinh đúng quy trình.',
+    maxScore: 5,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV08',
+    code: '8',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 12,
+    content: 'Tham gia dự giờ, thao giảng, nghiên cứu bài học; tiếp thu và thực hiện điều chỉnh sau góp ý chuyên môn.',
+    maxScore: 4,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV09',
+    code: '9',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 13,
+    content: 'Tham gia sinh hoạt chuyên môn, tập huấn, bồi dưỡng; có sản phẩm chia sẻ chuyên môn, học liệu, chuyên đề, sáng kiến hoặc giải pháp cải tiến.',
+    maxScore: 4,
+    scoreType: 'input_score',
+    isActive: true
+  },
+  {
+    id: 'crit_III_B_GV10',
+    code: '10',
+    groupId: 'group_III',
+    groupName: 'Kết quả thực hiện nhiệm vụ',
+    subGroup: 'B',
+    order: 14,
+    content: 'Hoàn thành nhiệm vụ chủ nhiệm/kiêm nhiệm/nhiệm vụ khác được giao; phối hợp với CMHS và các lực lượng giáo dục; theo dõi, hỗ trợ học sinh có nguy cơ bỏ học hoặc vi phạm.',
+    maxScore: 7,
+    scoreType: 'input_score',
     isActive: true
   }
 ];
@@ -441,12 +584,11 @@ export const initializeVcScoreItems = (criteria: KpiVcCriterion[] = DEFAULT_VC_C
     let selectedLevelCode: string | undefined = undefined;
 
     if (c.scoreType === 'select_level' && c.levels && c.levels.length > 0) {
-      // Mặc định chọn mức 2 (50 điểm) hoặc mức 1 (60 điểm)
-      const defaultLevel = c.levels.find(l => l.code === '2.1') || c.levels[0];
-      selectedLevelId = defaultLevel.id;
-      selectedLevelName = defaultLevel.name;
-      selectedLevelCode = defaultLevel.code;
-      selfScore = defaultLevel.score;
+      // Không chọn mặc định để GV tự tích vào hộp kiểm
+      selectedLevelId = undefined;
+      selectedLevelName = undefined;
+      selectedLevelCode = undefined;
+      selfScore = 0;
     } else {
       // Mặc định điểm tối đa
       selfScore = c.maxScore;
@@ -457,6 +599,7 @@ export const initializeVcScoreItems = (criteria: KpiVcCriterion[] = DEFAULT_VC_C
       criterionCode: c.code,
       groupId: c.groupId,
       groupName: c.groupName,
+      subGroup: c.subGroup,
       order: c.order,
       content: c.content,
       maxScore: c.maxScore,
@@ -466,11 +609,60 @@ export const initializeVcScoreItems = (criteria: KpiVcCriterion[] = DEFAULT_VC_C
       selectedLevelCode,
       selfScore,
       note: '',
+      ttcmScore: null,
+      ttcmComment: '',
       managerScore: null,
       managerComment: ''
     };
   });
 };
+
+/**
+ * Tính tổng điểm TTCM theo từng nhóm và tổng cộng (Tối đa 100)
+ */
+export const calculateVcTtcmTotals = (items: KpiVcScoreItem[]) => {
+  const ttcmGroupScores: Record<string, number> = {
+    group_I: 0,
+    group_II: 0,
+    group_III: 0
+  };
+
+  let ttcmTotalScore = 0;
+  let evaluatedCount = 0;
+
+  for (const item of items) {
+    if (item.ttcmScore !== undefined && item.ttcmScore !== null && !isNaN(Number(item.ttcmScore))) {
+      evaluatedCount++;
+      const score = Math.max(0, Math.min(item.maxScore, Number(item.ttcmScore) || 0));
+      if (!ttcmGroupScores[item.groupId]) {
+        ttcmGroupScores[item.groupId] = 0;
+      }
+      ttcmGroupScores[item.groupId] += score;
+      ttcmTotalScore += score;
+    }
+  }
+
+  // Làm tròn 1 chữ số thập phân
+  Object.keys(ttcmGroupScores).forEach(key => {
+    ttcmGroupScores[key] = Math.round(ttcmGroupScores[key] * 10) / 10;
+  });
+  ttcmTotalScore = Math.round(ttcmTotalScore * 10) / 10;
+  ttcmTotalScore = Math.min(100, Math.max(0, ttcmTotalScore));
+
+  const ratio = Math.round((ttcmTotalScore / 100) * 1000) / 10;
+
+  return {
+    ttcmGroupScores,
+    ttcmTotalScore,
+    evaluatedCount,
+    ratio
+  };
+};
+
+/**
+ * Biệt danh hỗ trợ cho calculateVcTctmTotals (tránh lỗi lệch ký tự)
+ */
+export const calculateVcTctmTotals = calculateVcTtcmTotals;
 
 /**
  * Tính tổng điểm CBQL theo từng nhóm và tổng cộng (Tối đa 100)
@@ -515,7 +707,7 @@ export const calculateVcManagerTotals = (items: KpiVcScoreItem[]) => {
 };
 
 /**
- * Tính tổng điểm theo từng nhóm và tổng cộng (Tối đa 100)
+ * Tính tổng điểm Giáo viên tự chấm theo từng nhóm và tổng cộng (Tối đa 100)
  */
 export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
   const groupScores: Record<string, number> = {
@@ -550,6 +742,8 @@ export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
   };
 };
 
+export const calculateVcSelfTotals = calculateVcTotals;
+
 /**
  * Tự động xếp loại theo điểm
  */
@@ -567,6 +761,14 @@ export const resolveVcTeacherPosition = (teacher: Teacher | null | undefined, de
   if (!teacher) return 'Viên chức';
   if (teacher.position && teacher.position.trim()) return teacher.position.trim();
   
+  const roleStr = String(teacher.role || '').toUpperCase();
+  if (roleStr === 'BGH' || roleStr === 'CBQL' || roleStr === 'HIỆU TRƯỜNG' || roleStr.includes('HIỆU TRƯỜNG')) {
+    if (teacher.name.toLowerCase().includes('phó') || teacher.username?.includes('phohieutruong') || teacher.code?.includes('002') || teacher.code?.includes('003')) {
+      return 'Phó Hiệu trưởng';
+    }
+    return 'Hiệu trưởng';
+  }
+
   if (teacher.subject) {
     return `Giáo viên ${teacher.subject}`;
   }

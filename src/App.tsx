@@ -18,9 +18,12 @@ import Settings from './pages/Settings';
 import Notifications from './pages/Notifications';
 import KpiCbql from './pages/KpiCbql';
 import KpiTeacherStaff from './pages/KpiTeacherStaff';
+import KpiStaff from './pages/KpiStaff';
 import Discipline from './pages/Discipline';
 import KpiCatalog from './pages/KpiCatalog';
 import Homeroom from './pages/Homeroom';
+import DepartmentSchedule from './pages/DepartmentSchedule';
+import SchoolWorkSchedule from './pages/SchoolWorkSchedule';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -48,6 +51,9 @@ function AppRoutes() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/kpi-cbql" element={<KpiCbql />} />
         <Route path="/kpi-gvnv" element={<KpiTeacherStaff />} />
+        <Route path="/kpi-nv" element={<KpiStaff />} />
+        <Route path="/kpi-nhan-vien" element={<KpiStaff />} />
+        <Route path="/kpi-staff" element={<KpiStaff />} />
         <Route path="/kpi-catalog" element={<KpiCatalog />} />
         <Route path="/kpi" element={<KpiCatalog />} />
         <Route path="/monthly-kpi" element={<KpiCatalog />} />
@@ -56,8 +62,12 @@ function AppRoutes() {
         <Route path="/homeroom" element={<Homeroom />} />
         <Route path="/cong-tac-chu-nhiem" element={<Homeroom />} />
         <Route path="/chu-nhiem" element={<Homeroom />} />
-        <Route path="/tasks" element={<Tasks />} />
-        <Route path="/tasks/:deptSlug" element={<Tasks />} />
+        <Route path="/tasks" element={<Navigate to="/school-work-schedule" replace />} />
+        <Route path="/tasks/:deptSlug" element={<Navigate to="/school-work-schedule" replace />} />
+        <Route path="/school-work-schedule" element={<SchoolWorkSchedule />} />
+        <Route path="/lich-cong-viec" element={<SchoolWorkSchedule />} />
+        <Route path="/lich-cong-viec-truong" element={<SchoolWorkSchedule />} />
+        <Route path="/work-schedule" element={<SchoolWorkSchedule />} />
         <Route path="/leaves" element={<LeaveTracking />} />
         <Route path="/teachers" element={<Teachers />} />
         <Route path="/departments" element={<Departments />} />
@@ -65,6 +75,10 @@ function AppRoutes() {
         <Route path="/van-ban" element={<Documents />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/calendar" element={<Calendar />} />
+        <Route path="/department-schedule" element={<DepartmentSchedule />} />
+        <Route path="/department-schedules" element={<DepartmentSchedule />} />
+        <Route path="/lich-giao-viec-to" element={<DepartmentSchedule />} />
+        <Route path="/lich-to-chuyen-mon" element={<DepartmentSchedule />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/notifications" element={<Notifications />} />

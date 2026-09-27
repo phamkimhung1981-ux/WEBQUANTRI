@@ -2,12 +2,12 @@ import * as XLSX from 'xlsx';
 import { KpiVcForm, KpiVcCriterion } from '../types/kpiVc';
 
 /**
- * Xuất danh sách tổng hợp KPI Giáo viên - Nhân viên ra file Excel
+ * Xuất danh sách tổng hợp KPI Giáo viên ra file Excel
  */
 export const exportVcSummaryToExcel = (
   forms: KpiVcForm[],
   periodName: string = 'Kỳ đánh giá',
-  academicYear: string = '2025-2026'
+  academicYear: string = '2026-2027'
 ) => {
   const data = forms.map((f, idx) => {
     const groupI = f.groupScores?.group_I ?? 0;
@@ -60,9 +60,9 @@ export const exportVcSummaryToExcel = (
   ];
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Tong_Hop_KPI_GVNV');
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Tong_Hop_KPI_Giao_Vien');
 
-  const fileName = `Tong_Hop_KPI_GVNV_${periodName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${academicYear}.xlsx`;
+  const fileName = `Tong_Hop_KPI_Giao_Vien_${periodName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${academicYear}.xlsx`;
   XLSX.writeFile(workbook, fileName);
 };
 

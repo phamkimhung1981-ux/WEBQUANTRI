@@ -1,0 +1,299 @@
+import { 
+  startOfWeek, 
+  endOfWeek, 
+  addWeeks, 
+  addDays,
+  format, 
+  differenceInCalendarWeeks
+} from 'date-fns';
+import { WorkAssignment, WorkAssignmentStatus } from '../types';
+import { safeParseDate } from './dateUtils';
+
+export interface SchoolWeekInfo {
+  weekNumber: number;
+  weekLabel: string;    // 'Tuần 03'
+  startDate: Date;
+  endDate: Date;
+  startDateStr: string; // '14/09/2026'
+  endDateStr: string;   // '20/09/2026'
+  startDateIso: string; // '2026-09-14'
+  endDateIso: string;   // '2026-09-20'
+  label: string;        // 'TUẦN 03 | TỪ 14/09/2026 ĐẾN 20/09/2026'
+  timeRangeStr: string; // '14/09/2026 – 20/09/2026'
+}
+
+export const ACADEMIC_YEARS = [
+  '2026–2027',
+  '2025–2026',
+  '2027–2028'
+];
+
+/**
+ * Trích xuất năm bắt đầu từ chuỗi năm học (ví dụ: '2026–2027' hoặc '2026-2027' -> 2026)
+ */
+export function parseStartYear(academicYear: string = '2026–2027'): number {
+  const match = academicYear.match(/\d{4}/);
+  if (match) {
+    const y = parseInt(match[0], 10);
+    if (!isNaN(y)) return y;
+  }
+  return 2026;
+}
+
+/**
+ * Lấy Thứ Hai đầu tiên của năm học (Tuần 01)
+ * Đối với năm học 2026–2027: Thứ Hai ngày 31/08/2026 là bắt đầu Tuần 01
+ * -> Tuần 03 sẽ rơi vào Thứ Hai ngày 14/09/2026 đến Chủ Nhật ngày 20/09/2026
+ */
+export function getSchoolYearStartMonday(academicYear: string | number = '2026–2027'): Date {
+  const startYear = typeof academicYear === 'number' ? academicYear : parseStartYear(academicYear);
+  const septFirst = new Date(startYear, 8, 1); // 1 tháng 9
+  // Thứ Hai của tuần chứa ngày 1/9
+  const monday = startOfWeek(septFirst, { weekStartsOn: 1 });
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/**
+ * Lấy thông tin chi tiết của 1 tuần học cụ thể trong năm học
+ */
+export function getWeekInfoByNumber(weekNumber: number, academicYear: string = '2026–2027'): SchoolWeekInfo {
+  const safeWeekNum = Math.max(1, Math.min(45, weekNumber));
+  const startMonday = getSchoolYearStartMonday(academicYear);
+  
+  // Tính ngày Thứ Hai của tuần này
+  const weekMonday = addWeeks(startMonday, safeWeekNum - 1);
+  weekMonday.setHours(0, 0, 0, 0);
+
+  // Tính Chủ Nhật cuối tuần (thêm 6 ngày)
+  const weekSunday = addDays(weekMonday, 6);
+  weekSunday.setHours(23, 59, 59, 999);
+
+  const padNum = String(safeWeekNum).padStart(2, '0');
+  const startDateStr = format(weekMonday, 'dd/MM/yyyy');
+  const endDateStr = format(weekSunday, 'dd/MM/yyyy');
+  const startDateIso = format(weekMonday, 'yyyy-MM-dd');
+  const endDateIso = format(weekSunday, 'yyyy-MM-dd');
+
+  return {
+    weekNumber: safeWeekNum,
+    weekLabel: `Tuần ${padNum}`,
+    startDate: weekMonday,
+    endDate: weekSunday,
+    startDateStr,
+    endDateStr,
+    startDateIso,
+    endDateIso,
+    label: `TUẦN ${padNum} | TỪ ${startDateStr} ĐẾN ${endDateStr}`,
+    timeRangeStr: `${startDateStr} – ${endDateStr}`
+  };
+}
+
+/**
+ * Lấy danh sách toàn bộ 45 tuần trong năm học
+ */
+export function getAllWeeksInYear(academicYear: string = '2026–2027'): SchoolWeekInfo[] {
+  const weeks: SchoolWeekInfo[] = [];
+  for (let i = 1; i <= 45; i++) {
+    weeks.push(getWeekInfoByNumber(i, academicYear));
+  }
+  return weeks;
+}
+
+/**
+ * Xác định tuần học tương ứng với ngày tham chiếu (mặc định là hôm nay)
+ */
+export function getCurrentSchoolWeekInfo(referenceDate: Date = new Date(), academicYear: string = '2026–2027'): SchoolWeekInfo {
+  const startMonday = getSchoolYearStartMonday(academicYear);
+  const refMonday = startOfWeek(referenceDate, { weekStartsOn: 1 });
+  refMonday.setHours(0, 0, 0, 0);
+
+  const diffWeeks = differenceInCalendarWeeks(refMonday, startMonday, { weekStartsOn: 1 });
+  let weekNum = diffWeeks + 1;
+
+  if (weekNum < 1) weekNum = 1;
+  if (weekNum > 45) weekNum = 45;
+
+  return getWeekInfoByNumber(weekNum, academicYear);
+}
+
+/**
+ * Tự động xác định Quá hạn khi:
+ * Ngày hiện tại > Hạn hoàn thành và công việc chưa hoàn thành.
+ */
+export function isTaskOverdue(task: WorkAssignment, now: Date = new Date()): boolean {
+  const isCompleted = 
+    task.status === 'Hoàn thành' || 
+    task.status === 'Hoàn thành tốt' || 
+    task.status === 'Đã hoàn thành' ||
+    task.status === 'Đã đánh giá';
+
+  if (isCompleted) return false;
+
+  if (!task.deadline) return false;
+  const d = safeParseDate(task.deadline);
+  if (!d) return false;
+
+  const endOfDeadline = new Date(d);
+  endOfDeadline.setHours(23, 59, 59, 999);
+  return now.getTime() > endOfDeadline.getTime();
+}
+
+/**
+ * Lấy trạng thái hiệu lực chuẩn hóa của công việc
+ */
+export function getEffectiveTaskStatus(task: WorkAssignment, now: Date = new Date()): WorkAssignmentStatus {
+  // 1. Kiểm tra hoàn thành tốt
+  if (task.status === 'Hoàn thành tốt' || task.evaluationResult === 'Hoàn thành tốt') {
+    return 'Hoàn thành tốt';
+  }
+
+  // 2. Kiểm tra hoàn thành
+  if (task.status === 'Hoàn thành' || task.status === 'Đã hoàn thành' || task.status === 'Đã đánh giá') {
+    return 'Hoàn thành';
+  }
+
+  // 3. Tự động xác định Quá hạn khi: Ngày hiện tại > Hạn hoàn thành và công việc chưa hoàn thành
+  if (isTaskOverdue(task, now)) {
+    return 'Quá hạn';
+  }
+
+  // 4. Các trạng thái khác
+  if (task.status === 'Chậm tiến độ') {
+    return 'Chậm tiến độ';
+  }
+  if (task.status === 'Đang thực hiện') {
+    return 'Đang thực hiện';
+  }
+
+  return 'Chưa thực hiện';
+}
+
+/**
+ * Chuẩn hóa chuỗi năm học để so sánh (thay en-dash bằng gạch nối)
+ */
+function normalizeYear(yearStr?: string): string {
+  if (!yearStr) return '';
+  return yearStr.replace(/[–—]/g, '-').trim();
+}
+
+/**
+ * Kiểm tra xem công việc có thuộc tuần đang chọn hay không
+ */
+export function isTaskInWeek(task: WorkAssignment, weekInfo: SchoolWeekInfo, academicYear?: string): boolean {
+  // 1. Nếu task có gắn academic_year hoặc academicYear, kiểm tra sự khớp nối
+  if (academicYear) {
+    const taskYear = normalizeYear(task.academic_year || task.academicYear);
+    const selectedYear = normalizeYear(academicYear);
+    if (taskYear && selectedYear && taskYear !== selectedYear) {
+      return false;
+    }
+  }
+
+  // 2. Kiểm tra số tuần trực tiếp nếu có trường week_number hoặc weekNumber
+  const taskWeekNumber = task.week_number ?? task.weekNumber;
+  if (taskWeekNumber !== undefined && taskWeekNumber !== null) {
+    return Number(taskWeekNumber) === weekInfo.weekNumber;
+  }
+
+  // 3. Kiểm tra weekLabel nếu có chứa "Tuần X" hoặc "Tuần 0X"
+  if (task.weekLabel) {
+    const norm = task.weekLabel.trim().toLowerCase();
+    const padStr = `tuần ${String(weekInfo.weekNumber).padStart(2, '0')}`;
+    const unpadStr = `tuần ${weekInfo.weekNumber}`;
+    if (norm === padStr || norm === unpadStr || norm.includes(padStr) || norm.includes(unpadStr)) {
+      return true;
+    }
+  }
+
+  const weekStart = weekInfo.startDate.getTime();
+  const weekEnd = weekInfo.endDate.getTime();
+
+  // 4. Kiểm tra ngày giao (workDate)
+  if (task.workDate) {
+    const d = safeParseDate(task.workDate);
+    if (d) {
+      const time = d.getTime();
+      if (time >= weekStart && time <= weekEnd) {
+        return true;
+      }
+    }
+  }
+
+  // 5. Kiểm tra hạn hoàn thành (deadline)
+  if (task.deadline) {
+    const d = safeParseDate(task.deadline);
+    if (d) {
+      const time = d.getTime();
+      if (time >= weekStart && time <= weekEnd) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export const ALL_MONTH_OPTIONS = [
+  'Tháng 01',
+  'Tháng 02',
+  'Tháng 03',
+  'Tháng 04',
+  'Tháng 05',
+  'Tháng 06',
+  'Tháng 07',
+  'Tháng 08',
+  'Tháng 09',
+  'Tháng 10',
+  'Tháng 11',
+  'Tháng 12'
+];
+
+export function getMonthNumberFromLabel(monthLabel: string = 'Tháng 09'): number {
+  const match = monthLabel.match(/\d+/);
+  return match ? parseInt(match[0], 10) : 9;
+}
+
+/**
+ * Kiểm tra xem 1 tuần có thuộc về tháng đánh giá hay không (dựa trên ngày giữa tuần - Thứ Năm)
+ */
+export function isWeekInMonth(weekNumber: number, monthNum: number, academicYear: string = '2026–2027'): boolean {
+  const weekInfo = getWeekInfoByNumber(weekNumber, academicYear);
+  const midWeek = addDays(weekInfo.startDate, 3); // Thứ Năm
+  return (midWeek.getMonth() + 1) === monthNum;
+}
+
+/**
+ * Lấy danh sách các tuần thuộc về 1 tháng trong năm học
+ */
+export function getWeeksForMonth(monthNum: number, academicYear: string = '2026–2027'): number[] {
+  const allWeeks = getAllWeeksInYear(academicYear);
+  const matched: number[] = [];
+  for (const w of allWeeks) {
+    const midWeek = addDays(w.startDate, 3);
+    if ((midWeek.getMonth() + 1) === monthNum) {
+      matched.push(w.weekNumber);
+    }
+  }
+  return matched;
+}
+
+/**
+ * Lấy ngày mặc định (YYYY-MM-DD) phù hợp với tháng và tuần
+ */
+export function getDefaultDateForMonthAndWeek(
+  monthNum: number,
+  weekNumber: number,
+  academicYear: string = '2026–2027'
+): string {
+  const weekInfo = getWeekInfoByNumber(weekNumber, academicYear);
+  const midWeek = addDays(weekInfo.startDate, 2); // Thứ Tư
+  if ((midWeek.getMonth() + 1) === monthNum) {
+    return format(midWeek, 'yyyy-MM-dd');
+  }
+  // Nếu tuần không thuộc tháng, lấy ngày giữa tháng đó (ngày 15)
+  const startYear = parseStartYear(academicYear);
+  const year = monthNum >= 8 ? startYear : startYear + 1;
+  const targetDate = new Date(year, monthNum - 1, 15);
+  return format(targetDate, 'yyyy-MM-dd');
+}

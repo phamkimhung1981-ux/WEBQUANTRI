@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Default to admin user for direct instant access
         const defaultAdmin: User = {
           id: 'admin',
-          name: 'Ban Giám Hiệu',
+          name: 'Nguyễn Quang Sáng',
           role: 'BGH',
           username: 'admin',
           position: 'Hiệu trưởng'

@@ -25,6 +25,12 @@ service cloud.firestore {
     match /conduct_settings/{document=**} {
       allow read, write: if true;
     }
+    match /evaluation_rating_configs/{document=**} {
+      allow read, write: if true;
+    }
+    match /evaluation_rating_config_history/{document=**} {
+      allow read, write: if true;
+    }
     match /{document=**} {
       allow read, write: if true;
     }

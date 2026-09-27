@@ -48,6 +48,7 @@ export default function HomeroomReportModal({
     let plus = 0;
     let minus = 0;
     stRecords.forEach(r => {
+      if (r.recordType === 'TICH_CUC' || r.point === 0) return;
       if (r.pointType === 'plus') plus += Math.abs(r.point);
       else minus += Math.abs(r.point);
     });
@@ -165,38 +166,62 @@ export default function HomeroomReportModal({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
                   <tr>
-                    <th className="p-3">Ngày</th>
                     <th className="p-3">Họ và tên học sinh</th>
-                    <th className="p-3">Nội dung vi phạm</th>
+                    <th className="p-3">Lớp</th>
+                    <th className="p-3">Loại vi phạm</th>
                     <th className="p-3">Mức độ</th>
-                    <th className="p-3 text-center">Điểm trừ</th>
-                    <th className="p-3">Người ghi</th>
+                    <th className="p-3">Thời gian vi phạm</th>
+                    <th className="p-3">Địa điểm</th>
+                    <th className="p-3">Người ghi nhận</th>
+                    <th className="p-3 text-center">Cảnh báo đặc biệt</th>
+                    <th className="p-3 text-center">Kết quả rèn luyện đề xuất</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {violationRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-6 text-center text-slate-500 italic">Không có lỗi vi phạm nào trong khoảng thời gian này.</td>
+                      <td colSpan={9} className="p-6 text-center text-slate-500 italic">Không có lỗi vi phạm nào trong khoảng thời gian này.</td>
                     </tr>
                   ) : (
-                    violationRecords.map(r => (
-                      <tr key={r.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-medium text-slate-600">{new Date(r.recordDate).toLocaleDateString('vi-VN')}</td>
-                        <td className="p-3 font-bold text-slate-800">{r.studentName}</td>
-                        <td className="p-3 font-semibold text-slate-700">{r.criterionName}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            r.level === 'Rất nghiêm trọng' ? 'bg-rose-100 text-rose-800' :
-                            r.level === 'Nghiêm trọng' ? 'bg-orange-100 text-orange-800' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
-                            {r.level || 'Nhẹ'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-center font-bold text-rose-600">{r.point}</td>
-                        <td className="p-3 text-slate-500">{r.recordedByName}</td>
-                      </tr>
-                    ))
+                    violationRecords.map(r => {
+                      const isSpecial = r.special_warning || r.categoryType === 'ATGT' || r.categoryType === 'BẠO LỰC HỌC ĐƯỜNG' || r.categoryType === 'GIAN LẬN THI CỬ';
+                      const proposedText = isSpecial ? 'YẾU / CHƯA ĐẠT' : (r.proposedRating || 'Theo dõi');
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50">
+                          <td className="p-3 font-bold text-slate-800">{r.studentName}</td>
+                          <td className="p-3 font-medium text-slate-600">{r.className}</td>
+                          <td className="p-3 font-semibold text-slate-700">{r.categoryType || r.categoryName}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              r.level === 'Rất nghiêm trọng' ? 'bg-rose-100 text-rose-800' :
+                              r.level === 'Nghiêm trọng' ? 'bg-orange-100 text-orange-800' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              {r.level || 'Nhẹ'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-medium text-slate-600">{new Date(r.recordDate).toLocaleDateString('vi-VN')}</td>
+                          <td className="p-3 text-slate-600">{r.location || 'Trường'}</td>
+                          <td className="p-3 text-slate-500">{r.recordedByName}</td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              isSpecial ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {isSpecial ? 'CÓ' : 'KHÔNG'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                              isSpecial || proposedText.includes('YẾU') || proposedText.includes('Chưa đạt')
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : 'bg-blue-50 text-blue-800'
+                            }`}>
+                              {proposedText}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

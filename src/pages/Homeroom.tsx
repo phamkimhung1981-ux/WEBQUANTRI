@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users,
   PlusCircle,
@@ -22,7 +22,11 @@ import {
   School,
   UserPlus,
   Download,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  Sparkles,
+  CheckSquare,
+  FileText
 } from 'lucide-react';
 import {
   ClassInfo,
@@ -32,15 +36,23 @@ import {
   ConductRecord,
   ConductEvaluation,
   ConductSettings,
-  HomeroomAssignment
+  HomeroomAssignment,
+  SeriousViolationConfig,
+  TeacherAssessment,
+  EvaluationRatingConfig,
+  EvaluationRatingConfigHistory,
+  RatingTierItem,
+  EvaluationPeriodScopeType
 } from '../types/homeroom';
 import { homeroomService } from '../services/homeroomService';
-import { calculateConductScore } from '../lib/homeroomData';
+import { calculateConductScore, evaluateStudentConductRules, DEFAULT_SERIOUS_VIOLATION_CONFIGS, checkStudentHasSpecialWarning, DEFAULT_RATING_TIERS, getRatingBadgeStyle } from '../lib/homeroomData';
 import { exportHomeroomToExcel } from '../utils/homeroomExport';
 import { exportStudentListToExcel } from '../utils/studentExcel';
+import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../utils/studentSorting';
 import { useAuth } from '../store/AuthContext';
 import { useAppContext } from '../store/AppContext';
 import BackButton from '../components/ui/BackButton';
+import { ALL_MONTH_OPTIONS, isWeekInMonth, getWeeksForMonth } from '../utils/schoolWeekUtils';
 
 // Import Modals
 import StudentProfileModal from '../components/homeroom/StudentProfileModal';
@@ -53,6 +65,13 @@ import ConductSettingsModal from '../components/homeroom/ConductSettingsModal';
 import HomeroomReportModal from '../components/homeroom/HomeroomReportModal';
 import ClassManagerModal from '../components/homeroom/ClassManagerModal';
 import StudentManagerModal from '../components/homeroom/StudentManagerModal';
+import PostSaveWarningModal from '../components/homeroom/PostSaveWarningModal';
+import BghApprovalTab from '../components/homeroom/BghApprovalTab';
+import SeriousViolationsReportModal from '../components/homeroom/SeriousViolationsReportModal';
+import ResetConductModal from '../components/homeroom/ResetConductModal';
+import TeacherAssessmentModal from '../components/homeroom/TeacherAssessmentModal';
+import BulkGoodAssessmentModal from '../components/homeroom/BulkGoodAssessmentModal';
+import EvaluationRatingConfigModal from '../components/homeroom/EvaluationRatingConfigModal';
 
 export default function Homeroom() {
   const { user } = useAuth();
@@ -67,6 +86,8 @@ export default function Homeroom() {
   const [criteria, setCriteria] = useState<ConductCriterion[]>([]);
   const [records, setRecords] = useState<ConductRecord[]>([]);
   const [evaluations, setEvaluations] = useState<ConductEvaluation[]>([]);
+  const [teacherAssessments, setTeacherAssessments] = useState<TeacherAssessment[]>([]);
+  const [violationConfigs, setViolationConfigs] = useState<SeriousViolationConfig[]>(DEFAULT_SERIOUS_VIOLATION_CONFIGS);
   const [settings, setSettings] = useState<ConductSettings>({
     id: 'default_conduct_settings',
     schoolYear: '2026–2027',
@@ -74,16 +95,50 @@ export default function Homeroom() {
     thresholds: { totMin: 90, khaMin: 70, datMin: 50 }
   });
 
-  // Active Filters
-  const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('2026–2027');
-  const [selectedGrade, setSelectedGrade] = useState<string>('all');
-  const [selectedClassId, setSelectedClassId] = useState<string>('');
-  const [selectedWeek, setSelectedWeek] = useState<number>(3); // e.g. Tuần 3
-  const [selectedMonth, setSelectedMonth] = useState<string>('Tháng 09');
+  // Active Filters (Persisted to localStorage across F5 - Requirement 11)
+  const [selectedSchoolYear, setSelectedSchoolYearState] = useState<string>(() => {
+    return localStorage.getItem('homeroom_selected_school_year') || '2026–2027';
+  });
+  const [selectedGrade, setSelectedGradeState] = useState<string>(() => {
+    return localStorage.getItem('homeroom_selected_grade') || 'all';
+  });
+  const [selectedClassId, setSelectedClassIdState] = useState<string>(() => {
+    return localStorage.getItem('homeroom_selected_class_id') || '';
+  });
+  const [selectedWeek, setSelectedWeekState] = useState<number>(() => {
+    const saved = localStorage.getItem('homeroom_selected_week');
+    return saved ? Number(saved) : 3;
+  });
+  const [selectedMonth, setSelectedMonthState] = useState<string>(() => {
+    return localStorage.getItem('homeroom_selected_month') || 'Tháng 09';
+  });
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [studentSortMode, setStudentSortMode] = useState<StudentSortMode>('default');
+
+  // Persistence helpers
+  const setSelectedSchoolYear = (val: string) => {
+    setSelectedSchoolYearState(val);
+    localStorage.setItem('homeroom_selected_school_year', val);
+  };
+  const setSelectedGrade = (val: string) => {
+    setSelectedGradeState(val);
+    localStorage.setItem('homeroom_selected_grade', val);
+  };
+  const setSelectedClassId = (val: string) => {
+    setSelectedClassIdState(val);
+    localStorage.setItem('homeroom_selected_class_id', val);
+  };
+  const setSelectedWeek = (val: number) => {
+    setSelectedWeekState(val);
+    localStorage.setItem('homeroom_selected_week', String(val));
+  };
+  const setSelectedMonth = (val: string) => {
+    setSelectedMonthState(val);
+    localStorage.setItem('homeroom_selected_month', val);
+  };
 
   // Active Main Tab
-  const [activeTab, setActiveTab] = useState<'students' | 'weekly' | 'monthly' | 'ranking' | 'alerts' | 'evaluations'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'weekly' | 'monthly' | 'ranking' | 'alerts' | 'evaluations' | 'bgh_approval'>('students');
 
   // Modal States
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
@@ -94,19 +149,56 @@ export default function Homeroom() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isEvaluationModalOpen, setIsEvaluationModalOpen] = useState(false);
+  const [isTeacherAssessmentModalOpen, setIsTeacherAssessmentModalOpen] = useState(false);
+  const [isBulkGoodModalOpen, setIsBulkGoodModalOpen] = useState(false);
+  const [bulkGoodInitialMode, setBulkGoodInitialMode] = useState<'all' | 'unevaluated'>('all');
+  const [isRatingConfigModalOpen, setIsRatingConfigModalOpen] = useState(false);
+  const [ratingConfigs, setRatingConfigs] = useState<EvaluationRatingConfig[]>([]);
+  const [ratingHistory, setRatingHistory] = useState<EvaluationRatingConfigHistory[]>([]);
   const [isClassManagerOpen, setIsClassManagerOpen] = useState(false);
   const [isStudentManagerOpen, setIsStudentManagerOpen] = useState(false);
+  const [studentManagerInitialTab, setStudentManagerInitialTab] = useState<'single' | 'excel' | 'list'>('excel');
+
+  // New Conduct Warning Modal States
+  const [isSeriousReportModalOpen, setIsSeriousReportModalOpen] = useState(false);
+  const [isResetConductModalOpen, setIsResetConductModalOpen] = useState(false);
+  const [resetSuccessToast, setResetSuccessToast] = useState<string>('');
+  const [studentTableScope, setStudentTableScopeState] = useState<'week' | 'month' | 'year'>(() => {
+    return (localStorage.getItem('homeroom_student_table_scope') as any) || 'month';
+  });
+  const setStudentTableScope = (val: 'week' | 'month' | 'year') => {
+    setStudentTableScopeState(val);
+    localStorage.setItem('homeroom_student_table_scope', val);
+  };
+  const [postSaveWarningModalOpen, setPostSaveWarningModalOpen] = useState(false);
+  const [postSaveWarningRecord, setPostSaveWarningRecord] = useState<ConductRecord | null>(null);
+  const [postSaveWarningStudent, setPostSaveWarningStudent] = useState<Student | null>(null);
 
   // Selected entities for modals
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<Student | null>(null);
   const [selectedStudentForEval, setSelectedStudentForEval] = useState<Student | null>(null);
+  const [selectedStudentForAssessment, setSelectedStudentForAssessment] = useState<Student | null>(null);
+  const [assessmentInitialSelectedIds, setAssessmentInitialSelectedIds] = useState<string[] | undefined>(undefined);
   const [defaultStudentForRecord, setDefaultStudentForRecord] = useState<string | undefined>(undefined);
   const [studentToDeleteFromDashboard, setStudentToDeleteFromDashboard] = useState<Student | null>(null);
   const [isDeletingFromDashboard, setIsDeletingFromDashboard] = useState(false);
 
+  // Delete all / bulk delete students state
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [deleteAllWithConductRecords, setDeleteAllWithConductRecords] = useState(true);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    setSelectedStudentIds([]);
+  }, [selectedClassId, selectedSchoolYear, activeTab]);
+
   // Initial Firestore subscriptions
   useEffect(() => {
     homeroomService.seedIfEmpty();
+    homeroomService.syncAllClassStudentCounts();
 
     const unsubCls = homeroomService.subscribeClasses(setClasses);
     const unsubStd = homeroomService.subscribeStudents(setStudents);
@@ -115,7 +207,11 @@ export default function Homeroom() {
     const unsubCrit = homeroomService.subscribeCriteria(setCriteria);
     const unsubRec = homeroomService.subscribeRecords(setRecords);
     const unsubEval = homeroomService.subscribeEvaluations(setEvaluations);
+    const unsubTA = homeroomService.subscribeTeacherAssessments(setTeacherAssessments);
     const unsubSet = homeroomService.subscribeSettings(setSettings);
+    const unsubVio = homeroomService.subscribeViolationConfigs(setViolationConfigs);
+    const unsubRating = homeroomService.subscribeRatingConfigs(setRatingConfigs);
+    const unsubHistory = homeroomService.subscribeRatingHistory(setRatingHistory);
 
     return () => {
       unsubCls();
@@ -125,16 +221,25 @@ export default function Homeroom() {
       unsubCrit();
       unsubRec();
       unsubEval();
+      unsubTA();
       unsubSet();
+      unsubVio();
+      unsubRating();
+      unsubHistory();
     };
   }, []);
 
-  // Set default class once loaded
+  // Set default class once loaded (restore from localStorage if valid)
   useEffect(() => {
-    if (classes.length > 0 && !selectedClassId) {
-      setSelectedClassId(classes[0].id);
+    if (classes.length > 0) {
+      const savedClassId = localStorage.getItem('homeroom_selected_class_id');
+      if (savedClassId && classes.some(c => c.id === savedClassId)) {
+        setSelectedClassIdState(savedClassId);
+      } else if (!selectedClassId) {
+        setSelectedClassIdState(classes[0].id);
+      }
     }
-  }, [classes, selectedClassId]);
+  }, [classes]);
 
   // Derived filtered classes
   const filteredClasses = classes.filter(c => {
@@ -142,19 +247,326 @@ export default function Homeroom() {
     return true;
   });
 
-  const selectedClass = classes.find(c => c.id === selectedClassId) || filteredClasses[0] || null;
+  // Ensure selectedClass is always strictly within filteredClasses (Requirement 5)
+  const selectedClass = filteredClasses.find(c => c.id === selectedClassId) || filteredClasses[0] || null;
 
-  // Derived students for selected class & search
-  const classStudents = students
-    .filter(s => !selectedClass || s.classId === selectedClass.id)
-    .filter(s => !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.code.toLowerCase().includes(searchQuery.toLowerCase()));
+  // Whenever selectedGrade changes or classes change, keep selectedClassId strictly in sync with filteredClasses
+  useEffect(() => {
+    if (filteredClasses.length > 0) {
+      const isCurrentInFiltered = filteredClasses.some(c => c.id === selectedClassId);
+      if (!isCurrentInFiltered) {
+        setSelectedClassIdState(filteredClasses[0].id);
+        localStorage.setItem('homeroom_selected_class_id', filteredClasses[0].id);
+      }
+    }
+  }, [selectedGrade, classes]);
 
-  // Derived records for selected class
-  const classRecords = records.filter(r => !selectedClass || r.classId === selectedClass.id);
+  // Robust function to verify if a student belongs to a given class (Requirement 5 & 6)
+  const isStudentOfClass = (s: Student, cls: ClassInfo | null) => {
+    if (!cls) return true;
+    if (s.classId === cls.id) {
+      if (s.className && cls.name && s.className.trim().toLowerCase() !== cls.name.trim().toLowerCase()) {
+        const otherCls = classes.find(c => c.name.trim().toLowerCase() === s.className.trim().toLowerCase());
+        if (otherCls && otherCls.id !== cls.id) return false;
+      }
+      return true;
+    }
+    if (s.className && cls.name && s.className.trim().toLowerCase() === cls.name.trim().toLowerCase()) {
+      return true;
+    }
+    return false;
+  };
+
+  // Dynamic real count calculation for any class
+  const getClassStudentCount = (cls: ClassInfo) => {
+    return students.filter(s => isStudentOfClass(s, cls)).length;
+  };
+
+  // Derived students for selected class & search & Vietnamese given-name sort
+  const rawClassStudents = students
+    .filter(s => isStudentOfClass(s, selectedClass))
+    .filter(s => !searchQuery || (s.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || (s.code || '').toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const classStudents = sortStudentsByVietnameseName(rawClassStudents, studentSortMode);
+
+  const handleToggleAbcSort = () => {
+    setStudentSortMode(prev => {
+      // Khi bấm lần đầu: → A–B–C. Khi bấm lần tiếp theo: → Z–A
+      if (prev === 'name_asc') return 'name_desc';
+      return 'name_asc';
+    });
+  };
+
+  // Derived records for selected class and school year
+  const classRecords = records.filter(r => 
+    (!selectedClass || r.classId === selectedClass.id) &&
+    (!r.schoolYear || r.schoolYear === selectedSchoolYear)
+  );
+
+  const selMonthNum = parseInt(selectedMonth.replace(/\D/g, ''), 10) || 9;
+
+  // Exact records belonging to the selected month (Requirements 1, 3, 4, 5, 6)
+  const monthClassRecords = classRecords.filter(r => {
+    const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
+    return rMonth === selMonthNum;
+  });
+
+  // Week verification against selected month (Requirements 9 & 10)
+  const isSelectedWeekInMonth = isWeekInMonth(selectedWeek, selMonthNum, selectedSchoolYear);
+  const weeksForCurrentMonth = getWeeksForMonth(selMonthNum, selectedSchoolYear);
+
+  const currentScopeRecordsCount = classRecords.filter(r => {
+    const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
+    return Number(r.weekNumber) === Number(selectedWeek) && rMonth === selMonthNum;
+  }).length;
+
+  const isHomeroomTeacher = user?.role?.toUpperCase() === 'TEACHER' || user?.role?.toUpperCase() === 'GVCN' || isBgh;
+
+  const handleOpenResetModal = () => {
+    if (!isBgh && !isHomeroomTeacher) {
+      alert('Bạn không có quyền thực hiện chức năng này. Chỉ Quản trị viên (BGH) hoặc Giáo viên chủ nhiệm mới có quyền xóa/reset kết quả nền nếp.');
+      return;
+    }
+    setIsResetConductModalOpen(true);
+  };
+
+  const handleResetConduct = async () => {
+    if (!selectedClass) return;
+    const targetClassId = selectedClass.id;
+
+    await homeroomService.clearConductData({
+      schoolYear: selectedSchoolYear,
+      classId: targetClassId,
+      weekNumber: selectedWeek,
+      monthNumber: selMonthNum,
+      monthLabel: selectedMonth,
+      resetTeacherAssessments: true
+    });
+
+    // Synchronize local state immediately (Requirements 6, 9, 13)
+    setRecords(prev => prev.filter(r => !(
+      r.classId === targetClassId &&
+      (!r.schoolYear || r.schoolYear === selectedSchoolYear) &&
+      Number(r.weekNumber) === Number(selectedWeek) &&
+      (Number(r.monthNumber) === Number(selMonthNum) || !r.monthNumber)
+    )));
+
+    setEvaluations(prev => prev.filter(e => !(
+      e.classId === targetClassId &&
+      (!e.schoolYear || e.schoolYear === selectedSchoolYear) &&
+      (e.period === selectedMonth || e.period === `Tuần ${String(selectedWeek).padStart(2, '0')}`)
+    )));
+
+    setTeacherAssessments(prev => prev.filter(a => !(
+      a.classId === targetClassId &&
+      (!a.schoolYear || a.schoolYear === selectedSchoolYear) &&
+      (Number(a.monthNumber) === Number(selMonthNum) || a.month === selectedMonth)
+    )));
+
+    setResetSuccessToast('Đã xóa/reset kết quả nền nếp thành công.');
+    setTimeout(() => {
+      setResetSuccessToast('');
+    }, 4000);
+  };
 
   // Homeroom assignment teacher
   const currentAssignment = assignments.find(a => a.classId === selectedClass?.id && a.status === 'active');
   const homeroomTeacherName = selectedClass?.homeroomTeacherName || currentAssignment?.teacherName || 'Chưa phân công';
+
+  // Permission check for teacher assessment (GVCN of this class or BGH)
+  const isCurrentClassHomeroomTeacher = Boolean(
+    user && (
+      selectedClass?.homeroomTeacherId === user.id ||
+      selectedClass?.homeroomTeacherName === user.name ||
+      currentAssignment?.teacherId === user.id ||
+      currentAssignment?.teacherName === user.name
+    )
+  );
+
+  const canManageAssessment = Boolean(
+    isBgh ||
+    isCurrentClassHomeroomTeacher ||
+    (!selectedClass?.homeroomTeacherName && (user?.role === 'GVCN' || user?.role === 'TEACHER'))
+  );
+
+  // 1. Rating config handlers (Requirement 3, 4, 5)
+  const handleSaveRatingConfig = async (
+    config: EvaluationRatingConfig,
+    previousTiers?: RatingTierItem[] | null,
+    note?: string
+  ) => {
+    await homeroomService.saveRatingConfig(
+      config,
+      { name: user?.name || 'BGH', role: user?.role },
+      previousTiers,
+      note
+    );
+  };
+
+  const handleRestoreDefaultRatingConfig = async (
+    schoolYear: string,
+    periodType: EvaluationPeriodScopeType,
+    periodId: string,
+    previousTiers?: RatingTierItem[]
+  ) => {
+    await homeroomService.restoreDefaultRatingConfig(
+      schoolYear,
+      periodType,
+      periodId,
+      { name: user?.name || 'BGH', role: user?.role },
+      previousTiers
+    );
+  };
+
+  // 2. Active Rating Config matching current scope and schoolYear (Requirement 10)
+  const activeRatingConfig = useMemo(() => {
+    const currentPeriodId = studentTableScope === 'week'
+      ? `Tuần ${String(selectedWeek).padStart(2, '0')}`
+      : studentTableScope === 'month'
+      ? selectedMonth
+      : 'all';
+
+    // Exact scope and period match
+    const exact = ratingConfigs.find(c =>
+      c.school_year === selectedSchoolYear &&
+      c.evaluation_period_type === studentTableScope &&
+      c.evaluation_period_id === currentPeriodId &&
+      c.is_active !== false
+    );
+    if (exact) return exact;
+
+    // Month scope fallback if in month mode
+    if (studentTableScope === 'month') {
+      const monthCfg = ratingConfigs.find(c =>
+        c.school_year === selectedSchoolYear &&
+        c.evaluation_period_type === 'month' &&
+        c.evaluation_period_id === selectedMonth &&
+        c.is_active !== false
+      );
+      if (monthCfg) return monthCfg;
+    }
+
+    // Default for year / all
+    const defaultCfg = ratingConfigs.find(c =>
+      c.school_year === selectedSchoolYear &&
+      c.evaluation_period_type === 'all' &&
+      c.is_active !== false
+    );
+    if (defaultCfg) return defaultCfg;
+
+    return null;
+  }, [ratingConfigs, selectedSchoolYear, studentTableScope, selectedMonth, selectedWeek]);
+
+  // Month-specific rating config for Month tab & Teacher Assessment
+  const activeMonthRatingConfig = useMemo(() => {
+    const exact = ratingConfigs.find(c =>
+      c.school_year === selectedSchoolYear &&
+      c.evaluation_period_type === 'month' &&
+      c.evaluation_period_id === selectedMonth &&
+      c.is_active !== false
+    );
+    if (exact) return exact;
+    return ratingConfigs.find(c =>
+      c.school_year === selectedSchoolYear &&
+      c.evaluation_period_type === 'all' &&
+      c.is_active !== false
+    ) || null;
+  }, [ratingConfigs, selectedSchoolYear, selectedMonth]);
+
+  // Active tiers list (Requirement 6, 7)
+  const activeRatingTiers = useMemo(() => {
+    if (activeRatingConfig?.tiers && activeRatingConfig.tiers.length > 0) {
+      return activeRatingConfig.tiers;
+    }
+    return DEFAULT_RATING_TIERS;
+  }, [activeRatingConfig]);
+
+  // Current Good tier (Requirement 8)
+  const currentGoodTier = useMemo(() => {
+    return activeRatingTiers.find(t => t.name.trim().toLowerCase() === 'tốt') || activeRatingTiers[0] || DEFAULT_RATING_TIERS[0];
+  }, [activeRatingTiers]);
+
+  // Class student scores & ratings dynamically evaluated from active configuration (Requirements 6 & 7)
+  const classStudentScores = useMemo(() => {
+    const map = new Map<string, { totalScore: number; classification: string; badgeStyle: string; totalPlus: number; totalMinus: number; hasSpecialWarning: boolean }>();
+
+    classStudents.forEach(st => {
+      const stRecords = classRecords.filter(r => {
+        if (r.studentId !== st.id) return false;
+        if (studentTableScope === 'year') return true;
+        const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
+        if (rMonth !== selMonthNum) return false;
+        if (studentTableScope === 'week') return Number(r.weekNumber) === Number(selectedWeek);
+        return true;
+      });
+
+      const hasSpecialWarning = checkStudentHasSpecialWarning(stRecords);
+      let totalPlus = 0;
+      let totalMinus = 0;
+      stRecords.forEach(r => {
+        if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+        if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
+        else totalMinus += Math.abs(r.point);
+      });
+
+      const { totalScore, classification, ratingResult } = calculateConductScore(
+        settings.baseScore || 100,
+        totalPlus,
+        totalMinus,
+        settings.thresholds,
+        hasSpecialWarning,
+        activeRatingConfig
+      );
+
+      map.set(st.id, {
+        totalScore,
+        classification,
+        badgeStyle: ratingResult.badge_style || getRatingBadgeStyle(ratingResult.color, classification),
+        totalPlus,
+        totalMinus,
+        hasSpecialWarning
+      });
+    });
+
+    return map;
+  }, [classStudents, classRecords, studentTableScope, selMonthNum, selectedWeek, settings, activeRatingConfig]);
+
+  // Dynamic count per tier in current class view (Requirement 7)
+  const classRatingCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    activeRatingTiers.forEach(t => {
+      counts[t.name] = 0;
+    });
+
+    classStudents.forEach(st => {
+      const info = classStudentScores.get(st.id);
+      if (info) {
+        counts[info.classification] = (counts[info.classification] || 0) + 1;
+      }
+    });
+
+    return counts;
+  }, [classStudents, classStudentScores, activeRatingTiers]);
+
+  // Derived teacher assessments statistics for current class & period
+  const classTeacherAssessments = teacherAssessments.filter(a =>
+    a.classId === selectedClass?.id &&
+    (!a.schoolYear || a.schoolYear === selectedSchoolYear) &&
+    (Number(a.monthNumber) === selMonthNum || a.month === selectedMonth)
+  );
+
+  const classEvaluatedCount = classStudents.filter(st =>
+    classTeacherAssessments.some(a => a.studentId === st.id)
+  ).length;
+
+  const classUnevaluatedCount = Math.max(0, classStudents.length - classEvaluatedCount);
+
+  const classGoodCount = classStudents.filter(st => {
+    const a = classTeacherAssessments.find(item => item.studentId === st.id);
+    return a && (a.levelRating === 'Tốt' || a.teacherProposedRating === 'Tốt');
+  }).length;
+
+  const [assessmentToast, setAssessmentToast] = useState<string>('');
 
   // Open modal handlers
   const handleOpenRecordForStudent = (studentId: string) => {
@@ -170,6 +582,180 @@ export default function Homeroom() {
   const handleOpenEval = (student: Student) => {
     setSelectedStudentForEval(student);
     setIsEvaluationModalOpen(true);
+  };
+
+  const handleOpenTeacherAssessment = (student?: Student | null, initialIds?: string[]) => {
+    setSelectedStudentForAssessment(student || null);
+    setAssessmentInitialSelectedIds(initialIds);
+    setIsTeacherAssessmentModalOpen(true);
+  };
+
+  const handleSaveTeacherAssessment = async (assessmentPayload: Partial<TeacherAssessment>) => {
+    const result = await homeroomService.saveTeacherAssessment(assessmentPayload);
+    if (result?.isUpdate) {
+      setAssessmentToast('Đã cập nhật ghi nhận của GVCN thành công');
+    } else {
+      setAssessmentToast('Đã lưu phiếu ghi nhận của GVCN thành công');
+    }
+    setTimeout(() => {
+      setAssessmentToast('');
+    }, 4000);
+  };
+
+  const handleBulkSaveTeacherAssessments = async (
+    selectedIds: string[],
+    data: any,
+    skipDuplicates?: boolean
+  ) => {
+    if (!selectedClass) {
+      return {
+        totalProcessed: 0,
+        successCount: 0,
+        failedCount: 0,
+        failedStudents: [],
+        skippedDuplicatesCount: 0,
+        updatedCount: 0,
+        newCount: 0
+      };
+    }
+    const targetStudents = classStudents.filter(s => selectedIds.includes(s.id));
+    const result = await homeroomService.bulkSaveTeacherAssessments({
+      students: targetStudents,
+      classId: selectedClass.id,
+      className: selectedClass.name,
+      schoolYear: selectedSchoolYear,
+      semester: 'Học kỳ I',
+      month: selectedMonth,
+      monthNumber: selMonthNum,
+      assessment: {
+        ruleCompliance: data.ruleCompliance,
+        learningAttitude: data.learningAttitude,
+        responsibility: data.responsibility,
+        collectiveActivities: data.collectiveActivities,
+        relationships: data.relationships,
+        selfDiscipline: data.selfDiscipline,
+      },
+      content: data.content || data.comment,
+      comment: data.comment || data.content,
+      levelRating: data.levelRating,
+      teacherProposedRating: data.teacherProposedRating,
+      needsMonitoring: data.needsMonitoring,
+      recordDate: data.recordDate,
+      teacherId: user?.id || 'gvcn',
+      teacherName: homeroomTeacherName,
+      recordedBy: user?.name || 'Giáo viên chủ nhiệm',
+      updatedBy: user?.name || 'GVCN',
+      skipDuplicates
+    });
+
+    if (result.successCount > 0) {
+      setAssessmentToast(`✓ Đã ghi nhận cho ${result.successCount}/${targetStudents.length} học sinh.`);
+    } else if (result.skippedDuplicatesCount > 0) {
+      setAssessmentToast(`Đã bỏ qua ${result.skippedDuplicatesCount} bản ghi trùng lặp.`);
+    }
+    setTimeout(() => {
+      setAssessmentToast('');
+    }, 4500);
+
+    return result;
+  };
+
+  const handleOpenBulkGoodAssessment = (mode: 'all' | 'unevaluated' = 'all') => {
+    setBulkGoodInitialMode(mode);
+    setIsBulkGoodModalOpen(true);
+  };
+
+  const handleSaveBulkGoodAssessment = async (
+    selectedIds: string[],
+    data: {
+      ruleCompliance: string;
+      learningAttitude: string;
+      responsibility: string;
+      collectiveActivities: string;
+      relationships: string;
+      selfDiscipline: string;
+      comment: string;
+      levelRating: 'Tốt' | 'Khá' | 'Đạt' | 'Chưa đạt';
+      teacherProposedRating: 'Tốt' | 'Khá' | 'Đạt' | 'Yếu / Chưa đạt';
+      needsMonitoring: boolean;
+      recordDate: string;
+    }
+  ) => {
+    if (!selectedClass) return { totalProcessed: 0, updatedCount: 0, newCount: 0 };
+    const targetStudents = students.filter(s => selectedIds.includes(s.id));
+    const result = await homeroomService.bulkSaveGoodTeacherAssessments({
+      students: targetStudents,
+      classId: selectedClass.id,
+      className: selectedClass.name,
+      schoolYear: selectedSchoolYear,
+      semester: 'Học kỳ I',
+      month: selectedMonth,
+      monthNumber: selMonthNum,
+      assessment: {
+        ruleCompliance: data.ruleCompliance,
+        learningAttitude: data.learningAttitude,
+        responsibility: data.responsibility,
+        collectiveActivities: data.collectiveActivities,
+        relationships: data.relationships,
+        selfDiscipline: data.selfDiscipline,
+      },
+      comment: data.comment,
+      levelRating: data.levelRating,
+      teacherProposedRating: data.teacherProposedRating,
+      needsMonitoring: data.needsMonitoring,
+      recordDate: data.recordDate,
+      teacherId: user?.id || 'gvcn',
+      teacherName: homeroomTeacherName,
+      recordedBy: user?.name || 'Giáo viên chủ nhiệm',
+      updatedBy: user?.name || 'GVCN'
+    });
+
+    setAssessmentToast(`Đã cập nhật đánh giá cho ${result.totalProcessed} học sinh. Xếp loại: Tốt.`);
+    setTimeout(() => {
+      setAssessmentToast('');
+    }, 4500);
+
+    return result;
+  };
+
+  const handleConfirmDeleteAllStudents = async () => {
+    if (!selectedClass) return;
+    try {
+      setIsDeletingAll(true);
+      const res = await homeroomService.deleteAllStudentsOfClass(selectedClass.id, {
+        deleteRecordsAndAssessments: deleteAllWithConductRecords
+      });
+      if (deleteAllWithConductRecords) {
+        setRecords(prev => prev.filter(r => !(r.classId === selectedClass.id && (!r.schoolYear || r.schoolYear === selectedSchoolYear))));
+        setEvaluations(prev => prev.filter(e => !(e.classId === selectedClass.id && (!e.schoolYear || e.schoolYear === selectedSchoolYear))));
+        setTeacherAssessments(prev => prev.filter(a => !(a.classId === selectedClass.id && (!a.schoolYear || a.schoolYear === selectedSchoolYear))));
+      }
+      setIsDeleteAllModalOpen(false);
+      setSelectedStudentIds([]);
+      setResetSuccessToast(`Đã xóa thành công toàn bộ ${res.deletedCount} hồ sơ học sinh của lớp ${selectedClass.name}.`);
+      setTimeout(() => setResetSuccessToast(''), 4000);
+    } catch (err: any) {
+      alert('Lỗi khi xóa hồ sơ học sinh: ' + (err.message || err));
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
+  const handleConfirmDeleteSelectedStudents = async () => {
+    if (!selectedClass || selectedStudentIds.length === 0) return;
+    try {
+      setIsDeletingSelected(true);
+      await homeroomService.deleteStudentsBulk(selectedStudentIds, selectedClass.id);
+      setShowBulkDeleteConfirm(false);
+      const count = selectedStudentIds.length;
+      setSelectedStudentIds([]);
+      setResetSuccessToast(`Đã xóa thành công ${count} hồ sơ học sinh đã chọn.`);
+      setTimeout(() => setResetSuccessToast(''), 4000);
+    } catch (err: any) {
+      alert('Lỗi khi xóa học sinh: ' + (err.message || err));
+    } finally {
+      setIsDeletingSelected(false);
+    }
   };
 
   const handleDeleteRecord = async (id: string) => {
@@ -261,7 +847,7 @@ export default function Homeroom() {
                 className="bg-transparent font-black text-blue-900 text-sm outline-none cursor-pointer"
               >
                 {filteredClasses.map(c => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.totalStudents} học sinh)</option>
+                  <option key={c.id} value={c.id}>{c.name} ({getClassStudentCount(c)} học sinh)</option>
                 ))}
               </select>
               <button
@@ -287,7 +873,7 @@ export default function Homeroom() {
               </select>
             </div>
 
-            {/* Month Selector */}
+            {/* Month Selector with all 12 months (Requirement 2) */}
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
               <span className="text-slate-500 font-medium">Tháng:</span>
               <select
@@ -295,15 +881,9 @@ export default function Homeroom() {
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="bg-transparent font-bold text-slate-800 outline-none cursor-pointer"
               >
-                <option value="Tháng 09">Tháng 09</option>
-                <option value="Tháng 10">Tháng 10</option>
-                <option value="Tháng 11">Tháng 11</option>
-                <option value="Tháng 12">Tháng 12</option>
-                <option value="Tháng 01">Tháng 01</option>
-                <option value="Tháng 02">Tháng 02</option>
-                <option value="Tháng 03">Tháng 03</option>
-                <option value="Tháng 04">Tháng 04</option>
-                <option value="Tháng 05">Tháng 05</option>
+                {ALL_MONTH_OPTIONS.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -314,6 +894,32 @@ export default function Homeroom() {
             <strong className="text-blue-700">{homeroomTeacherName}</strong>
           </div>
         </div>
+
+        {/* Warning banner when selected week does not belong to selected month (Requirement 10) */}
+        {!isSelectedWeekInMonth && (
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+              <span>
+                <strong>Lưu ý:</strong> Tuần {String(selectedWeek).padStart(2, '0')} không thuộc <strong>{selectedMonth}</strong>. Toàn bộ dữ liệu hiển thị hiện tại được tính riêng cho <strong>{selectedMonth}</strong>.
+                {weeksForCurrentMonth.length > 0 && (
+                  <span className="ml-1 text-amber-800">
+                    (Các tuần thuộc {selectedMonth}: {weeksForCurrentMonth.map(w => `Tuần ${String(w).padStart(2, '0')}`).join(', ')})
+                  </span>
+                )}
+              </span>
+            </div>
+            {weeksForCurrentMonth.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedWeek(weeksForCurrentMonth[0])}
+                className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+              >
+                Chuyển sang Tuần {String(weeksForCurrentMonth[0]).padStart(2, '0')}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Action Buttons Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
@@ -350,8 +956,11 @@ export default function Homeroom() {
             </button>
 
             <button
-              onClick={() => setIsStudentManagerOpen(true)}
-              className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5"
+              onClick={() => {
+                setStudentManagerInitialTab('excel');
+                setIsStudentManagerOpen(true);
+              }}
+              className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <UserPlus size={16} /> QUẢN LÝ / NHẬP HS
             </button>
@@ -361,9 +970,24 @@ export default function Homeroom() {
                 onClick={() => setIsCriteriaManagerOpen(true)}
                 className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5"
               >
-                <Settings size={15} /> QUẢN LÝ TIÊU CHÍ
+                <Settings size={15} /> QUẢN LÝ TIÊU CHÍ & VI PHẠM
               </button>
             )}
+
+            <button
+              onClick={() => setIsSeriousReportModalOpen(true)}
+              className="px-3.5 py-2 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <ShieldAlert size={15} /> BÁO CÁO VP NGHIÊM TRỌNG
+            </button>
+
+            <button
+              onClick={handleOpenResetModal}
+              className="px-3.5 py-2 bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Xóa / reset tất cả kết quả rèn luyện học sinh"
+            >
+              <Trash2 size={15} /> XÓA / RESET KẾT QUẢ
+            </button>
           </div>
 
           {/* Search Box */}
@@ -445,7 +1069,18 @@ export default function Homeroom() {
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
           }`}
         >
-          <CheckCircle2 size={16} /> Đánh giá & Duyệt BGH
+          <CheckCircle2 size={16} /> Đánh giá GVCN
+        </button>
+
+        <button
+          onClick={() => setActiveTab('bgh_approval')}
+          className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center gap-2 ${
+            activeTab === 'bgh_approval'
+              ? 'bg-rose-800 text-white shadow-md'
+              : 'bg-white text-rose-900 hover:bg-rose-50 border border-rose-300 font-bold'
+          }`}
+        >
+          <ShieldAlert size={16} className="text-rose-500" /> BGH Phê Duyệt Cảnh Báo
         </button>
       </div>
 
@@ -453,89 +1088,476 @@ export default function Homeroom() {
 
       {/* TAB 1: DANH SÁCH HỌC SINH */}
       {activeTab === 'students' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="space-y-4">
+          {/* Prominent GHI NHẬN ĐÁNH GIÁ CỦA GVCN Action Card (Requirements 1, 8, 12) */}
+          <div className="bg-gradient-to-r from-emerald-50 via-teal-50/70 to-blue-50/70 p-4 border border-emerald-200/90 rounded-2xl shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <CheckCircle2 size={20} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-emerald-950 uppercase tracking-wide flex items-center gap-2">
+                    <span>GHI NHẬN ĐÁNH GIÁ CỦA GVCN</span>
+                    <span className="text-[10px] bg-emerald-200/90 text-emerald-900 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      {selectedMonth} • {selectedSchoolYear}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-2 font-medium">
+                    <span>Lớp: <strong className="text-emerald-950 font-bold">{selectedClass?.name}</strong></span>
+                    <span>•</span>
+                    <span>Tổng số: <strong className="text-slate-800 font-bold">{classStudents.length} học sinh</strong></span>
+                    <span>•</span>
+                    <span>Đã đánh giá: <strong className="text-blue-700 font-bold">{classEvaluatedCount}</strong></span>
+                    <span>•</span>
+                    <span>Chưa đánh giá: <strong className="text-amber-700 font-bold">{classUnevaluatedCount}</strong></span>
+                    {activeRatingTiers.map(t => (
+                      <React.Fragment key={t.id || t.name}>
+                        <span>•</span>
+                        <span>{t.name}: <strong className="font-bold text-slate-800">{classRatingCounts[t.name] || 0}</strong></span>
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons: 🟢 CHỌN TẤT CẢ HS THỰC HIỆN TỐT – XẾP LOẠI TỐT, 🟡 CHỌN HS CHƯA ĐÁNH GIÁ, Ghi nhận GVCN, Chọn tất cả học sinh */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkGoodAssessment('all')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer ring-2 ring-emerald-300 hover:ring-emerald-400"
+                  title="Mở cửa sổ Đánh giá học sinh thực hiện tốt và áp dụng Xếp loại Tốt"
+                >
+                  <Sparkles size={15} />
+                  <span>🟢 CHỌN TẤT CẢ HS THỰC HIỆN TỐT – XẾP LOẠI {currentGoodTier.name.toUpperCase()}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkGoodAssessment('unevaluated')}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Chỉ chọn những học sinh chưa có phiếu đánh giá trong tháng này để xếp loại Tốt"
+                >
+                  <span>🟡 CHỌN HS CHƯA ĐÁNH GIÁ ({classUnevaluatedCount})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleOpenTeacherAssessment(null, selectedStudentIds.length > 0 ? selectedStudentIds : classStudents.map(s => s.id));
+                  }}
+                  className="px-3.5 py-2 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer ring-2 ring-blue-300"
+                  title="Mở phiếu ghi nhận đánh giá của GVCN (áp dụng cho cả lớp hoặc học sinh đã chọn)"
+                >
+                  <FileText size={14} />
+                  <span>📝 Ghi nhận GVCN</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedStudentIds.length === classStudents.length) {
+                      setSelectedStudentIds([]);
+                    } else {
+                      setSelectedStudentIds(classStudents.map(s => s.id));
+                    }
+                  }}
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Chọn hoặc bỏ chọn tất cả học sinh trong bảng"
+                >
+                  <CheckSquare size={14} className="text-slate-500" />
+                  <span>{selectedStudentIds.length === classStudents.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả học sinh'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Scope Selector: Đánh giá Tháng, Tuần, Cả năm học & ⚙️ CẤU HÌNH XẾP LOẠI (Yêu cầu 1) */}
+            <div className="pt-2.5 border-t border-emerald-200/80 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-extrabold text-emerald-950 uppercase tracking-wide flex items-center gap-1">
+                  <Sliders size={13} className="text-emerald-700" />
+                  <span>Phạm vi đánh giá rèn luyện:</span>
+                </span>
+
+                <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-emerald-300 shadow-2xs text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setStudentTableScope('month')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentTableScope === 'month'
+                        ? 'bg-[#1457D9] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={`Hiển thị điểm rèn luyện & vi phạm trong ${selectedMonth}`}
+                  >
+                    <span>📊 Đánh giá {selectedMonth}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudentTableScope('week')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentTableScope === 'week'
+                        ? 'bg-[#1457D9] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={`Hiển thị điểm rèn luyện & vi phạm trong Tuần ${String(selectedWeek).padStart(2, '0')}`}
+                  >
+                    <span>📅 Tuần {String(selectedWeek).padStart(2, '0')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudentTableScope('year')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentTableScope === 'year'
+                        ? 'bg-[#1457D9] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Hiển thị tổng hợp điểm rèn luyện cả năm học"
+                  >
+                    <span>🌐 Cả năm học</span>
+                  </button>
+                </div>
+
+                {/* ⚙️ CẤU HÌNH XẾP LOẠI Button placed right next to Month / Week / Year (Requirement 1) */}
+                <button
+                  type="button"
+                  onClick={() => setIsRatingConfigModalOpen(true)}
+                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-black text-amber-300 hover:text-amber-200 text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-slate-700 ring-2 ring-amber-400/50"
+                  title="Cấu hình thang điểm và mức xếp loại rèn luyện học sinh"
+                >
+                  <Sliders size={14} className="text-amber-400" />
+                  <span>⚙️ CẤU HÌNH XẾP LOẠI</span>
+                </button>
+              </div>
+
+              <div className="text-[11px] text-emerald-900 font-semibold italic">
+                * Thang điểm hiện tại: {activeRatingTiers.map(t => `${t.name} (${t.min_score}–${t.max_score}đ)`).join(', ')}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Header Action Bar */}
           <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800 text-xs">Danh sách học sinh lớp {selectedClass?.name}:</span>
-              <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded-full">{classStudents.length} học sinh</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800 text-xs">Danh sách học sinh lớp {selectedClass?.name}:</span>
+                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded-full">{classStudents.length} học sinh</span>
+                {studentSortMode !== 'default' && (
+                  <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 animate-in fade-in">
+                    ✨ Đang xếp: {getSortModeLabel(studentSortMode)}
+                  </span>
+                )}
+              </div>
+
+              {/* View Scope Switcher for Student Table */}
+              <div className="flex items-center gap-1 bg-white border border-slate-200 p-0.5 rounded-xl text-xs font-medium ml-2 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setStudentTableScope('month')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    studentTableScope === 'month'
+                      ? 'bg-[#1457D9] text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Hiển thị điểm rèn luyện & vi phạm trong Tháng đang chọn"
+                >
+                  📊 Đánh giá {selectedMonth}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentTableScope('week')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    studentTableScope === 'week'
+                      ? 'bg-[#1457D9] text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Hiển thị điểm rèn luyện & vi phạm trong Tuần đang chọn thuộc tháng này"
+                >
+                  📅 Tuần {String(selectedWeek).padStart(2, '0')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentTableScope('year')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    studentTableScope === 'year'
+                      ? 'bg-[#1457D9] text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Hiển thị tổng hợp điểm rèn luyện cả năm học"
+                >
+                  🌐 Cả năm học
+                </button>
+
+                {/* ⚙️ CẤU HÌNH XẾP LOẠI Button placed right beside Month / Week / Year (Requirement 1) */}
+                <button
+                  type="button"
+                  onClick={() => setIsRatingConfigModalOpen(true)}
+                  className="ml-1 px-3 py-1 bg-slate-800 hover:bg-slate-900 text-amber-300 hover:text-amber-200 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-xs cursor-pointer border border-slate-700"
+                  title="Cấu hình thang điểm và mức xếp loại rèn luyện học sinh"
+                >
+                  <Sliders size={13} className="text-amber-400" />
+                  <span>⚙️ CẤU HÌNH XẾP LOẠI</span>
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Nút sắp xếp chính: 🔤 XẾP A–B–C */}
               <button
-                onClick={() => setIsStudentManagerOpen(true)}
-                className="px-3 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+                type="button"
+                onClick={handleToggleAbcSort}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer border ${
+                  studentSortMode === 'name_asc'
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-700 ring-2 ring-purple-200 shadow-sm'
+                    : studentSortMode === 'name_desc'
+                    ? 'bg-purple-700 hover:bg-purple-800 text-white border-purple-800 ring-2 ring-purple-200 shadow-sm'
+                    : 'bg-white hover:bg-purple-50 text-purple-700 border-purple-300 hover:border-purple-400'
+                }`}
+                title="Bấm lần đầu: Sắp xếp theo Tên A–B–C (A–Z). Bấm lần tiếp theo: Đảo thứ tự (Z–A)"
+              >
+                <span>🔤 XẾP A–B–C</span>
+                {studentSortMode === 'name_asc' && (
+                  <span className="text-[10px] bg-white/25 px-1.5 py-0.5 rounded font-black tracking-wide">A→Z</span>
+                )}
+                {studentSortMode === 'name_desc' && (
+                  <span className="text-[10px] bg-white/25 px-1.5 py-0.5 rounded font-black tracking-wide">Z→A</span>
+                )}
+              </button>
+
+              {/* Dropdown tùy chọn sắp xếp */}
+              <div className="relative inline-flex items-center">
+                <select
+                  value={studentSortMode}
+                  onChange={(e) => setStudentSortMode(e.target.value as StudentSortMode)}
+                  className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-xl text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer shadow-2xs"
+                  title="Chọn chế độ sắp xếp danh sách học sinh"
+                >
+                  <option value="default">Sắp xếp: Mặc định</option>
+                  <option value="name_asc">🔤 Tên A–Z</option>
+                  <option value="name_desc">🔤 Tên Z–A</option>
+                  <option value="code_asc">Mã học sinh A–Z</option>
+                  <option value="code_desc">Mã học sinh Z–A</option>
+                </select>
+              </div>
+
+              {studentSortMode !== 'default' && (
+                <button
+                  type="button"
+                  onClick={() => setStudentSortMode('default')}
+                  className="px-2 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl transition-all"
+                  title="Trở về thứ tự mặc định"
+                >
+                  ✕ Đặt lại
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  setStudentManagerInitialTab('excel');
+                  setIsStudentManagerOpen(true);
+                }}
+                className="px-3 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <UserPlus size={14} /> + THÊM / NHẬP EXCEL
               </button>
               <button
                 onClick={() => exportStudentListToExcel(selectedClass?.name || '', selectedSchoolYear, classStudents)}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Xuất danh sách học sinh ra file Excel theo đúng thứ tự đang hiển thị"
               >
                 <Download size={14} /> XUẤT FILE EXCEL
               </button>
+
+              {classStudents.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllModalOpen(true)}
+                  className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                  title={`Xóa toàn bộ ${classStudents.length} hồ sơ học sinh của lớp ${selectedClass?.name}`}
+                >
+                  <Trash2 size={14} /> XÓA TẤT CẢ HỒ SƠ HS
+                </button>
+              )}
             </div>
           </div>
+
+          {/* Selected Students Action Bar */}
+          {selectedStudentIds.length > 0 && (
+            <div className="p-3 px-4 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-amber-900">
+                  Đã chọn: <strong className="text-blue-700 font-black">{selectedStudentIds.length}</strong> / {classStudents.length} học sinh
+                </span>
+                <span className="text-slate-400">|</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStudentIds(classStudents.map(s => s.id))}
+                  className="text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStudentIds([])}
+                  className="text-slate-600 hover:text-slate-800 underline font-semibold ml-1 cursor-pointer"
+                >
+                  Bỏ chọn
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleOpenTeacherAssessment(null, selectedStudentIds);
+                  }}
+                  className="px-3.5 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+                  title="Ghi nhận đánh giá của GVCN cho các học sinh đã chọn"
+                >
+                  <FileText size={13} />
+                  <span>💾 Ghi nhận GVCN ({selectedStudentIds.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+                >
+                  <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedStudentIds.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllModalOpen(true)}
+                  className="px-3 py-1.5 bg-red-800 hover:bg-red-900 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+                >
+                  <AlertCircle size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP ({classStudents.length})
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider">
                 <tr>
-                  <th className="p-3.5 w-12 text-center">STT</th>
-                  <th className="p-3.5">Mã HS</th>
-                  <th className="p-3.5">Họ và tên</th>
-                  <th className="p-3.5">Giới tính</th>
-                  <th className="p-3.5 text-center">Điểm cộng</th>
-                  <th className="p-3.5 text-center">Điểm trừ</th>
-                  <th className="p-3.5 text-center">Điểm rèn luyện</th>
-                  <th className="p-3.5 text-center">Xếp loại</th>
-                  <th className="p-3.5 text-right">Thao tác</th>
+                  <th className="p-3.5 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={classStudents.length > 0 && selectedStudentIds.length === classStudents.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedStudentIds(classStudents.map(s => s.id));
+                        } else {
+                          setSelectedStudentIds([]);
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-blue-600 border-slate-300 accent-blue-600 focus:ring-blue-500 cursor-pointer"
+                      title="Chọn tất cả học sinh trong danh sách"
+                    />
+                  </th>
+                  <th className="p-3.5 w-14 text-center">STT</th>
+                  <th className="p-3.5 w-32 font-bold">Mã HS</th>
+                  <th className="p-3.5 min-w-[200px] font-bold">Họ và tên</th>
+                  <th className="p-3.5 w-24 text-center font-bold">Giới tính</th>
+                  <th className="p-3.5 w-28 text-center font-bold">Điểm cộng</th>
+                  <th className="p-3.5 w-28 text-center font-bold">Điểm trừ</th>
+                  <th className="p-3.5 w-32 text-center font-bold">Điểm rèn luyện</th>
+                  <th className="p-3.5 w-28 text-center font-bold">Xếp loại</th>
+                  <th className="p-3.5 text-right font-bold min-w-[260px]">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {classStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-500 text-sm">
-                      Không tìm thấy học sinh nào thuộc lớp {selectedClass?.name}.
+                    <td colSpan={10} className="p-12 text-center text-slate-500">
+                      <div className="max-w-md mx-auto space-y-3">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto">
+                          <Users size={24} />
+                        </div>
+                        <p className="font-bold text-slate-800 text-sm">
+                          Chưa có danh sách học sinh. Vui lòng tải file Excel lên.
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Lớp {selectedClass?.name} hiện chưa có dữ liệu học sinh trong hệ thống. Vui lòng sử dụng tính năng tải file Excel để đồng bộ danh sách học sinh.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStudentManagerInitialTab('excel');
+                            setIsStudentManagerOpen(true);
+                          }}
+                          className="px-4 py-2 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-md transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <FileSpreadsheet size={15} /> + TẢI FILE EXCEL LÊN
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   classStudents.map((st, index) => {
-                    const stRecords = classRecords.filter(r => r.studentId === st.id);
-                    let totalPlus = 0;
-                    let totalMinus = 0;
-                    stRecords.forEach(r => {
-                      if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
-                      else totalMinus += Math.abs(r.point);
-                    });
-
-                    const { totalScore, classification } = calculateConductScore(
-                      settings.baseScore || 100,
-                      totalPlus,
-                      totalMinus,
-                      settings.thresholds
-                    );
-
-                    const getBadgeStyle = (cls: string) => {
-                      switch (cls) {
-                        case 'Tốt': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-                        case 'Khá': return 'bg-blue-100 text-blue-800 border-blue-300';
-                        case 'Đạt': return 'bg-amber-100 text-amber-800 border-amber-300';
-                        default: return 'bg-rose-100 text-rose-800 border-rose-300';
+                    const stRecords = classRecords.filter(r => {
+                      if (r.studentId !== st.id) return false;
+                      if (studentTableScope === 'year') {
+                        return true;
                       }
+                      const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
+                      // Must match selectedMonth for month and week views (Requirements 1, 3, 4, 5, 6)
+                      if (rMonth !== selMonthNum) return false;
+
+                      if (studentTableScope === 'week') {
+                        return Number(r.weekNumber) === Number(selectedWeek);
+                      }
+                      return true;
+                    });
+                    const stAssessment = teacherAssessments.find(a => 
+                      a.studentId === st.id && 
+                      a.schoolYear === selectedSchoolYear &&
+                      (Number(a.monthNumber) === selMonthNum || a.month === selectedMonth)
+                    );
+                    const hasPositive = stRecords.some(r => r.recordType === 'TICH_CUC');
+                    const hasViolation = stRecords.some(r => r.recordType !== 'TICH_CUC' && (r.pointType === 'minus' || r.point < 0 || Boolean(r.level)));
+                    const hasSpecialWarning = checkStudentHasSpecialWarning(stRecords);
+
+                    const scoreInfo = classStudentScores.get(st.id) || {
+                      totalScore: 100,
+                      classification: 'Tốt',
+                      badgeStyle: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                      totalPlus: 0,
+                      totalMinus: 0
                     };
+                    const totalScore = scoreInfo.totalScore;
+                    const classification = scoreInfo.classification;
+                    const badgeStyle = scoreInfo.badgeStyle;
+                    const totalPlus = scoreInfo.totalPlus;
+                    const totalMinus = scoreInfo.totalMinus;
 
                     return (
-                      <tr key={st.id} className="hover:bg-slate-50 transition-colors">
+                      <tr key={st.id} className={`hover:bg-slate-50 transition-colors ${selectedStudentIds.includes(st.id) ? 'bg-blue-50/40' : ''}`}>
+                        <td className="p-3.5 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedStudentIds.includes(st.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedStudentIds(prev => [...prev, st.id]);
+                              } else {
+                                setSelectedStudentIds(prev => prev.filter(id => id !== st.id));
+                              }
+                            }}
+                            className="w-4 h-4 rounded text-blue-600 border-slate-300 accent-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
                         <td className="p-3.5 text-center font-bold text-slate-500">
-                          {String(index + 1).padStart(2, '0')}
+                          {st.stt !== undefined ? String(st.stt).padStart(2, '0') : String(index + 1).padStart(2, '0')}
                         </td>
                         <td className="p-3.5 font-mono text-slate-600 font-semibold">{st.code}</td>
                         <td className="p-3.5 font-bold text-slate-800">
                           <button
                             onClick={() => handleOpenProfile(st)}
-                            className="hover:text-blue-700 hover:underline text-left"
+                            className="hover:text-blue-700 hover:underline text-left cursor-pointer font-bold"
                           >
-                            {st.name}
+                            {st.full_name || st.name}
                           </button>
                         </td>
                         <td className="p-3.5 text-slate-600">{st.gender}</td>
@@ -549,17 +1571,40 @@ export default function Homeroom() {
                           <span className="text-base font-black text-blue-800">{totalScore}</span>
                         </td>
                         <td className="p-3.5 text-center">
-                          <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${getBadgeStyle(classification)}`}>
+                          <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${badgeStyle}`}>
                             {classification}
                           </span>
                         </td>
-                        <td className="p-3.5 text-right space-x-2">
+                        <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
                           <button
                             onClick={() => handleOpenProfile(st)}
                             className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs"
                           >
                             Hồ sơ
                           </button>
+
+                          {canManageAssessment ? (
+                            <button
+                              onClick={() => handleOpenTeacherAssessment(st)}
+                              className={`px-2.5 py-1 font-bold rounded-lg text-xs transition-colors border cursor-pointer ${
+                                stAssessment
+                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-300 hover:border-blue-400'
+                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 hover:border-amber-400'
+                              }`}
+                              title={stAssessment ? 'Sửa ghi nhận của GVCN' : 'Ghi nhận GVCN'}
+                            >
+                              {stAssessment ? '✏️ Sửa ghi nhận' : '📝 Ghi nhận GVCN'}
+                            </button>
+                          ) : stAssessment ? (
+                            <button
+                              onClick={() => handleOpenTeacherAssessment(st)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs border border-slate-200"
+                              title="Xem phiếu ghi nhận của GVCN"
+                            >
+                              👁️ Xem ghi nhận
+                            </button>
+                          ) : null}
+
                           <button
                             onClick={() => handleOpenRecordForStudent(st.id)}
                             className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg text-xs"
@@ -581,6 +1626,7 @@ export default function Homeroom() {
             </table>
           </div>
         </div>
+        </div>
       )}
 
       {/* TAB 2: THEO DÕI TUẦN */}
@@ -591,7 +1637,7 @@ export default function Homeroom() {
               <Calendar size={18} className="text-blue-600" />
               BẢNG THEO DÕI NỀN NẾP HẰNG NGÀY - TUẦN {String(selectedWeek).padStart(2, '0')} (LỚP {selectedClass?.name})
             </h3>
-            <span className="text-xs text-slate-500 font-medium">Hiển thị vi phạm từ T2 đến T6</span>
+            <span className="text-xs text-slate-500 font-medium">Hiển thị vi phạm từ T2 đến T6 ({selectedMonth})</span>
           </div>
 
           <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -610,7 +1656,12 @@ export default function Homeroom() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {classStudents.map((st, idx) => {
-                  const stWeekRecords = classRecords.filter(r => r.studentId === st.id && r.weekNumber === selectedWeek);
+                  const stWeekRecords = classRecords.filter(r => {
+                    if (r.studentId !== st.id) return false;
+                    if (Number(r.weekNumber) !== Number(selectedWeek)) return false;
+                    const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
+                    return rMonth === selMonthNum;
+                  });
                   const days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6'];
 
                   return (
@@ -672,9 +1723,10 @@ export default function Homeroom() {
                 periodLabel: selectedMonth,
                 homeroomTeacherName,
                 students: classStudents,
-                records: classRecords,
+                records: monthClassRecords,
                 criteria,
-                baseScore: settings.baseScore || 100
+                baseScore: settings.baseScore || 100,
+                ratingConfig: activeMonthRatingConfig
               })}
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition-colors flex items-center gap-1.5"
             >
@@ -682,51 +1734,38 @@ export default function Homeroom() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-center">
               <span className="text-xs text-blue-600 font-bold block mb-1">Tổng học sinh</span>
-              <span className="text-3xl font-black text-blue-900">{classStudents.length}</span>
+              <span className="text-2xl sm:text-3xl font-black text-blue-900">{classStudents.length}</span>
             </div>
-            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
-              <span className="text-xs text-emerald-600 font-bold block mb-1">Học sinh xếp loại TỐT</span>
-              <span className="text-3xl font-black text-emerald-700">
-                {classStudents.filter(s => {
-                  let plus = 0, minus = 0;
-                  classRecords.filter(r => r.studentId === s.id).forEach(r => {
-                    if (r.pointType === 'plus') plus += Math.abs(r.point);
-                    else minus += Math.abs(r.point);
-                  });
-                  return calculateConductScore(100, plus, minus).classification === 'Tốt';
-                }).length}
-              </span>
-            </div>
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-center">
-              <span className="text-xs text-amber-600 font-bold block mb-1">Học sinh xếp loại KHÁ/ĐẠT</span>
-              <span className="text-3xl font-black text-amber-700">
-                {classStudents.filter(s => {
-                  let plus = 0, minus = 0;
-                  classRecords.filter(r => r.studentId === s.id).forEach(r => {
-                    if (r.pointType === 'plus') plus += Math.abs(r.point);
-                    else minus += Math.abs(r.point);
-                  });
-                  const c = calculateConductScore(100, plus, minus).classification;
-                  return c === 'Khá' || c === 'Đạt';
-                }).length}
-              </span>
-            </div>
-            <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center">
-              <span className="text-xs text-rose-600 font-bold block mb-1">Cần phấn đấu / Cảnh báo</span>
-              <span className="text-3xl font-black text-rose-700">
-                {classStudents.filter(s => {
-                  let plus = 0, minus = 0;
-                  classRecords.filter(r => r.studentId === s.id).forEach(r => {
-                    if (r.pointType === 'plus') plus += Math.abs(r.point);
-                    else minus += Math.abs(r.point);
-                  });
-                  return calculateConductScore(100, plus, minus).classification === 'Chưa đạt';
-                }).length}
-              </span>
-            </div>
+            {(activeMonthRatingConfig?.tiers && activeMonthRatingConfig.tiers.length > 0 ? activeMonthRatingConfig.tiers : DEFAULT_RATING_TIERS).map(tier => {
+              const tierCount = classStudents.filter(s => {
+                let plus = 0, minus = 0;
+                const stRecs = monthClassRecords.filter(r => r.studentId === s.id);
+                const hasSpecial = checkStudentHasSpecialWarning(stRecs);
+                stRecs.forEach(r => {
+                  if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+                  if (r.pointType === 'plus') plus += Math.abs(r.point);
+                  else minus += Math.abs(r.point);
+                });
+                return calculateConductScore(settings.baseScore || 100, plus, minus, undefined, hasSpecial, activeMonthRatingConfig).classification === tier.name;
+              }).length;
+
+              return (
+                <div key={tier.id || tier.name} className="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-xs">
+                  <span className="text-xs font-bold block mb-0.5 truncate text-slate-700">
+                    Xếp loại {tier.name.toUpperCase()}
+                  </span>
+                  <span className="text-[11px] text-slate-400 block mb-1">
+                    ({tier.min_score} – {tier.max_score} điểm)
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">
+                    {tierCount}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -737,7 +1776,7 @@ export default function Homeroom() {
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
             <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
               <Award size={20} className="text-amber-500" />
-              BẢNG XẾP HẠNG PHONG TRÀO THI ĐUA RÈN LUYỆN (LỚP {selectedClass?.name})
+              BẢNG XẾP HẠNG PHONG TRÀO THI ĐUA RÈN LUYỆN - {selectedMonth.toUpperCase()} (LỚP {selectedClass?.name})
             </h3>
 
             {/* Top 3 Honor Podium */}
@@ -745,11 +1784,14 @@ export default function Homeroom() {
               {classStudents
                 .map(st => {
                   let plus = 0, minus = 0;
-                  classRecords.filter(r => r.studentId === st.id).forEach(r => {
+                  const stRecs = monthClassRecords.filter(r => r.studentId === st.id);
+                  const hasSpecial = checkStudentHasSpecialWarning(stRecs);
+                  stRecs.forEach(r => {
+                    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
                     if (r.pointType === 'plus') plus += Math.abs(r.point);
                     else minus += Math.abs(r.point);
                   });
-                  return { student: st, ...calculateConductScore(100, plus, minus) };
+                  return { student: st, ...calculateConductScore(100, plus, minus, undefined, hasSpecial) };
                 })
                 .sort((a, b) => b.totalScore - a.totalScore)
                 .slice(0, 3)
@@ -778,10 +1820,10 @@ export default function Homeroom() {
         <div className="bg-white rounded-2xl shadow-sm border border-rose-200 p-6 space-y-4">
           <h3 className="text-base font-bold text-rose-800 flex items-center gap-2">
             <ShieldAlert size={20} className="text-rose-600" />
-            DANH SÁCH CẢNH BÁO RÈN LUYỆN NỀN NẾP
+            DANH SÁCH CẢNH BÁO RÈN LUYỆN NỀN NẾP - {selectedMonth.toUpperCase()}
           </h3>
           <p className="text-xs text-slate-600">
-            Các học sinh có điểm rèn luyện suy giảm hoặc vi phạm lỗi nghiêm trọng cần GVCN trực tiếp gặp mặt nhắc nhở và thông báo cho phụ huynh.
+            Các học sinh có điểm rèn luyện suy giảm hoặc vi phạm lỗi nghiêm trọng trong {selectedMonth} cần GVCN trực tiếp gặp mặt nhắc nhở và thông báo cho phụ huynh.
           </p>
 
           <div className="border border-rose-200 rounded-xl overflow-hidden">
@@ -798,13 +1840,15 @@ export default function Homeroom() {
               <tbody className="divide-y divide-rose-100">
                 {classStudents.map(st => {
                   let plus = 0, minus = 0;
-                  const stRecs = classRecords.filter(r => r.studentId === st.id);
+                  const stRecs = monthClassRecords.filter(r => r.studentId === st.id);
+                  const hasSpecial = checkStudentHasSpecialWarning(stRecs);
                   stRecs.forEach(r => {
+                    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
                     if (r.pointType === 'plus') plus += Math.abs(r.point);
                     else minus += Math.abs(r.point);
                   });
-                  const { totalScore, classification } = calculateConductScore(100, plus, minus);
-                  if (totalScore >= 80 && stRecs.filter(r => r.pointType === 'minus').length < 3) return null;
+                  const { totalScore, classification } = calculateConductScore(100, plus, minus, undefined, hasSpecial);
+                  if (!hasSpecial && totalScore >= 80 && stRecs.filter(r => r.recordType !== 'TICH_CUC' && r.pointType === 'minus').length < 3) return null;
 
                   return (
                     <tr key={st.id} className="hover:bg-rose-50/50">
@@ -831,13 +1875,137 @@ export default function Homeroom() {
 
       {/* TAB 6: ĐÁNH GIÁ & DUYỆT BGH */}
       {activeTab === 'evaluations' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <div className="space-y-4">
+          {/* Quick GHI NHẬN ĐÁNH GIÁ CỦA GVCN in Tab 6 */}
+          <div className="bg-gradient-to-r from-emerald-50 via-teal-50/70 to-blue-50/70 p-4 border border-emerald-200/90 rounded-2xl shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <CheckCircle2 size={20} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-emerald-950 uppercase tracking-wide flex items-center gap-2">
+                    <span>GHI NHẬN ĐÁNH GIÁ CỦA GVCN</span>
+                    <span className="text-[10px] bg-emerald-200/90 text-emerald-900 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      {studentTableScope === 'month' ? selectedMonth : studentTableScope === 'week' ? `Tuần ${String(selectedWeek).padStart(2, '0')}` : 'Cả năm học'} • {selectedSchoolYear}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-2 font-medium">
+                    <span>Lớp: <strong className="text-emerald-950 font-bold">{selectedClass?.name}</strong></span>
+                    <span>•</span>
+                    <span>Tổng số: <strong className="text-slate-800 font-bold">{classStudents.length} học sinh</strong></span>
+                    <span>•</span>
+                    <span>Đã đánh giá: <strong className="text-blue-700 font-bold">{classEvaluatedCount}</strong></span>
+                    <span>•</span>
+                    <span>Chưa đánh giá: <strong className="text-amber-700 font-bold">{classUnevaluatedCount}</strong></span>
+                    {activeRatingTiers.map(t => (
+                      <React.Fragment key={t.id || t.name}>
+                        <span>•</span>
+                        <span>{t.name}: <strong className="font-bold text-slate-800">{classRatingCounts[t.name] || 0}</strong></span>
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkGoodAssessment('all')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer ring-2 ring-emerald-300 hover:ring-emerald-400"
+                  title="Chọn tất cả học sinh thực hiện tốt và áp dụng Xếp loại Tốt"
+                >
+                  <Sparkles size={15} />
+                  <span>🟢 CHỌN TẤT CẢ HS THỰC HIỆN TỐT – XẾP LOẠI {currentGoodTier.name.toUpperCase()}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkGoodAssessment('unevaluated')}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Chỉ chọn những học sinh chưa có phiếu đánh giá trong tháng này để xếp loại Tốt"
+                >
+                  <span>🟡 CHỌN HS CHƯA ĐÁNH GIÁ ({classUnevaluatedCount})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Scope Selector: Đánh giá Tháng, Tuần, Cả năm học & ⚙️ CẤU HÌNH XẾP LOẠI (Yêu cầu 1) */}
+            <div className="pt-2.5 border-t border-emerald-200/80 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-extrabold text-emerald-950 uppercase tracking-wide flex items-center gap-1">
+                  <Sliders size={13} className="text-emerald-700" />
+                  <span>Phạm vi đánh giá rèn luyện:</span>
+                </span>
+
+                <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-emerald-300 shadow-2xs text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setStudentTableScope('month')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentTableScope === 'month'
+                        ? 'bg-[#1457D9] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={`Hiển thị đánh giá trong ${selectedMonth}`}
+                  >
+                    <span>📊 Đánh giá {selectedMonth}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudentTableScope('week')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentTableScope === 'week'
+                        ? 'bg-[#1457D9] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={`Hiển thị đánh giá trong Tuần ${String(selectedWeek).padStart(2, '0')}`}
+                  >
+                    <span>📅 Tuần {String(selectedWeek).padStart(2, '0')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudentTableScope('year')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentTableScope === 'year'
+                        ? 'bg-[#1457D9] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Hiển thị tổng hợp đánh giá cả năm học"
+                  >
+                    <span>🌐 Cả năm học</span>
+                  </button>
+                </div>
+
+                {/* ⚙️ CẤU HÌNH XẾP LOẠI Button placed right next to Month / Week / Year (Requirement 1) */}
+                <button
+                  type="button"
+                  onClick={() => setIsRatingConfigModalOpen(true)}
+                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-black text-amber-300 hover:text-amber-200 text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-slate-700 ring-2 ring-amber-400/50"
+                  title="Cấu hình thang điểm và mức xếp loại rèn luyện học sinh"
+                >
+                  <Sliders size={14} className="text-amber-400" />
+                  <span>⚙️ CẤU HÌNH XẾP LOẠI</span>
+                </button>
+              </div>
+
+              <div className="text-[11px] text-emerald-900 font-semibold italic">
+                * Thang điểm hiện tại: {activeRatingTiers.map(t => `${t.name} (${t.min_score}–${t.max_score}đ)`).join(', ')}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
               <CheckCircle2 size={20} className="text-blue-600" />
               TỔNG HỢP ĐÁNH GIÁ RÈN LUYỆN VÀ XÁC NHẬN CỦA BAN GIÁM HIỆU
             </h3>
-            <span className="text-xs text-slate-500 font-medium">Thời gian: {selectedMonth}</span>
+            <span className="text-xs text-slate-500 font-bold bg-slate-100 px-3 py-1 rounded-xl border border-slate-200">
+              Thời gian: {studentTableScope === 'month' ? selectedMonth : studentTableScope === 'week' ? `Tuần ${String(selectedWeek).padStart(2, '0')}` : 'Cả năm học ' + selectedSchoolYear}
+            </span>
           </div>
 
           <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -855,13 +2023,34 @@ export default function Homeroom() {
               <tbody className="divide-y divide-slate-100">
                 {classStudents.map((st, idx) => {
                   let plus = 0, minus = 0;
-                  classRecords.filter(r => r.studentId === st.id).forEach(r => {
+                  const stRecs = classRecords.filter(r => {
+                    if (r.studentId !== st.id) return false;
+                    if (studentTableScope === 'year') return true;
+                    const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
+                    if (rMonth !== selMonthNum) return false;
+                    if (studentTableScope === 'week') return Number(r.weekNumber) === Number(selectedWeek);
+                    return true;
+                  });
+                  const hasSpecial = checkStudentHasSpecialWarning(stRecs);
+                  stRecs.forEach(r => {
+                    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
                     if (r.pointType === 'plus') plus += Math.abs(r.point);
                     else minus += Math.abs(r.point);
                   });
-                  const { totalScore, classification } = calculateConductScore(100, plus, minus);
+                  const { totalScore, classification, ratingResult } = calculateConductScore(
+                    settings.baseScore || 100,
+                    plus,
+                    minus,
+                    undefined,
+                    hasSpecial,
+                    activeRatingConfig
+                  );
 
-                  const evalItem = evaluations.find(e => e.studentId === st.id && e.period === selectedMonth);
+                  const evalItem = evaluations.find(e => 
+                    e.studentId === st.id && 
+                    (studentTableScope === 'month' ? e.period === selectedMonth : true) &&
+                    (!e.schoolYear || e.schoolYear === selectedSchoolYear)
+                  );
                   const status = evalItem?.confirmationStatus || 'Chờ GVCN đánh giá';
 
                   return (
@@ -869,7 +2058,11 @@ export default function Homeroom() {
                       <td className="p-3 text-center font-bold text-slate-500">{idx + 1}</td>
                       <td className="p-3 font-bold text-slate-800">{st.name} ({st.code})</td>
                       <td className="p-3 text-center font-black text-blue-700">{totalScore}</td>
-                      <td className="p-3 text-center font-bold">{evalItem?.classification || classification}</td>
+                      <td className="p-3 text-center">
+                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border inline-block ${ratingResult.badge_style || 'bg-slate-100 text-slate-800 border-slate-300'}`}>
+                          {evalItem?.classification || classification}
+                        </span>
+                      </td>
                       <td className="p-3 text-center">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                           status === 'Đã xác nhận' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
@@ -895,6 +2088,35 @@ export default function Homeroom() {
             </table>
           </div>
         </div>
+        </div>
+      )}
+
+      {/* TAB 7: BGH PHÊ DUYỆT CẢNH BÁO VI PHẠM */}
+      {activeTab === 'bgh_approval' && (
+        <BghApprovalTab
+          records={records.filter(r => (!r.schoolYear || r.schoolYear === selectedSchoolYear) && ((Number(r.monthNumber) === selMonthNum) || !r.monthNumber))}
+          evaluations={evaluations.filter(e => (!e.schoolYear || e.schoolYear === selectedSchoolYear) && (e.period === selectedMonth))}
+          students={students}
+          classes={classes}
+          onApproveRecord={async (recordId, status, note, newRating) => {
+            await homeroomService.updateRecordBghApproval(
+              recordId,
+              status,
+              note,
+              user?.name || 'BGH',
+              newRating
+            );
+          }}
+          onApproveEvaluation={async (evaluationId, status, comment) => {
+            await homeroomService.updateEvaluationBghStatus(
+              evaluationId,
+              status,
+              undefined,
+              comment,
+              user?.name || 'BGH'
+            );
+          }}
+        />
       )}
 
       {/* ALL MODALS */}
@@ -906,6 +2128,9 @@ export default function Homeroom() {
           records={records}
           settings={settings}
           onDeleteRecord={handleDeleteRecord}
+          onUpdateRecord={async (id, updates) => {
+            await homeroomService.updateConductRecord(id, updates);
+          }}
         />
       )}
 
@@ -916,9 +2141,24 @@ export default function Homeroom() {
         students={classStudents}
         categories={categories}
         criteria={criteria}
+        records={classRecords}
+        selectedWeek={selectedWeek}
+        selectedMonth={selectedMonth}
+        selectedSchoolYear={selectedSchoolYear}
         onSave={async (rec) => {
-          await homeroomService.addConductRecord(rec);
+          const added = await homeroomService.addConductRecord(rec);
+          if (rec.hasConductWarning) {
+            const st = students.find(s => s.id === rec.studentId);
+            setPostSaveWarningRecord({ ...rec, id: added?.id || 'temp' } as ConductRecord);
+            setPostSaveWarningStudent(st || null);
+            setPostSaveWarningModalOpen(true);
+          }
+          return added;
         }}
+        onUpdateRecord={async (id, updates) => {
+          await homeroomService.updateConductRecord(id, updates);
+        }}
+        onDeleteRecord={handleDeleteRecord}
         defaultStudentId={defaultStudentForRecord}
       />
 
@@ -928,10 +2168,20 @@ export default function Homeroom() {
         selectedClass={selectedClass}
         students={classStudents}
         criteria={criteria}
+        selectedWeek={selectedWeek}
+        selectedMonth={selectedMonth}
+        selectedSchoolYear={selectedSchoolYear}
         onSaveQuick={async (recs) => {
           for (const r of recs) {
             await homeroomService.addConductRecord(r);
           }
+          const hasPositive = recs.some(r => r.recordType === 'TICH_CUC');
+          setAssessmentToast(
+            hasPositive
+              ? `Đã ghi nhận tích cực cho ${recs.length} học sinh thành công.`
+              : `Đã ghi nhận nhanh vi phạm cho ${recs.length} học sinh thành công.`
+          );
+          setTimeout(() => setAssessmentToast(''), 4000);
         }}
       />
 
@@ -941,6 +2191,9 @@ export default function Homeroom() {
         selectedClass={selectedClass}
         students={classStudents}
         criteria={criteria}
+        selectedWeek={selectedWeek}
+        selectedMonth={selectedMonth}
+        selectedSchoolYear={selectedSchoolYear}
         onSaveBonus={async (rec) => {
           await homeroomService.addConductRecord(rec);
         }}
@@ -951,6 +2204,7 @@ export default function Homeroom() {
         onClose={() => setIsCriteriaManagerOpen(false)}
         categories={categories}
         criteria={criteria}
+        violationConfigs={violationConfigs}
         onAddCriterion={async (crit) => {
           await homeroomService.addCriterion(crit);
         }}
@@ -959,6 +2213,12 @@ export default function Homeroom() {
         }}
         onDeleteCriterion={async (id) => {
           await homeroomService.deleteCriterion(id);
+        }}
+        onSaveViolationConfig={async (cfg) => {
+          await homeroomService.saveViolationConfig(cfg as SeriousViolationConfig);
+        }}
+        onDeleteViolationConfig={async (id) => {
+          await homeroomService.deleteViolationConfig(id);
         }}
       />
 
@@ -976,7 +2236,7 @@ export default function Homeroom() {
         onClose={() => setIsReportModalOpen(false)}
         selectedClass={selectedClass}
         students={classStudents}
-        records={classRecords}
+        records={monthClassRecords}
         criteria={criteria}
         settings={settings}
         periodLabel={selectedMonth}
@@ -1023,21 +2283,18 @@ export default function Homeroom() {
         selectedClass={selectedClass}
         schoolYear={selectedSchoolYear}
         students={classStudents}
+        initialTab={studentManagerInitialTab}
         onAddStudent={async (st) => {
-          await homeroomService.addStudent(st);
-          if (selectedClass) {
-            await homeroomService.updateClass(selectedClass.id, {
-              totalStudents: (selectedClass.totalStudents || 0) + 1
-            });
-          }
+          const res = await homeroomService.addStudent(st);
+          return res;
         }}
         onAddStudentsBulk={async (stList) => {
-          await homeroomService.addStudentsBulk(stList);
-          if (selectedClass) {
-            await homeroomService.updateClass(selectedClass.id, {
-              totalStudents: classStudents.length + stList.length
-            });
-          }
+          const res = await homeroomService.upsertStudentsBulk(
+            stList,
+            selectedClass?.id,
+            selectedClass?.name
+          );
+          return res;
         }}
         onUpdateStudent={async (id, updates) => {
           await homeroomService.updateStudent(id, updates);
@@ -1058,6 +2315,15 @@ export default function Homeroom() {
             });
           }
         }}
+        onDeleteAllStudents={async () => {
+          if (selectedClass) {
+            await homeroomService.deleteAllStudentsOfClass(selectedClass.id, {
+              deleteRecordsAndAssessments: true
+            });
+            setResetSuccessToast(`Đã xóa toàn bộ hồ sơ học sinh của lớp ${selectedClass.name} thành công.`);
+            setTimeout(() => setResetSuccessToast(''), 4000);
+          }
+        }}
       />
 
       {selectedStudentForEval && (
@@ -1066,8 +2332,12 @@ export default function Homeroom() {
           onClose={() => setIsEvaluationModalOpen(false)}
           selectedClass={selectedClass}
           student={selectedStudentForEval}
-          records={classRecords}
-          existingEvaluation={evaluations.find(e => e.studentId === selectedStudentForEval.id && e.period === selectedMonth)}
+          records={monthClassRecords}
+          existingEvaluation={evaluations.find(e => 
+            e.studentId === selectedStudentForEval.id && 
+            e.period === selectedMonth &&
+            (!e.schoolYear || e.schoolYear === selectedSchoolYear)
+          )}
           periodLabel={selectedMonth}
           onSaveEvaluation={async (ev) => {
             await homeroomService.saveEvaluation(ev);
@@ -1128,6 +2398,270 @@ export default function Homeroom() {
           </div>
         </div>
       )}
+
+      {/* Modal: Xác nhận Xóa tất cả hồ sơ học sinh của lớp */}
+      {isDeleteAllModalOpen && selectedClass && (
+        <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-xs">
+            <div className="text-center space-y-4">
+              <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+                <Trash2 size={28} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-rose-900 uppercase tracking-tight">
+                  XÁC NHẬN XÓA TẤT CẢ HỒ SƠ HỌC SINH
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Bạn đang chuẩn bị xóa toàn bộ hồ sơ học sinh của lớp <strong className="text-blue-700">{selectedClass.name}</strong>.
+                </p>
+              </div>
+
+              {/* Thông tin lớp & số lượng */}
+              <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3 text-left space-y-1.5">
+                <div className="flex justify-between text-slate-600">
+                  <span>Lớp học:</span>
+                  <span className="font-bold text-slate-800">{selectedClass.name}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Tổng số học sinh sẽ xóa:</span>
+                  <span className="font-bold text-rose-700">{classStudents.length} học sinh</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Năm học:</span>
+                  <span className="font-bold text-slate-800">{selectedSchoolYear}</span>
+                </div>
+              </div>
+
+              {/* Tùy chọn làm sạch dữ liệu nề nếp */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-left">
+                <label className="flex items-start gap-2.5 cursor-pointer text-slate-700 select-none">
+                  <input
+                    type="checkbox"
+                    checked={deleteAllWithConductRecords}
+                    onChange={(e) => setDeleteAllWithConductRecords(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-rose-600 border-slate-300 accent-rose-600 focus:ring-rose-500 cursor-pointer"
+                  />
+                  <span className="leading-snug text-[11px]">
+                    Đồng thời xóa toàn bộ dữ liệu vi phạm, điểm rèn luyện & nhận xét GVCN của các học sinh này trong năm học.
+                  </span>
+                </label>
+              </div>
+
+              {/* Cảnh báo */}
+              <div className="text-left bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 flex gap-2">
+                <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed text-[11px]">
+                  <strong>Cảnh báo không thể hoàn tác:</strong> Thao tác này sẽ xóa vĩnh viễn toàn bộ hồ sơ học sinh khỏi cơ sở dữ liệu. Sau khi xóa, bạn có thể tạo mới hoặc tải lên lại danh sách từ file Excel.
+                </p>
+              </div>
+
+              {/* Nút hành động */}
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllModalOpen(false)}
+                  disabled={isDeletingAll}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteAllStudents}
+                  disabled={isDeletingAll}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isDeletingAll ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Đang xóa...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      <span>Xác nhận xóa tất cả ({classStudents.length})</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Xác nhận Xóa danh sách học sinh đã chọn */}
+      {showBulkDeleteConfirm && selectedClass && (
+        <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-xs">
+            <div className="text-center space-y-4">
+              <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-rose-900 uppercase">
+                  Xác nhận xóa học sinh đã chọn?
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Bạn có chắc chắn muốn xóa vĩnh viễn <strong className="text-rose-600">{selectedStudentIds.length}</strong> học sinh đã chọn khỏi lớp <strong className="text-slate-800">{selectedClass.name}</strong>?
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  disabled={isDeletingSelected}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteSelectedStudents}
+                  disabled={isDeletingSelected}
+                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isDeletingSelected ? 'Đang xóa...' : `Xóa (${selectedStudentIds.length})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post Save Warning Modal */}
+      {postSaveWarningRecord && postSaveWarningStudent && (
+        <PostSaveWarningModal
+          isOpen={postSaveWarningModalOpen}
+          onClose={() => setPostSaveWarningModalOpen(false)}
+          record={postSaveWarningRecord}
+          student={postSaveWarningStudent}
+          onConfirmProposedRating={async (rating, note) => {
+            if (postSaveWarningRecord.id) {
+              await homeroomService.updateRecordBghApproval(
+                postSaveWarningRecord.id,
+                'Chưa duyệt',
+                note,
+                user?.name || 'GVCN',
+                rating
+              );
+            }
+          }}
+        />
+      )}
+
+      {/* Serious Violations Report Modal */}
+      <SeriousViolationsReportModal
+        isOpen={isSeriousReportModalOpen}
+        onClose={() => setIsSeriousReportModalOpen(false)}
+        records={records.filter(r => (!r.schoolYear || r.schoolYear === selectedSchoolYear) && ((Number(r.monthNumber) === selMonthNum) || !r.monthNumber))}
+        classes={classes}
+        students={students}
+      />
+
+      {/* Reset Conduct Modal */}
+      <ResetConductModal
+        isOpen={isResetConductModalOpen}
+        onClose={() => setIsResetConductModalOpen(false)}
+        selectedSchoolYear={selectedSchoolYear}
+        selectedClass={selectedClass}
+        selectedWeek={selectedWeek}
+        selectedMonth={selectedMonth}
+        recordsCount={currentScopeRecordsCount}
+        studentsCount={classStudents.length}
+        onResetConduct={handleResetConduct}
+      />
+
+      {/* Reset Success Toast (Requirement 10) */}
+      {resetSuccessToast && (
+        <div className="fixed top-5 right-5 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 font-bold text-xs animate-bounce border border-emerald-400">
+          <CheckCircle2 size={18} />
+          <span>{resetSuccessToast}</span>
+        </div>
+      )}
+
+      {/* Teacher Assessment Toast */}
+      {assessmentToast && (
+        <div className="fixed top-5 right-5 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 font-bold text-xs animate-in slide-in-from-top border border-emerald-400">
+          <CheckCircle2 size={18} />
+          <span>{assessmentToast}</span>
+        </div>
+      )}
+
+      {/* Teacher Assessment Modal */}
+      {isTeacherAssessmentModalOpen && (
+        <TeacherAssessmentModal
+          isOpen={isTeacherAssessmentModalOpen}
+          onClose={() => {
+            setIsTeacherAssessmentModalOpen(false);
+            setSelectedStudentForAssessment(null);
+            setAssessmentInitialSelectedIds(undefined);
+          }}
+          student={selectedStudentForAssessment}
+          students={classStudents}
+          initialSelectedStudentIds={assessmentInitialSelectedIds}
+          selectedClass={selectedClass}
+          semester="Học kỳ I"
+          schoolYear={selectedSchoolYear}
+          existingAssessment={selectedStudentForAssessment ? teacherAssessments.find(a => 
+            a.studentId === selectedStudentForAssessment.id && 
+            a.schoolYear === selectedSchoolYear &&
+            (Number(a.monthNumber) === selMonthNum || a.month === selectedMonth)
+          ) : null}
+          existingAssessments={teacherAssessments.filter(a =>
+            a.classId === selectedClass?.id &&
+            (!a.schoolYear || a.schoolYear === selectedSchoolYear) &&
+            (Number(a.monthNumber) === selMonthNum || a.month === selectedMonth)
+          )}
+          studentRecords={selectedStudentForAssessment ? records.filter(r => 
+            r.studentId === selectedStudentForAssessment.id &&
+            (!r.schoolYear || r.schoolYear === selectedSchoolYear) &&
+            ((Number(r.monthNumber) === selMonthNum) || !r.monthNumber)
+          ) : []}
+          month={selectedMonth}
+          monthNumber={selMonthNum}
+          isReadOnly={!canManageAssessment}
+          onSaveAssessment={handleSaveTeacherAssessment}
+          onBulkSaveAssessments={handleBulkSaveTeacherAssessments}
+        />
+      )}
+
+      {/* Bulk Good Assessment Modal (CHỌN TẤT CẢ HS THỰC HIỆN TỐT – XẾP LOẠI TỐT) */}
+      <BulkGoodAssessmentModal
+        isOpen={isBulkGoodModalOpen}
+        onClose={() => setIsBulkGoodModalOpen(false)}
+        selectedClass={selectedClass}
+        students={classStudents}
+        schoolYear={selectedSchoolYear}
+        semester="Học kỳ I"
+        month={selectedMonth}
+        monthNumber={selMonthNum}
+        ratingConfig={activeRatingConfig || activeMonthRatingConfig}
+        studentScores={Object.fromEntries(
+          classStudents.map(st => [st.id, classStudentScores.get(st.id)?.totalScore ?? 100])
+        )}
+        existingAssessments={teacherAssessments.filter(a =>
+          a.classId === selectedClass?.id &&
+          (!a.schoolYear || a.schoolYear === selectedSchoolYear) &&
+          (Number(a.monthNumber) === selMonthNum || a.month === selectedMonth)
+        )}
+        initialSelectMode={bulkGoodInitialMode}
+        onSaveBulk={handleSaveBulkGoodAssessment}
+      />
+
+      {/* Evaluation Rating Config Modal (⚙️ CẤU HÌNH XẾP LOẠI) */}
+      <EvaluationRatingConfigModal
+        isOpen={isRatingConfigModalOpen}
+        onClose={() => setIsRatingConfigModalOpen(false)}
+        schoolYear={selectedSchoolYear}
+        selectedMonth={selectedMonth}
+        selectedWeek={selectedWeek}
+        currentScope={studentTableScope}
+        configs={ratingConfigs}
+        historyList={ratingHistory}
+        isBgh={Boolean(isBgh)}
+        onSaveConfig={handleSaveRatingConfig}
+        onRestoreDefault={handleRestoreDefaultRatingConfig}
+      />
     </div>
   );
 }

@@ -1,25 +1,48 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import TaskEvaluationModal from "../components/evaluations/TaskEvaluationModal";
 import TaskEvaluationsHistory from "../components/evaluations/TaskEvaluationsHistory";
+import TaskProgressModal from "../components/tasks/TaskProgressModal";
+import TaskImportModal from "../components/tasks/TaskImportModal";
+import TaskWeeklyCalendarView from "../components/tasks/TaskWeeklyCalendarView";
 import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
 import { 
-  Search, Plus, Filter, Calendar as CalendarIcon, Download, Printer, 
+  Search, Plus, Calendar as CalendarIcon, Download, Printer, 
   CheckCircle, AlertCircle, Edit, Trash2, Eye, Play, Check, 
   MoreVertical, LayoutList, Users, Calculator, FlaskConical, 
   BookOpen, Briefcase, Building2, UserCheck, ChevronRight,
-  ArrowRight, ShieldCheck, CheckSquare, Sparkles, Edit3, AlertTriangle, Clock
+  ArrowRight, ShieldCheck, CheckSquare, Sparkles, AlertTriangle, Clock,
+  ChevronLeft, FileText, FileSpreadsheet, Paperclip, ExternalLink,
+  Flame, Flag, RotateCcw
 } from 'lucide-react';
-import { WorkAssignment, Teacher, TaskEvaluation, Department, ExecutionResult } from '../types';
+import { 
+  WorkAssignment, 
+  Teacher, 
+  TaskEvaluation, 
+  Department, 
+  ExecutionResult, 
+  WorkAssignmentStatus,
+  WorkAssignmentPriority 
+} from '../types';
 import { cn } from '../lib/utils';
-import * as XLSX from 'xlsx';
 import { safeFormatLocale, safeParseDate } from '../utils/dateUtils';
 import BackButton from '../components/ui/BackButton';
+import { 
+  SchoolWeekInfo, 
+  ACADEMIC_YEARS,
+  getWeekInfoByNumber,
+  getAllWeeksInYear,
+  getCurrentSchoolWeekInfo,
+  getEffectiveTaskStatus, 
+  isTaskInWeek,
+  isTaskOverdue
+} from '../utils/schoolWeekUtils';
+import { exportWeeklyTasksToWord } from '../utils/taskExportWord';
+import { exportWeeklyTasksToExcel } from '../utils/taskExportExcel';
 
-const WEEKS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Cả tuần', 'Tuần 1', 'Tuần 2', 'Tuần 3', 'Tuần 4'];
+const WEEKS_LABEL = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Cả tuần', 'Tuần 1', 'Tuần 2', 'Tuần 3', 'Tuần 4'];
 
 export interface DepartmentConfig {
   id: string;
@@ -125,51 +148,122 @@ export default function Tasks() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const { workAssignments, teachers, departments, addWorkAssignment, updateWorkAssignment, deleteWorkAssignment } = useAppContext();
+  const { 
+    workAssignments, 
+    teachers, 
+    departments, 
+    addWorkAssignment, 
+    updateWorkAssignment, 
+    deleteWorkAssignment,
+    importWorkAssignments,
+    seedOrResetSchoolTasks
+  } = useAppContext();
   const { user } = useAuth();
   
   // Selected department tab: 'all' | 'toan-ly-tin-cn' | 'hoa-ly-sinh-gdqpan-nn' | 'van-su-dia-gdkt-pl-an' | 'van-phong'
   const [activeTab, setActiveTab] = useState<string>('all');
   const [mainView, setMainView] = useState<'list' | 'history'>('list');
+  const [viewLayout, setViewLayout] = useState<'table' | 'calendar'>('table');
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
 
-  // Filters
+  // Năm học đang chọn (lưu trữ và phục hồi khi F5)
+  const [selectedYear, setSelectedYear] = useState<string>(() => {
+    return searchParams.get('year') || localStorage.getItem('task_selected_year') || '2026–2027';
+  });
+
+  // Tuần đang chọn (1..45, mặc định tuần hiện tại khi mở module)
+  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number>(() => {
+    const fromParam = searchParams.get('week');
+    if (fromParam) {
+      const n = parseInt(fromParam, 10);
+      if (!isNaN(n) && n >= 1 && n <= 45) return n;
+    }
+    const fromStorage = localStorage.getItem('task_selected_week');
+    if (fromStorage) {
+      const n = parseInt(fromStorage, 10);
+      if (!isNaN(n) && n >= 1 && n <= 45) return n;
+    }
+    const yr = searchParams.get('year') || localStorage.getItem('task_selected_year') || '2026–2027';
+    return getCurrentSchoolWeekInfo(new Date(), yr).weekNumber;
+  });
+
+  // Thông tin chi tiết của tuần đang chọn (Tự động tính ngày Thứ 2 đến Chủ nhật)
+  const currentWeek = useMemo(() => {
+    return getWeekInfoByNumber(selectedWeekNumber, selectedYear);
+  }, [selectedWeekNumber, selectedYear]);
+
+  // Toàn bộ 45 tuần trong năm học đang chọn
+  const allWeeks = useMemo(() => {
+    return getAllWeeksInYear(selectedYear);
+  }, [selectedYear]);
+
+  const handleWeekChange = (newWeekNum: number) => {
+    setSelectedWeekNumber(newWeekNum);
+    localStorage.setItem('task_selected_week', String(newWeekNum));
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('week', String(newWeekNum));
+    nextParams.set('year', selectedYear);
+    navigate({ search: nextParams.toString() }, { replace: true });
+  };
+
+  const handleYearChange = (newYear: string) => {
+    setSelectedYear(newYear);
+    localStorage.setItem('task_selected_year', newYear);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('year', newYear);
+    nextParams.set('week', String(selectedWeekNumber));
+    navigate({ search: nextParams.toString() }, { replace: true });
+  };
+
+  // Filters (Yêu cầu 9)
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterWeek, setFilterWeek] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterAssignee, setFilterAssignee] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('all');
+  const [filterAssignee, setFilterAssignee] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
+  const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
+
   const [editingAssignment, setEditingAssignment] = useState<WorkAssignment | null>(null);
   const [evaluatingAssignment, setEvaluatingAssignment] = useState<WorkAssignment | null>(null);
   const [evaluatingAssigneeId, setEvaluatingAssigneeId] = useState<string | undefined>(undefined);
+  const [progressAssignment, setProgressAssignment] = useState<WorkAssignment | null>(null);
 
-  // Form Data
+  // Form Data (Yêu cầu 10)
   const [formData, setFormData] = useState<Partial<WorkAssignment>>({
     departmentId: 'global',
-    weekLabel: 'Thứ 2',
-    workDate: new Date().toISOString().split('T')[0],
-    deadline: new Date().toISOString().split('T')[0],
+    academic_year: '2026–2027',
+    academicYear: '2026–2027',
+    week_number: 1,
+    weekNumber: 1,
+    weekLabel: 'Tuần 01',
+    workDate: '',
+    deadline: '',
+    priority: 'Trung bình',
     status: 'Chưa thực hiện',
     assigneeIds: [],
     assigneeId: '', 
+    requirements: '',
     note: '',
+    evidenceUrl: '',
+    evidenceName: '',
     completedAssigneeIds: [],
     overdueAssigneeIds: [],
     incompleteAssigneeIds: []
   });
 
   const [showCrossDeptTeachers, setShowCrossDeptTeachers] = useState(false);
-
-  // Evaluation state
-  const [evaluationsMap, setEvaluationsMap] = useState<Record<string, TaskEvaluation>>({});
-  const [, setSelectedAssigneeForEval] = useState<string>('');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [expandedAssignmentIds, setExpandedAssignmentIds] = useState<Record<string, boolean>>({});
+  // Horizontal Scroll & Sticky Scrollbar Refs for Task Table
+  const tableScrollRef = React.useRef<HTMLDivElement>(null);
+  const bottomScrollRef = React.useRef<HTMLDivElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState<number>(1400);
+  const isSyncingScroll = React.useRef<boolean>(false);
 
   // Sync tab with URL
   useEffect(() => {
@@ -189,12 +283,12 @@ export default function Tasks() {
     }
   }, [urlDeptSlug, searchParams]);
 
-  // Permissions
-  const isAdmin = user?.role === 'BGH';
-  const isHead = user?.role === 'TTCM';
+  // Permissions: BGH xem toàn bộ công việc và toàn bộ trạng thái (Yêu cầu 12)
+  const isAdmin = user?.role === 'BGH' || (user?.role || '').includes('HIỆU TRƯỞNG') || (user?.role || '').includes('HT') || (user?.role || '').includes('PHT');
+  const isHead = (user?.role || '').includes('TTCM') || (user?.position || '').toLowerCase().includes('tổ trưởng');
   const canManageTasks = isAdmin || isHead;
 
-  // --- HELPER FUNCTIONS (declared as hoisted functions before any hooks or callbacks to prevent Temporal Dead Zone errors) ---
+  // --- HELPER FUNCTIONS ---
   function findDeptConfig(deptIdOrNameOrSlug?: string): DepartmentConfig | undefined {
     if (!deptIdOrNameOrSlug) return undefined;
     const lower = deptIdOrNameOrSlug.toLowerCase();
@@ -202,10 +296,10 @@ export default function Tasks() {
       d.id === deptIdOrNameOrSlug ||
       d.slug === deptIdOrNameOrSlug ||
       d.name.toLowerCase() === lower ||
-      (lower.includes('toán') || lower.includes('toan') || lower.includes('lý') || lower.includes('tin') || lower.includes('cn')) && d.slug === 'toan-ly-tin-cn' ||
-      (lower.includes('hóa') || lower.includes('hoa') || lower.includes('sinh') || lower.includes('gdqpan') || lower.includes('nn')) && d.slug === 'hoa-ly-sinh-gdqpan-nn' ||
-      (lower.includes('văn') || lower.includes('van') || lower.includes('sử') || lower.includes('su') || lower.includes('địa') || lower.includes('dia') || lower.includes('gdkt')) && d.slug === 'van-su-dia-gdkt-pl-an' ||
-      (lower.includes('văn phòng') || lower.includes('van phong') || lower.includes('hành chính') || lower.includes('phòng')) && d.slug === 'van-phong'
+      ((lower.includes('toán') || lower.includes('toan') || lower.includes('lý') || lower.includes('tin') || lower.includes('cn')) && d.slug === 'toan-ly-tin-cn') ||
+      ((lower.includes('hóa') || lower.includes('hoa') || lower.includes('sinh') || lower.includes('gdqpan') || lower.includes('nn')) && d.slug === 'hoa-ly-sinh-gdqpan-nn') ||
+      ((lower.includes('văn') || lower.includes('van') || lower.includes('sử') || lower.includes('su') || lower.includes('địa') || lower.includes('dia') || lower.includes('gdkt')) && d.slug === 'van-su-dia-gdkt-pl-an') ||
+      ((lower.includes('văn phòng') || lower.includes('van phong') || lower.includes('hành chính') || lower.includes('phòng')) && d.slug === 'van-phong')
     );
   }
 
@@ -222,16 +316,13 @@ export default function Tasks() {
   }
 
   function isDeptSpecificTask(wa: WorkAssignment): boolean {
-    // 1. Explicit scope
     if (wa.scope === 'department') return true;
     if (wa.scope === 'school') return false;
 
-    // 2. Explicit departmentId pointing to a department (not global / all / empty)
     if (wa.departmentId && wa.departmentId !== 'global' && wa.departmentId !== 'all') {
       return true;
     }
 
-    // 3. Assigned specifically to a department group token (e.g. GROUP_TOAN_LY_TIN_CN)
     if (wa.assigneeIds && PRESET_DEPARTMENTS.some(d => wa.assigneeIds?.includes(d.groupToken))) {
       return true;
     }
@@ -243,8 +334,18 @@ export default function Tasks() {
     return !isDeptSpecificTask(wa);
   }
 
+  function getAssignmentDepartmentName(wa: WorkAssignment): string {
+    if (isSchoolWideTask(wa)) return 'Chung toàn trường';
+    for (const d of PRESET_DEPARTMENTS) {
+      if (isAssignmentInDept(wa, d)) {
+        return d.shortName;
+      }
+    }
+    const deptObj = departments.find(d => d.id === wa.departmentId);
+    return deptObj ? deptObj.name : 'Chung toàn trường';
+  }
+
   function isAssignmentInDept(wa: WorkAssignment, deptConfig: DepartmentConfig): boolean {
-    // If wa is explicitly assigned to a DIFFERENT department, do not match this department
     if (wa.departmentId && wa.departmentId !== 'global' && wa.departmentId !== 'all') {
       if (wa.departmentId === deptConfig.id) return true;
       const deptObj = departments.find(d => d.id === wa.departmentId);
@@ -256,15 +357,12 @@ export default function Tasks() {
       }
     }
 
-    // 1. Direct departmentId match
     if (wa.departmentId === deptConfig.id) return true;
     const deptObj = departments.find(d => d.id === wa.departmentId);
     if (deptObj && findDeptConfig(deptObj.name)?.slug === deptConfig.slug) return true;
 
-    // 2. Group token match
     if (wa.assigneeIds?.includes(deptConfig.groupToken)) return true;
 
-    // 3. For tasks scoped to department (or without direct matching ID), check member assignments
     if (isDeptSpecificTask(wa)) {
       const assignedIds = wa.assigneeIds && wa.assigneeIds.length > 0 ? wa.assigneeIds : (wa.assigneeId ? [wa.assigneeId] : []);
       const hasMember = assignedIds.some(aid => {
@@ -273,14 +371,12 @@ export default function Tasks() {
       });
       if (hasMember) return true;
 
-      // 4. Content keyword match if it is a department task
       if (wa.content.toLowerCase().includes(deptConfig.shortName.toLowerCase())) return true;
     }
 
     return false;
   }
 
-  // Helper to resolve actual assigned teachers for an assignment (supports individual IDs and group tokens)
   function getResolvedAssigneeTeachers(assignment: WorkAssignment): Teacher[] {
     const ids = assignment.assigneeIds && assignment.assigneeIds.length > 0 
       ? assignment.assigneeIds 
@@ -306,48 +402,46 @@ export default function Tasks() {
 
   function isUserAnAssignee(assignment: WorkAssignment, userId?: string): boolean {
     if (!userId) return false;
+    if (assignment.assigneeIds && assignment.assigneeIds.includes(userId)) return true;
+    if (assignment.assigneeId === userId) return true;
     const assignedTeachers = getResolvedAssigneeTeachers(assignment);
     return assignedTeachers.some(t => t.id === userId);
   }
 
-  function checkIsPastDeadline(deadlineStr: string): boolean {
-    const d = safeParseDate(deadlineStr);
-    if (!d) return false;
-    const endOfDay = new Date(d);
-    endOfDay.setHours(23, 59, 59, 999);
-    return new Date().getTime() > endOfDay.getTime();
-  }
-
   function canEvaluateTask(assignment: WorkAssignment): boolean {
-    return Boolean(canManageTasks || user?.id === assignment.evaluatorId || user?.id === assignment.createdBy);
+    return Boolean(isAdmin || isHead || user?.id === assignment.evaluatorId || user?.id === assignment.createdBy);
   }
 
-  function renderResultBadge(res?: string) {
-    if (res === 'Hoàn thành tốt') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs whitespace-nowrap">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-          ✓ Hoàn thành tốt
-        </span>
-      );
-    }
-    if (res === 'Quá hạn (Chậm muộn)') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-300 shadow-2xs whitespace-nowrap">
-          <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
-          ⚠ Quá hạn (Chậm muộn)
-        </span>
-      );
-    }
-    return null;
+  function getTeacherNames(assignment: WorkAssignment): string {
+    const ids = assignment.assigneeIds && assignment.assigneeIds.length > 0 
+      ? assignment.assigneeIds 
+      : (assignment.assigneeId ? [assignment.assigneeId] : []);
+    
+    if (ids.length === 0) return 'Toàn trường';
+    
+    const names = ids.map(id => {
+      if (id === 'GROUP_ALL') return 'Toàn thể CBGVNV';
+      if (id === 'GROUP_GVCN') return 'GVCN';
+      const deptConf = PRESET_DEPARTMENTS.find(d => d.groupToken === id);
+      if (deptConf) return `Toàn bộ ${deptConf.shortName}`;
+      const t = teachers.find(teach => teach.id === id);
+      return t ? t.name : 'CBGVNV';
+    });
+
+    return names.join(', ');
   }
 
-  // Lấy danh sách các CBGVNV THỰC SỰ ĐÃ CÓ BẢN GHI ĐÁNH GIÁ ĐÃ LƯU TRONG DATABASE
+  function getTeacherName(id?: string): string {
+    if (!id) return '';
+    const teacher = teachers.find(t => t.id === id);
+    if (!teacher) return '';
+    return teacher.name;
+  }
+
   function getEvaluatedAssignees(assignment: WorkAssignment): { id: string; name: string; result: ExecutionResult }[] {
     const list: { id: string; name: string; result: ExecutionResult }[] = [];
     const results = assignment.assigneeResults || {};
 
-    // 1. Duyệt qua assigneeResults đã lưu
     Object.entries(results).forEach(([tId, res]) => {
       if (res === 'Hoàn thành tốt' || res === 'Quá hạn (Chậm muộn)') {
         const t = teachers.find(teach => teach.id === tId);
@@ -359,7 +453,6 @@ export default function Tasks() {
       }
     });
 
-    // 2. Fallback nếu có evaluations
     if (list.length === 0 && assignment.evaluations) {
       Object.entries(assignment.evaluations).forEach(([tId, ev]) => {
         const rawRes = ev?.result as string | undefined;
@@ -384,97 +477,25 @@ export default function Tasks() {
     return list;
   }
 
-  function getTeacherNames(assignment: WorkAssignment): string {
-    const ids = assignment.assigneeIds && assignment.assigneeIds.length > 0 
-      ? assignment.assigneeIds 
-      : (assignment.assigneeId ? [assignment.assigneeId] : []);
-    
-    if (ids.length === 0) return 'Không xác định';
-    
-    const names = ids.map(id => {
-      if (id === 'GROUP_ALL') return 'Toàn thể CBGVNV';
-      if (id === 'GROUP_GVCN') return 'Giáo viên chủ nhiệm (GVCN)';
-      const deptConf = PRESET_DEPARTMENTS.find(d => d.groupToken === id);
-      if (deptConf) return `Toàn bộ ${deptConf.name}`;
-      const t = teachers.find(t => t.id === id);
-      return t ? t.name : 'CBGVNV';
-    });
-
-    return names.join(', ');
-  }
-
-  function getTeacherName(id?: string): string {
-    if (!id) return '';
-    const teacher = teachers.find(t => t.id === id);
-    if (!teacher) return '';
-    return teacher.name;
-  }
-
-  function getAssignmentDepartment(assignment: WorkAssignment): DepartmentConfig | null {
-    if (isSchoolWideTask(assignment)) return null;
-    for (const d of PRESET_DEPARTMENTS) {
-      if (isAssignmentInDept(assignment, d)) {
-        return d;
-      }
+  function getTaskResultText(assignment: WorkAssignment): string {
+    if (assignment.resultSummary) {
+      return assignment.resultSummary;
     }
-    return null;
+    const evaluated = getEvaluatedAssignees(assignment);
+    if (evaluated.length > 0) {
+      return evaluated.map(e => `${e.name}: ${e.result}`).join('; ');
+    }
+    if (assignment.evaluationResult) {
+      return assignment.evaluationResult;
+    }
+    return '';
   }
 
-  function getStatusColor(status: string): string {
-    switch (status) {
-      case 'Đã đánh giá': return 'purple';
-      case 'Đã hoàn thành': return 'success';
-      case 'Đang thực hiện': return 'info';
-      case 'Chưa thực hiện': return 'default';
-      case 'Quá hạn': return 'danger';
-      default: return 'default';
-    }
-  }
-
-  function openEvalModal(assignment: WorkAssignment, specificAssigneeId?: string): void {
-    setActiveMenu(null);
-    setEvaluatingAssignment(assignment);
-    setEvaluatingAssigneeId(specificAssigneeId);
-    setIsEvalModalOpen(true);
-  }
-
-  function openResultModal(assignment: WorkAssignment, assigneeId: string): void {
-    openEvalModal(assignment, assigneeId);
-  }
-
-  // Department config for logged-in TTCM or teacher
-  const userDeptConfig = useMemo(() => {
-    if (user?.departmentId) {
-      const conf = findDeptConfig(user.departmentId);
-      if (conf) return conf;
-    }
-    const userTeacher = teachers.find(t => t.id === user?.id);
-    if (userTeacher) {
-      if (userTeacher.departmentId) {
-        const conf = findDeptConfig(userTeacher.departmentId);
-        if (conf) return conf;
-      }
-      const found = PRESET_DEPARTMENTS.find(d => isTeacherInDept(userTeacher, d));
-      if (found) return found;
-    }
-    const deptLeading = departments.find(d => d.headId === user?.id);
-    if (deptLeading) {
-      return findDeptConfig(deptLeading.id) || findDeptConfig(deptLeading.name);
-    }
-    return undefined;
-  }, [user, teachers, departments]);
-
-  // Current active department config (if in a department tab)
+  // Active department config
   const activeDeptConfig = useMemo(() => {
     if (activeTab === 'all') return null;
     return PRESET_DEPARTMENTS.find(d => d.slug === activeTab) || null;
   }, [activeTab]);
-
-  // Current active department entity
-  const activeDeptEntity = useMemo(() => {
-    if (!activeDeptConfig) return null;
-    return departments.find(d => d.id === activeDeptConfig.id || findDeptConfig(d.name)?.slug === activeDeptConfig.slug) || null;
-  }, [activeDeptConfig, departments]);
 
   // Teachers in active department
   const activeDeptTeachers = useMemo(() => {
@@ -482,46 +503,22 @@ export default function Tasks() {
     return teachers.filter(t => isTeacherInDept(t, activeDeptConfig));
   }, [activeDeptConfig, teachers]);
 
-  // Department Head
-  const activeDeptHead = useMemo(() => {
-    if (!activeDeptConfig) return null;
-    if (activeDeptEntity?.headId) {
-      const head = teachers.find(t => t.id === activeDeptEntity.headId);
-      if (head) return head;
-    }
-    // Fallback: check position or role
-    return activeDeptTeachers.find(t => 
-      (t.role || '').includes('TTCM') || 
-      (t.position || '').toLowerCase().includes('tổ trưởng') ||
-      (t.position || '').toLowerCase().includes('to truong')
-    ) || activeDeptTeachers[0] || null;
-  }, [activeDeptConfig, activeDeptEntity, activeDeptTeachers, teachers]);
-
-  // Visible assignments based on role & department tab
+  // 1. Visible assignments based on role & department tab
   const visibleAssignments = useMemo(() => {
     let list = workAssignments;
     
-    // If not BGH, limit visibility according to user role
+    // Ban Giám hiệu được xem toàn bộ công việc và toàn bộ trạng thái (Yêu cầu 12)
     if (!isAdmin) {
       if (isHead) {
-        // TTCM can see:
-        // 1. School-wide tasks (Chung toàn trường)
-        // 2. Tasks of their own department
-        // 3. Tasks where they are an assignee, creator, or evaluator
-        const userDeptId = userDeptConfig?.id || user?.departmentId;
         list = list.filter(wa => 
           isSchoolWideTask(wa) ||
-          wa.departmentId === userDeptId || 
           wa.evaluatorId === user?.id ||
           wa.createdBy === user?.id ||
           wa.assigneeId === user?.id || 
           (wa.assigneeIds && wa.assigneeIds.includes(user?.id || '')) ||
-          (userDeptConfig && isAssignmentInDept(wa, userDeptConfig))
+          (activeDeptConfig && isAssignmentInDept(wa, activeDeptConfig))
         );
       } else {
-        // Regular teacher can see:
-        // 1. School-wide tasks (Chung toàn trường)
-        // 2. Tasks where they are assigned directly or via group
         const userTeacher = teachers.find(t => t.id === user?.id);
         const userDept = userTeacher ? PRESET_DEPARTMENTS.find(d => isTeacherInDept(userTeacher, d)) : null;
 
@@ -536,233 +533,168 @@ export default function Tasks() {
       }
     }
 
-    // Filter strictly by active tab:
-    // When on "Chung toàn trường" tab ('all'): ONLY show school-wide tasks!
-    // Department-assigned tasks MUST NOT appear in "Chung toàn trường".
-    if (activeTab === 'all') {
-      list = list.filter(wa => isSchoolWideTask(wa));
-    } else if (activeDeptConfig) {
-      // When on a department tab: ONLY show tasks belonging to this department!
+    // Filter strictly by active department tab if one is chosen
+    if (activeDeptConfig) {
       list = list.filter(wa => isAssignmentInDept(wa, activeDeptConfig));
     }
 
-    // Sort by workDate ascending, then by createdAt
-    return [...list].sort((a, b) => {
-      if (a.workDate === b.workDate) {
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      }
-      return new Date(a.workDate).getTime() - new Date(b.workDate).getTime();
-    });
-  }, [workAssignments, isAdmin, isHead, user, activeTab, activeDeptConfig, userDeptConfig, teachers, departments]);
+    return list;
+  }, [workAssignments, isAdmin, isHead, user, activeDeptConfig, teachers]);
 
-  // Filtered assignments based on search & filters
+  // 2. CHỈ HIỂN THỊ CÔNG VIỆC THUỘC TUẦN ĐANG ĐƯỢC CHỌN (Yêu cầu 5)
+  const currentWeekAssignments = useMemo(() => {
+    return visibleAssignments.filter(wa => isTaskInWeek(wa, currentWeek, selectedYear));
+  }, [visibleAssignments, currentWeek, selectedYear]);
+
+  // 3. Filtered assignments based on user's active filters and search (Yêu cầu 9)
   const filteredAssignments = useMemo(() => {
-    return visibleAssignments.filter(wa => {
-      const matchSearch = wa.content.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (wa.note || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          getTeacherNames(wa).toLowerCase().includes(searchTerm.toLowerCase());
-      const matchWeek = filterWeek ? wa.weekLabel === filterWeek : true;
+    return currentWeekAssignments.filter(wa => {
+      // Tìm kiếm theo nội dung công việc hoặc tên người thực hiện
+      const matchSearch = 
+        wa.content.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (wa.requirements || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (wa.note || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (wa.resultSummary || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        getTeacherNames(wa).toLowerCase().includes(searchTerm.toLowerCase());
       
-      let matchStatus = true;
-      if (filterStatus) {
-        const assignedTeachers = getResolvedAssigneeTeachers(wa);
-        if (filterStatus === 'Chưa đánh giá' || filterStatus === 'Chưa cập nhật') {
-          if (filterAssignee) {
-            matchStatus = !wa.assigneeResults?.[filterAssignee];
-          } else {
-            matchStatus = assignedTeachers.length === 0 || assignedTeachers.some(t => !wa.assigneeResults?.[t.id]);
-          }
+      // Lọc theo Tổ/Đơn vị
+      let matchDept = true;
+      if (filterDepartment !== 'all') {
+        if (filterDepartment === 'school') {
+          matchDept = isSchoolWideTask(wa);
         } else {
-          if (filterAssignee) {
-            matchStatus = wa.assigneeResults?.[filterAssignee] === filterStatus;
-          } else {
-            matchStatus = Object.values(wa.assigneeResults || {}).includes(filterStatus as ExecutionResult);
+          const deptConf = PRESET_DEPARTMENTS.find(d => d.slug === filterDepartment || d.id === filterDepartment);
+          if (deptConf) {
+            matchDept = isAssignmentInDept(wa, deptConf);
           }
         }
       }
-      
+
+      // Lọc theo Người được giao
       let matchAssignee = true;
       if (filterAssignee) {
-        if (wa.assigneeIds && wa.assigneeIds.length > 0) {
-          matchAssignee = wa.assigneeIds.includes(filterAssignee);
-        } else {
-          matchAssignee = wa.assigneeId === filterAssignee;
-        }
+        matchAssignee = isUserAnAssignee(wa, filterAssignee);
       }
 
-      let matchTarget = true;
-      if (activeTab === 'all' && filterDepartment !== 'all') {
-        if (filterDepartment === 'group_all') {
-          matchTarget = wa.assigneeIds?.includes('GROUP_ALL') || false;
-        } else if (filterDepartment === 'group_gvcn') {
-          matchTarget = wa.assigneeIds?.includes('GROUP_GVCN') || false;
-        }
+      // Lọc theo Trạng thái (Yêu cầu 6, 7: tự động tính Quá hạn)
+      let matchStatus = true;
+      if (filterStatus) {
+        const effective = getEffectiveTaskStatus(wa);
+        matchStatus = effective === filterStatus;
       }
-      
-      return matchSearch && matchWeek && matchStatus && matchAssignee && matchTarget;
+
+      // Lọc theo Mức độ ưu tiên
+      let matchPriority = true;
+      if (filterPriority) {
+        matchPriority = (wa.priority || 'Trung bình') === filterPriority;
+      }
+
+      return matchSearch && matchDept && matchAssignee && matchStatus && matchPriority;
     });
-  }, [visibleAssignments, searchTerm, filterWeek, filterStatus, filterAssignee, activeTab, filterDepartment]);
+  }, [currentWeekAssignments, searchTerm, filterDepartment, filterAssignee, filterStatus, filterPriority]);
 
-  // Summary Statistics for Execution Results (Requirement 8)
-  const summaryStats = useMemo(() => {
-    let totalAssigneeCount = 0;
-    let evaluatedCount = 0;
-    let goodCount = 0;
-    let overdueCount = 0;
+  // 4. CÁC Ô THỐNG KÊ TỰ ĐỘNG TÍNH THEO TUẦN ĐANG CHỌN (Yêu cầu 8)
+  const weekStats = useMemo(() => {
+    const total = currentWeekAssignments.length;
+    let notStarted = 0;
+    let inProgress = 0;
+    let completed = 0;
+    let overdue = 0;
 
-    filteredAssignments.forEach(wa => {
-      const assignedTeachers = getResolvedAssigneeTeachers(wa);
-      if (assignedTeachers.length === 0) {
-        totalAssigneeCount += 1;
-        const res = wa.assigneeId ? wa.assigneeResults?.[wa.assigneeId] : undefined;
-        if (res === 'Hoàn thành tốt') {
-          evaluatedCount += 1;
-          goodCount += 1;
-        } else if (res === 'Quá hạn (Chậm muộn)') {
-          evaluatedCount += 1;
-          overdueCount += 1;
-        }
+    currentWeekAssignments.forEach(wa => {
+      const status = getEffectiveTaskStatus(wa);
+      if (status === 'Quá hạn') {
+        overdue += 1;
+      } else if (status === 'Hoàn thành' || status === 'Hoàn thành tốt') {
+        completed += 1;
+      } else if (status === 'Đang thực hiện' || status === 'Chậm tiến độ') {
+        inProgress += 1;
       } else {
-        assignedTeachers.forEach(t => {
-          totalAssigneeCount += 1;
-          const res = wa.assigneeResults?.[t.id];
-          if (res === 'Hoàn thành tốt') {
-            evaluatedCount += 1;
-            goodCount += 1;
-          } else if (res === 'Quá hạn (Chậm muộn)') {
-            evaluatedCount += 1;
-            overdueCount += 1;
-          }
-        });
+        notStarted += 1;
       }
     });
-
-    const notEvaluatedCount = Math.max(0, totalAssigneeCount - evaluatedCount);
 
     return {
-      total: totalAssigneeCount,
-      evaluated: evaluatedCount,
-      notEvaluated: notEvaluatedCount,
-      good: goodCount,
-      overdue: overdueCount,
+      total,
+      notStarted,
+      inProgress,
+      completed,
+      overdue
     };
-  }, [filteredAssignments, teachers]);
+  }, [currentWeekAssignments]);
 
-  // Department Statistics for active department
-  const deptStats = useMemo(() => {
-    const total = visibleAssignments.length;
-    const completed = visibleAssignments.filter(w => {
-      if (w.assigneeResults && Object.values(w.assigneeResults).some(r => r === 'Hoàn thành tốt' || r === 'Quá hạn (Chậm muộn)')) {
-        return true;
-      }
-      return w.status === 'Đã hoàn thành' || w.status === 'Đã đánh giá';
-    }).length;
-    const inProgress = visibleAssignments.filter(w => w.status === 'Đang thực hiện').length;
-    const notStarted = visibleAssignments.filter(w => w.status === 'Chưa thực hiện').length;
-    const overdue = visibleAssignments.filter(w => {
-      if (w.assigneeResults && Object.values(w.assigneeResults).includes('Quá hạn (Chậm muộn)')) {
-        return true;
-      }
-      const d = safeParseDate(w.deadline);
-      return d ? d < new Date() && w.status !== 'Đã hoàn thành' && w.status !== 'Đã đánh giá' : false;
-    }).length;
-    const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-    return { total, completed, inProgress, notStarted, overdue, rate };
-  }, [visibleAssignments]);
-
-  // Overall counts for tabs
-  const tabCounts = useMemo(() => {
-    const counts: Record<string, number> = { 
-      all: workAssignments.filter(wa => isSchoolWideTask(wa)).length 
-    };
-    PRESET_DEPARTMENTS.forEach(dept => {
-      counts[dept.slug] = workAssignments.filter(wa => isAssignmentInDept(wa, dept)).length;
-    });
-    return counts;
-  }, [workAssignments, teachers, departments]);
-
-  // Export to Excel
+  // Xuất Excel tuần đang chọn (Yêu cầu 3 & 13)
   const handleExportExcel = () => {
-    const titleHeader = activeDeptConfig 
-      ? `LỊCH GIAO VIỆC - ${activeDeptConfig.name.toUpperCase()}`
-      : 'LỊCH GIAO VIỆC CHUNG TOÀN TRƯỜNG';
-
-    const data = filteredAssignments.map(wa => {
-      const dept = getAssignmentDepartment(wa);
-      const evaluatedList = getEvaluatedAssignees(wa);
-      const executionResultText = evaluatedList.length === 0 
-        ? '' 
-        : evaluatedList.map(item => `${item.name}: ${item.result}`).join('; ');
-
-      return {
-        'Thứ/Tuần': wa.weekLabel,
-        'Ngày giao': safeFormatLocale(wa.workDate, 'toLocaleDateString', 'Chưa cập nhật'),
-        'Tổ / Đơn vị': dept ? dept.shortName : 'Toàn trường',
-        'Nội dung công việc': wa.content,
-        'Người thực hiện': getTeacherNames(wa),
-        'Thời hạn hoàn thành': safeFormatLocale(wa.deadline, 'toLocaleDateString', 'Chưa cập nhật'),
-        'Người đánh giá': getTeacherName(wa.evaluatorId),
-        'Kết quả thực hiện': executionResultText,
-        'Ghi chú': wa.note || ''
-      };
+    exportWeeklyTasksToExcel({
+      weekNumber: currentWeek.weekNumber,
+      startDateStr: currentWeek.startDateStr,
+      endDateStr: currentWeek.endDateStr,
+      scopeTitle: activeDeptConfig ? activeDeptConfig.name : 'TOÀN TRƯỜNG',
+      tasks: filteredAssignments,
+      teachers,
+      getTeacherNames,
+      getDepartmentName: getAssignmentDepartmentName,
+      getEffectiveStatus: getEffectiveTaskStatus,
+      getResultText: getTaskResultText
     });
-
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    const sheetName = activeDeptConfig ? activeDeptConfig.shortName.replace(/[^a-zA-Z0-9]/g, '_') : 'Giao_viec_Chung';
-    XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 30));
-    
-    const fileName = activeDeptConfig
-      ? `Lich_giao_viec_${sheetName}_Tuan_${filterWeek || 'Tat_ca'}.xlsx`
-      : `Lich_giao_viec_Toan_Truong_Tuan_${filterWeek || 'Tat_ca'}.xlsx`;
-    XLSX.writeFile(wb, fileName);
   };
 
-  const handlePrint = () => {
-    window.print();
+  // Xuất Word tuần đang chọn (Yêu cầu 3 & 13)
+  const handleExportWord = async () => {
+    try {
+      await exportWeeklyTasksToWord({
+        weekNumber: currentWeek.weekNumber,
+        startDateStr: currentWeek.startDateStr,
+        endDateStr: currentWeek.endDateStr,
+        scopeTitle: activeDeptConfig ? activeDeptConfig.name : 'TOÀN TRƯỜNG',
+        tasks: filteredAssignments,
+        teachers,
+        getTeacherNames,
+        getDepartmentName: getAssignmentDepartmentName,
+        getEffectiveStatus: getEffectiveTaskStatus,
+        getResultText: getTaskResultText
+      });
+    } catch (e) {
+      console.error('Lỗi khi xuất Word:', e);
+      alert('Có lỗi khi tạo tệp Word.');
+    }
   };
 
-  // Open Create Modal (prefilled for current department if in department tab or if user is TTCM)
-  const openCreateModal = (specificDeptSlug?: string) => {
+  // Mở modal Giao việc mới (Yêu cầu 10)
+  const openCreateModal = () => {
     setEditingAssignment(null);
     setShowCrossDeptTeachers(false);
 
-    // If user is TTCM, prioritize their own department
-    let targetDeptSlug = specificDeptSlug || (activeTab !== 'all' ? activeTab : 'all');
-    if (isHead && !isAdmin && userDeptConfig) {
-      targetDeptSlug = userDeptConfig.slug;
-    }
-    const targetDeptConfig = PRESET_DEPARTMENTS.find(d => d.slug === targetDeptSlug);
-
-    // Default evaluator: Dept head if available, otherwise current user or BGH
+    let defaultDeptId = activeDeptConfig ? activeDeptConfig.id : 'global';
     let defaultEvaluator = user?.id || '';
-    if (targetDeptConfig) {
-      const deptTeachers = teachers.filter(t => isTeacherInDept(t, targetDeptConfig));
-      const head = deptTeachers.find(t => 
-        (t.role || '').includes('TTCM') || 
-        (t.position || '').toLowerCase().includes('tổ trưởng') ||
-        (t.position || '').toLowerCase().includes('to truong')
-      );
-      if (head) {
-        defaultEvaluator = head.id;
-      }
-    }
 
-    const defaultDeptId = targetDeptConfig 
-      ? targetDeptConfig.id 
-      : (isHead && userDeptConfig ? userDeptConfig.id : 'global');
+    if (activeDeptConfig) {
+      const head = teachers.find(t => 
+        isTeacherInDept(t, activeDeptConfig) && 
+        ((t.role || '').includes('TTCM') || (t.position || '').toLowerCase().includes('tổ trưởng'))
+      );
+      if (head) defaultEvaluator = head.id;
+    }
 
     setFormData({
       departmentId: defaultDeptId,
       scope: defaultDeptId === 'global' ? 'school' : 'department',
-      weekLabel: filterWeek || 'Thứ 2',
-      workDate: new Date().toISOString().split('T')[0],
-      deadline: new Date().toISOString().split('T')[0],
+      academic_year: selectedYear,
+      academicYear: selectedYear,
+      week_number: currentWeek.weekNumber,
+      weekNumber: currentWeek.weekNumber,
+      weekLabel: currentWeek.weekLabel,
+      workDate: currentWeek.startDateIso,
+      deadline: currentWeek.endDateIso,
+      priority: 'Trung bình',
       status: 'Chưa thực hiện',
       assigneeIds: [],
       assigneeId: '',
-      evaluatorId: defaultEvaluator,
-      note: ''
+      requirements: '',
+      note: '',
+      evidenceUrl: '',
+      evidenceName: '',
+      evaluatorId: defaultEvaluator
     });
     setIsModalOpen(true);
   };
@@ -771,22 +703,39 @@ export default function Tasks() {
     setEditingAssignment(assignment);
     setActiveMenu(null);
     setShowCrossDeptTeachers(false);
+    const assignedYear = assignment.academic_year || assignment.academicYear || selectedYear;
+    const assignedWeekNum = assignment.week_number ?? assignment.weekNumber ?? currentWeek.weekNumber;
     setFormData({
       departmentId: assignment.departmentId || 'global',
       scope: assignment.scope || ((assignment.departmentId && assignment.departmentId !== 'global' && assignment.departmentId !== 'all') ? 'department' : 'school'),
-      weekLabel: assignment.weekLabel,
+      academic_year: assignedYear,
+      academicYear: assignedYear,
+      week_number: assignedWeekNum,
+      weekNumber: assignedWeekNum,
+      weekLabel: assignment.weekLabel || `Tuần ${String(assignedWeekNum).padStart(2, '0')}`,
       workDate: assignment.workDate,
+      deadline: assignment.deadline,
+      priority: assignment.priority || 'Trung bình',
+      status: assignment.status || 'Chưa thực hiện',
       content: assignment.content,
       assigneeIds: assignment.assigneeIds || (assignment.assigneeId ? [assignment.assigneeId] : []),
-      deadline: assignment.deadline,
-      evaluatorId: assignment.evaluatorId,
-      status: assignment.status,
+      requirements: assignment.requirements || '',
       note: assignment.note || '',
+      evidenceUrl: assignment.evidenceUrl || '',
+      evidenceName: assignment.evidenceName || '',
+      evaluatorId: assignment.evaluatorId,
       completedAssigneeIds: assignment.completedAssigneeIds || [],
       overdueAssigneeIds: assignment.overdueAssigneeIds || [],
       incompleteAssigneeIds: assignment.incompleteAssigneeIds || []
     });
     setIsModalOpen(true);
+  };
+
+  // Mở modal cập nhật tiến độ (Yêu cầu 11)
+  const openProgressModal = (task: WorkAssignment) => {
+    setActiveMenu(null);
+    setProgressAssignment(task);
+    setIsProgressModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
@@ -803,13 +752,13 @@ export default function Tasks() {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.content || !formData.evaluatorId) {
-      alert('Vui lòng nhập đầy đủ Nội dung công việc và Người đánh giá.');
+    if (!formData.content?.trim()) {
+      alert('Vui lòng nhập Nội dung công việc.');
       return;
     }
     
     if (!formData.assigneeIds || formData.assigneeIds.length === 0) {
-      alert('Vui lòng chọn ít nhất một Người thực hiện hoặc chọn Cả tổ.');
+      alert('Vui lòng chọn ít nhất một Người được giao hoặc đối tượng thực hiện.');
       return;
     }
 
@@ -818,33 +767,50 @@ export default function Tasks() {
       return;
     }
 
-    // Set first assignee as fallback
     const fallbackAssigneeId = formData.assigneeIds[0];
     const isDeptScope = formData.departmentId && formData.departmentId !== 'global' && formData.departmentId !== 'all';
     const scope = isDeptScope ? 'department' : 'school';
+
+    const targetAcademicYear = formData.academic_year || selectedYear;
+    const targetWeekNum = formData.week_number || currentWeek.weekNumber;
+    const targetWeekObj = getWeekInfoByNumber(targetWeekNum, targetAcademicYear);
 
     if (editingAssignment) {
       updateWorkAssignment(editingAssignment.id, {
         ...formData,
         departmentId: formData.departmentId || 'global',
         scope,
+        academic_year: targetAcademicYear,
+        academicYear: targetAcademicYear,
+        week_number: targetWeekNum,
+        weekNumber: targetWeekNum,
+        weekLabel: targetWeekObj.weekLabel,
         assigneeId: fallbackAssigneeId,
         updatedAt: new Date().toISOString(),
       });
     } else {
       addWorkAssignment({
-        id: `wa_${Date.now()}`,
+        id: `wa_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         departmentId: formData.departmentId || 'global',
         scope,
-        weekLabel: formData.weekLabel!,
-        workDate: formData.workDate!,
-        content: formData.content!,
+        academic_year: targetAcademicYear,
+        academicYear: targetAcademicYear,
+        week_number: targetWeekNum,
+        weekNumber: targetWeekNum,
+        weekLabel: targetWeekObj.weekLabel,
+        workDate: formData.workDate || targetWeekObj.startDateIso,
+        deadline: formData.deadline || targetWeekObj.endDateIso,
+        content: formData.content!.trim(),
+        priority: formData.priority || 'Trung bình',
+        requirements: formData.requirements?.trim() || '',
+        note: formData.note?.trim() || '',
+        evidenceUrl: formData.evidenceUrl?.trim() || '',
+        evidenceName: formData.evidenceName?.trim() || '',
         assigneeIds: formData.assigneeIds,
         assigneeId: fallbackAssigneeId,
-        deadline: formData.deadline!,
-        evaluatorId: formData.evaluatorId!,
+        evaluatorId: formData.evaluatorId || user?.id || 'system',
         status: formData.status! as any,
-        note: formData.note,
+        progress: formData.status === 'Hoàn thành' || formData.status === 'Hoàn thành tốt' ? 100 : 0,
         createdBy: user?.id || 'system',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -853,16 +819,6 @@ export default function Tasks() {
     setIsModalOpen(false);
   };
 
-  const handleUpdateStatus = (id: string, newStatus: string) => {
-    setActiveMenu(null);
-    updateWorkAssignment(id, {
-      status: newStatus as any,
-      completionDate: newStatus === 'Đã hoàn thành' ? new Date().toISOString() : undefined,
-      updatedAt: new Date().toISOString(),
-    });
-  };
-
-  // Toggle multi-select assignee
   const toggleAssignee = (id: string) => {
     const currentIds = formData.assigneeIds || [];
     if (currentIds.includes(id)) {
@@ -872,30 +828,35 @@ export default function Tasks() {
     }
   };
 
-  // Quick select all teachers in selected department
-  const selectAllDeptTeachers = (deptConfig: DepartmentConfig) => {
-    const deptTeachers = teachers.filter(t => isTeacherInDept(t, deptConfig));
-    const deptIds = deptTeachers.map(t => t.id);
-    // Combine with group token
-    const uniqueIds = Array.from(new Set([...(formData.assigneeIds || []), ...deptIds]));
-    setFormData({ ...formData, assigneeIds: uniqueIds });
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Vui lòng chọn file dung lượng dưới 5MB.');
+      return;
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      evidenceName: file.name
+    }));
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormData(prev => ({
+        ...prev,
+        evidenceUrl: reader.result as string
+      }));
+    };
+    reader.readAsDataURL(file);
   };
 
-  // Quick deselect all teachers in selected department
-  const deselectDeptTeachers = (deptConfig: DepartmentConfig) => {
-    const deptTeachers = teachers.filter(t => isTeacherInDept(t, deptConfig));
-    const deptIds = deptTeachers.map(t => t.id);
-    const filtered = (formData.assigneeIds || []).filter(id => !deptIds.includes(id) && id !== deptConfig.groupToken);
-    setFormData({ ...formData, assigneeIds: filtered });
-  };
-
-  // Current department in form modal
   const formDeptConfig = useMemo(() => {
     if (!formData.departmentId || formData.departmentId === 'global') return null;
     return PRESET_DEPARTMENTS.find(d => d.id === formData.departmentId) || null;
   }, [formData.departmentId]);
 
-  // Teachers for the modal based on selected department
   const formDeptTeachers = useMemo(() => {
     if (!formDeptConfig) return teachers;
     return teachers.filter(t => isTeacherInDept(t, formDeptConfig));
@@ -906,1013 +867,1042 @@ export default function Tasks() {
     return teachers.filter(t => !isTeacherInDept(t, formDeptConfig));
   }, [formDeptConfig, teachers]);
 
+  // Render Status Badge with Colors (Yêu cầu 6, 7)
+  const renderStatusBadge = (status: WorkAssignmentStatus, progress?: number) => {
+    switch (status) {
+      case 'Hoàn thành tốt':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs whitespace-nowrap">
+            <span className="text-amber-500">⭐</span>
+            Hoàn thành tốt
+          </span>
+        );
+      case 'Hoàn thành':
+      case 'Đã hoàn thành':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs whitespace-nowrap">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            Hoàn thành
+          </span>
+        );
+      case 'Đang thực hiện':
+        return (
+          <div className="inline-flex flex-col items-center gap-0.5">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs whitespace-nowrap">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+              Đang thực hiện {progress !== undefined ? `(${progress}%)` : ''}
+            </span>
+            {progress !== undefined && progress > 0 && (
+              <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden mt-0.5">
+                <div className="bg-blue-600 h-full rounded-full" style={{ width: `${progress}%` }}></div>
+              </div>
+            )}
+          </div>
+        );
+      case 'Chậm tiến độ':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs whitespace-nowrap">
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            Chậm tiến độ
+          </span>
+        );
+      case 'Quá hạn':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold bg-rose-50 text-rose-700 border border-rose-300 shadow-2xs whitespace-nowrap">
+            <AlertTriangle size={12} className="text-rose-600 shrink-0" />
+            Quá hạn
+          </span>
+        );
+      case 'Chưa thực hiện':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
+            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+            Chưa thực hiện
+          </span>
+        );
+    }
+  };
+
+  // Render Priority Badge
+  const renderPriorityBadge = (priority?: WorkAssignmentPriority) => {
+    switch (priority) {
+      case 'Khẩn cấp':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+            <Flame size={11} className="text-rose-600" />
+            Khẩn cấp
+          </span>
+        );
+      case 'Cao':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200">
+            <Flag size={11} className="text-orange-600" />
+            Cao
+          </span>
+        );
+      case 'Thấp':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+            Thấp
+          </span>
+        );
+      case 'Trung bình':
+      default:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+            Trung bình
+          </span>
+        );
+    }
+  };
+
   return (
-    <div className="p-4 sm:p-6 max-w-[1400px] mx-auto space-y-6 pb-12 font-sans">
+    <div className="p-3 sm:p-6 max-w-[1550px] mx-auto space-y-5 pb-16 font-sans">
       <div className="flex items-center no-print">
         <BackButton />
       </div>
-      <style>
-        {`
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            #print-area, #print-area * {
-              visibility: visible;
-            }
-            #print-area {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-            }
-            .no-print {
-              display: none !important;
-            }
-            .print-only {
-              display: block !important;
-            }
-          }
-          .print-only {
-            display: none;
-          }
-        `}
-      </style>
 
-      {/* HEADER SECTION */}
-      <div className="space-y-4 no-print">
-        <div className="bg-white/90 backdrop-blur-xl p-6 rounded-[20px] border border-white/40 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.05)] flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-              <LayoutList className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-extrabold text-slate-800 uppercase tracking-wide">
-                  Quản lý Giao việc
-                </h1>
-                {activeDeptConfig && (
-                  <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-bold border", activeDeptConfig.color.badge)}>
-                    {activeDeptConfig.shortName}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm font-medium text-slate-500 mt-0.5">
-                Phân công công việc chung toàn trường và 4 tổ chuyên môn: Toán-Lý-Tin-CN, Hóa-Lý-Sinh-GDQPAN-NN, Văn-Sử-Địa-GDKT&PL-AN, Văn phòng
-              </p>
-            </div>
+      {/* HEADER BANNER */}
+      <div className="bg-white/90 backdrop-blur-xl p-5 sm:p-6 rounded-[22px] border border-white/60 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.06)] flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0">
+            <LayoutList className="w-6 h-6" />
           </div>
-          
-          <div className="flex items-center gap-2">
-            {canManageTasks && (
-              <button 
-                onClick={() => openCreateModal(activeDeptConfig?.slug)}
-                className={cn(
-                  "inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-[13px] font-bold text-white transition-all shadow-md",
-                  activeDeptConfig ? activeDeptConfig.color.bg : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
-                )}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {activeDeptConfig ? `Giao việc ${activeDeptConfig.shortName}` : 'Giao việc mới'}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* PRIMARY DEPARTMENT TABS / NAVIGATION */}
-        <div className="bg-white/90 backdrop-blur-xl p-2 rounded-[20px] border border-white/40 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.05)]">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 custom-scrollbar">
-            {/* All Tasks Tab */}
-            <button
-              onClick={() => {
-                setActiveTab('all');
-                navigate('/tasks');
-              }}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap",
-                activeTab === 'all'
-                  ? "bg-slate-800 text-white shadow-md shadow-slate-800/20"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              )}
-            >
-              <Building2 size={16} />
-              <span>Chung toàn trường</span>
-              <span className={cn(
-                "px-2 py-0.5 rounded-full text-[11px] font-extrabold",
-                activeTab === 'all' ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
-              )}>
-                {tabCounts.all}
+          <div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-lg sm:text-xl font-extrabold text-slate-800 uppercase tracking-wide">
+                Bảng Giao Việc Theo Tuần
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-blue-800 border border-blue-200 shadow-2xs">
+                THPT Sơn Lương
               </span>
-            </button>
-
-            {/* 4 Prescribed Departments */}
-            {PRESET_DEPARTMENTS.map(dept => {
-              const IconComp = dept.icon;
-              const isSelected = activeTab === dept.slug;
-              const count = tabCounts[dept.slug] || 0;
-
-              return (
-                <button
-                  key={dept.id}
-                  onClick={() => {
-                    setActiveTab(dept.slug);
-                    navigate(`/tasks/${dept.slug}`);
-                  }}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap",
-                    isSelected
-                      ? dept.color.activeTab
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  )}
-                >
-                  <IconComp size={16} />
-                  <span>{dept.shortName}</span>
-                  <span className={cn(
-                    "px-2 py-0.5 rounded-full text-[11px] font-extrabold",
-                    isSelected ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"
-                  )}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-
-            {/* History Tab */}
-            <button
-              onClick={() => setMainView(mainView === 'history' ? 'list' : 'history')}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ml-auto",
-                mainView === 'history'
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
-                  : "text-indigo-600 hover:bg-indigo-50"
-              )}
-            >
-              <CheckSquare size={16} />
-              <span>Lịch sử đánh giá</span>
-            </button>
+            </div>
+            <p className="text-xs sm:text-sm font-medium text-slate-500 mt-1">
+              Theo dõi phân công công việc theo tuần học, kiểm soát tiến độ, hạn hoàn thành và tự động nhận diện quá hạn
+            </p>
           </div>
         </div>
 
-        {/* DEPARTMENT BANNER (Visible when a specific department is chosen) */}
-        {activeDeptConfig && (
-          <div className={cn(
-            "p-5 rounded-[20px] border shadow-[0_4px_24px_-8px_rgba(0,0,0,0.05)] transition-all",
-            activeDeptConfig.color.light,
-            activeDeptConfig.color.border
-          )}>
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-              <div className="flex items-start gap-4">
-                <div className={cn(
-                  "w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-md shrink-0 mt-0.5",
-                  activeDeptConfig.color.bg
-                )}>
-                  <activeDeptConfig.icon size={24} />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h2 className="text-lg font-extrabold text-slate-900 uppercase">
-                      Giao việc: {activeDeptConfig.name}
-                    </h2>
-                    <span className="px-2.5 py-0.5 bg-white border rounded-full text-xs font-bold text-slate-700 shadow-2xs">
-                      {activeDeptTeachers.length} Giáo viên / Nhân viên
-                    </span>
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                    {activeDeptConfig.description}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-3 mt-2 text-xs font-medium text-slate-600">
-                    <span className="flex items-center gap-1.5 bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200/60 shadow-2xs">
-                      <UserCheck size={14} className={activeDeptConfig.color.text} />
-                      Tổ trưởng: <strong className="text-slate-800">{activeDeptHead?.name || 'Chưa phân công'}</strong>
-                    </span>
-                    <span className="flex items-center gap-1.5 bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200/60 shadow-2xs">
-                      <Sparkles size={14} className="text-amber-500" />
-                      Bộ môn: {activeDeptConfig.subjects.slice(0, 4).join(', ')}...
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Department Progress & Quick Stats */}
-              <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto bg-white/80 p-3 rounded-2xl border border-slate-200/60">
-                <div className="flex items-center gap-3 pr-4 border-r border-slate-200">
-                  <div className="text-center">
-                    <span className="text-[11px] font-bold text-slate-400 block uppercase">Tổng việc</span>
-                    <span className="text-lg font-extrabold text-slate-800">{deptStats.total}</span>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[11px] font-bold text-emerald-600 block uppercase">Đã xong</span>
-                    <span className="text-lg font-extrabold text-emerald-600">{deptStats.completed}</span>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[11px] font-bold text-blue-600 block uppercase">Đang làm</span>
-                    <span className="text-lg font-extrabold text-blue-600">{deptStats.inProgress}</span>
-                  </div>
-                  {deptStats.overdue > 0 && (
-                    <div className="text-center">
-                      <span className="text-[11px] font-bold text-rose-600 block uppercase">Quá hạn</span>
-                      <span className="text-lg font-extrabold text-rose-600">{deptStats.overdue}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="min-w-[130px]">
-                  <div className="flex justify-between items-center text-xs font-bold mb-1">
-                    <span className="text-slate-600">Hoàn thành</span>
-                    <span className={activeDeptConfig.color.text}>{deptStats.rate}%</span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className={cn("h-full rounded-full transition-all duration-500", activeDeptConfig.color.bg)} 
-                      style={{ width: `${deptStats.rate}%` }}
-                    />
-                  </div>
-                </div>
-
-                {canManageTasks && (
-                  <button
-                    onClick={() => openCreateModal(activeDeptConfig.slug)}
-                    className={cn(
-                      "px-3 py-2 rounded-xl text-xs font-bold text-white transition-colors flex items-center gap-1.5 shadow-sm ml-auto",
-                      activeDeptConfig.color.bg
-                    )}
-                  >
-                    <Plus size={14} /> Giao việc tổ này
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Action button header */}
+        <div className="flex items-center gap-2.5 w-full md:w-auto">
+          {canManageTasks && (
+            <button 
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex items-center justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+            >
+              <Plus className="mr-1.5 h-4 w-4 stroke-[3]" />
+              + Giao việc
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setMainView(mainView === 'history' ? 'list' : 'history')}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border cursor-pointer",
+              mainView === 'history'
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+            )}
+          >
+            <CheckSquare size={16} />
+            <span>{mainView === 'history' ? 'Về Bảng tuần' : 'Lịch sử đánh giá'}</span>
+          </button>
+        </div>
       </div>
 
-      {/* MAIN VIEW: HISTORY OR LIST */}
       {mainView === 'history' ? (
         <TaskEvaluationsHistory />
       ) : (
-        <div className="space-y-6">
-          {/* SEARCH & FILTER BAR */}
-          <div className="bg-white/90 backdrop-blur-xl p-4 rounded-[20px] border border-white/40 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.05)] flex flex-col md:flex-row gap-3 items-center no-print">
-            {/* Week filter */}
-            <select 
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-700 outline-none w-full md:w-auto font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white" 
-              value={filterWeek} 
-              onChange={e => setFilterWeek(e.target.value)}
+        <div className="space-y-5">
+          {/* THANH ĐIỀU KHIỂN CHỌN TUẦN & XUẤT BÁO CÁO (Yêu cầu 1, 2, 3, 5, 12) */}
+          <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-4 sm:p-5 rounded-[22px] shadow-lg border border-blue-800 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 no-print">
+            {/* Nhóm điều khiển Năm học - Dropdown Tuần - Thời gian */}
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 w-full lg:w-auto">
+              {/* Năm học: [2026–2027 ▼] */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-slate-300 whitespace-nowrap">
+                  Năm học:
+                </span>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => handleYearChange(e.target.value)}
+                  className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer shadow-xs transition-colors"
+                >
+                  {ACADEMIC_YEARS.map(yr => (
+                    <option key={yr} value={yr} className="text-slate-900 bg-white font-semibold">
+                      {yr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Ô SELECT/DROPDOWN CHỌN TUẦN: 📅 Tuần: [ Tuần 03 ▼ ] */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-slate-300 whitespace-nowrap flex items-center gap-1">
+                  <span>📅</span> Tuần:
+                </span>
+                <div className="relative">
+                  <select
+                    value={selectedWeekNumber}
+                    onChange={(e) => handleWeekChange(Number(e.target.value))}
+                    aria-label="Chọn tuần"
+                    className="bg-white text-slate-900 font-black rounded-xl pl-3.5 pr-8 py-2 text-xs sm:text-sm shadow-md border-2 border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer appearance-none min-w-[130px]"
+                  >
+                    {allWeeks.map(w => (
+                      <option key={w.weekNumber} value={w.weekNumber} className="text-slate-900 font-bold py-1">
+                        {w.weekLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-700 font-black text-xs">
+                    ▼
+                  </span>
+                </div>
+              </div>
+
+              {/* Hiển thị rõ thông tin sau ô chọn tuần: TUẦN 03 | TỪ 14/09/2026 ĐẾN 20/09/2026 */}
+              <div className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-400/10 rounded-xl border border-amber-400/30 backdrop-blur-md shadow-xs">
+                <span className="text-xs sm:text-sm font-black tracking-wide uppercase text-amber-300">
+                  {currentWeek.label}
+                </span>
+              </div>
+            </div>
+
+            {/* Nhóm nút: [Tạo giao việc] [Tạo / Nhập lịch trường] [Xuất Excel] [Xuất Word] */}
+            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
+              {canManageTasks && (
+                <>
+                  <button
+                    type="button"
+                    onClick={openCreateModal}
+                    className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 text-xs sm:text-sm font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Tạo giao việc mới cho tuần này"
+                  >
+                    <Plus size={16} className="stroke-[3]" />
+                    <span>Tạo giao việc</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsImportModalOpen(true)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-white/20"
+                    title="Tạo và nhập lịch giao việc trường từ file mẫu, Excel hoặc Word"
+                  >
+                    <Sparkles size={16} className="text-amber-300" />
+                    <span>Lịch Giao Việc Trường</span>
+                  </button>
+                </>
+              )}
+
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-400/40"
+                title="Xuất bảng giao việc tuần này ra Excel"
+              >
+                <FileSpreadsheet size={16} />
+                <span>Xuất Excel</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportWord}
+                className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-400/40"
+                title="Xuất bảng giao việc tuần này ra Word (.docx)"
+              >
+                <FileText size={16} />
+                <span>Xuất Word</span>
+              </button>
+            </div>
+          </div>
+
+          {/* CHUYỂN ĐỔI CHẾ ĐỘ XEM: BẢNG DANH SÁCH VS LỊCH TUẦN THEO THỨ */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 no-print">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setViewLayout('table')}
+                className={cn(
+                  "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer",
+                  viewLayout === 'table'
+                    ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                <LayoutList size={16} />
+                <span>Bảng Giao Việc Chi Tiết</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewLayout('calendar')}
+                className={cn(
+                  "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer",
+                  viewLayout === 'calendar'
+                    ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                <CalendarIcon size={16} />
+                <span>Lịch Giao Việc Theo Thứ (7 Ngày)</span>
+              </button>
+            </div>
+
+            {canManageTasks && (
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                className="text-xs font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 px-3 py-1.5 rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
+              >
+                <Sparkles size={14} className="text-amber-500" />
+                <span>Tạo / Đồng bộ Lịch Chuẩn Trường</span>
+              </button>
+            )}
+          </div>
+
+          {/* CÁC Ô THỐNG KÊ THEO TUẦN ĐANG CHỌN (Yêu cầu 8) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 no-print">
+            {/* TỔNG CÔNG VIỆC */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center font-bold shrink-0">
+                <CheckSquare size={22} className="text-slate-700" />
+              </div>
+              <div>
+                <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                  Tổng công việc
+                </span>
+                <span className="text-xl sm:text-2xl font-black text-slate-800">
+                  {weekStats.total}
+                </span>
+              </div>
+            </div>
+
+            {/* CHƯA THỰC HIỆN */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center font-bold shrink-0">
+                <Clock size={22} className="text-slate-500" />
+              </div>
+              <div>
+                <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                  Chưa thực hiện
+                </span>
+                <span className="text-xl sm:text-2xl font-black text-slate-600">
+                  {weekStats.notStarted}
+                </span>
+              </div>
+            </div>
+
+            {/* ĐANG THỰC HIỆN */}
+            <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-2xs flex items-center gap-3 bg-gradient-to-br from-white to-blue-50/40">
+              <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">
+                <Play size={20} className="text-blue-600" />
+              </div>
+              <div>
+                <span className="text-[11px] font-extrabold text-blue-600 uppercase tracking-wider block">
+                  Đang thực hiện
+                </span>
+                <span className="text-xl sm:text-2xl font-black text-blue-700">
+                  {weekStats.inProgress}
+                </span>
+              </div>
+            </div>
+
+            {/* ĐÃ HOÀN THÀNH */}
+            <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-2xs flex items-center gap-3 bg-gradient-to-br from-white to-emerald-50/40">
+              <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+                <CheckCircle size={22} className="text-emerald-600" />
+              </div>
+              <div>
+                <span className="text-[11px] font-extrabold text-emerald-600 uppercase tracking-wider block">
+                  Đã hoàn thành
+                </span>
+                <span className="text-xl sm:text-2xl font-black text-emerald-700">
+                  {weekStats.completed}
+                </span>
+              </div>
+            </div>
+
+            {/* QUÁ HẠN (Tự động nhận diện) */}
+            <div className={cn(
+              "p-4 rounded-2xl border shadow-2xs flex items-center gap-3 col-span-2 sm:col-span-1",
+              weekStats.overdue > 0 
+                ? "bg-rose-50/80 border-rose-200 text-rose-900" 
+                : "bg-white border-slate-200 text-slate-800"
+            )}>
+              <div className={cn(
+                "w-11 h-11 rounded-xl flex items-center justify-center font-bold shrink-0",
+                weekStats.overdue > 0 ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"
+              )}>
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <span className={cn(
+                  "text-[11px] font-extrabold uppercase tracking-wider block",
+                  weekStats.overdue > 0 ? "text-rose-600" : "text-slate-400"
+                )}>
+                  Quá hạn
+                </span>
+                <span className={cn(
+                  "text-xl sm:text-2xl font-black",
+                  weekStats.overdue > 0 ? "text-rose-600" : "text-slate-700"
+                )}>
+                  {weekStats.overdue}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* BỘ LỌC CÔNG VIỆC (Yêu cầu 9) */}
+          <div className="bg-white/95 backdrop-blur-md p-4 rounded-[20px] border border-slate-200 shadow-2xs flex flex-wrap items-center gap-3 no-print">
+            {/* Lọc Tổ/Đơn vị */}
+            <select
+              value={filterDepartment}
+              onChange={e => setFilterDepartment(e.target.value)}
+              className="border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-700 font-semibold outline-none bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 min-w-[150px]"
             >
-              <option value="">Tất cả tuần / thứ</option>
-              {WEEKS.map(w => <option key={w} value={w}>{w}</option>)}
+              <option value="all">Tất cả Tổ / Đơn vị</option>
+              <option value="school">Chung toàn trường</option>
+              {PRESET_DEPARTMENTS.map(d => (
+                <option key={d.slug} value={d.slug}>{d.shortName}</option>
+              ))}
             </select>
 
-            {/* Filter target in 'all' tab */}
-            {activeTab === 'all' && (
-              <select 
-                className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-700 outline-none w-full md:w-auto focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white font-medium"
-                value={filterDepartment} 
-                onChange={e => setFilterDepartment(e.target.value)}
-              >
-                <option value="all">Tất cả đối tượng chung</option>
-                <option value="group_all">Toàn thể CBGVNV</option>
-                <option value="group_gvcn">Giáo viên chủ nhiệm (GVCN)</option>
-              </select>
-            )}
-
-            {/* Assignee filter: in dept tab, only show teachers of this dept */}
-            <select 
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-700 outline-none w-full md:w-auto focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white" 
-              value={filterAssignee} 
+            {/* Lọc Người được giao */}
+            <select
+              value={filterAssignee}
               onChange={e => setFilterAssignee(e.target.value)}
+              className="border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-700 font-medium outline-none bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 min-w-[180px]"
             >
-              <option value="">
-                {activeDeptConfig ? `Lọc giáo viên ${activeDeptConfig.shortName}` : 'Lọc theo người thực hiện'}
-              </option>
-              {(activeDeptConfig ? activeDeptTeachers : teachers).map(t => (
+              <option value="">Lọc theo người được giao</option>
+              {teachers.map(t => (
                 <option key={t.id} value={t.id}>
                   {t.name} {t.subject ? `(${t.subject})` : ''}
                 </option>
               ))}
             </select>
 
-            {/* Status / Execution Result filter */}
-            <select 
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-700 outline-none w-full md:w-auto focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white" 
-              value={filterStatus} 
+            {/* Lọc Trạng thái (Yêu cầu 6) */}
+            <select
+              value={filterStatus}
               onChange={e => setFilterStatus(e.target.value)}
+              className="border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-700 font-semibold outline-none bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 min-w-[150px]"
             >
-              <option value="">Lọc kết quả thực hiện</option>
-              <option value="Chưa đánh giá">Chưa đánh giá (—)</option>
-              <option value="Hoàn thành tốt">Hoàn thành tốt</option>
-              <option value="Quá hạn (Chậm muộn)">Quá hạn (Chậm muộn)</option>
+              <option value="">Tất cả trạng thái</option>
+              <option value="Chưa thực hiện">Chưa thực hiện</option>
+              <option value="Đang thực hiện">Đang thực hiện</option>
+              <option value="Chậm tiến độ">Chậm tiến độ</option>
+              <option value="Hoàn thành">Hoàn thành</option>
+              <option value="Hoàn thành tốt">Hoàn thành tốt ⭐</option>
+              <option value="Quá hạn">Quá hạn ⚠</option>
             </select>
 
-            {/* Search */}
-            <div className="relative flex-1 w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Tìm kiếm nội dung công việc..." 
+            {/* Lọc Mức độ ưu tiên */}
+            <select
+              value={filterPriority}
+              onChange={e => setFilterPriority(e.target.value)}
+              className="border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-700 font-medium outline-none bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 min-w-[140px]"
+            >
+              <option value="">Mức độ ưu tiên</option>
+              <option value="Khẩn cấp">Khẩn cấp 🔥</option>
+              <option value="Cao">Cao</option>
+              <option value="Trung bình">Trung bình</option>
+              <option value="Thấp">Thấp</option>
+            </select>
+
+            {/* Ô tìm kiếm theo nội dung hoặc tên người thực hiện (Yêu cầu 9) */}
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+              <input
+                type="text"
+                placeholder="Tìm nội dung công việc, người thực hiện..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-white"
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none"
               />
             </div>
-            
-            {/* Actions */}
-            <div className="flex gap-2 w-full md:w-auto">
-              <button 
-                onClick={handlePrint}
-                title="In lịch giao việc"
-                className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-slate-100 border border-slate-200 text-slate-700 px-3 py-2.5 rounded-lg hover:bg-slate-200 transition-colors"
-              >
-                <Printer size={18} />
-              </button>
-              <button 
-                onClick={handleExportExcel}
-                title="Xuất bảng Excel"
-                className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-emerald-600 text-white px-3 py-2.5 rounded-lg hover:bg-emerald-700 transition-colors shadow-xs"
-              >
-                <Download size={18} />
-                <span className="text-xs font-bold hidden xl:inline">Xuất Excel</span>
-              </button>
-            </div>
+
+            {/* Nút In ấn */}
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="p-2 border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors cursor-pointer"
+              title="In bảng giao việc"
+            >
+              <Printer size={18} />
+            </button>
           </div>
 
-          {/* THỐNG KÊ TỔNG HỢP KẾT QUẢ ĐÁNH GIÁ (YÊU CẦU 8) */}
-          <div className="bg-white p-3.5 sm:p-4 rounded-[18px] border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3 no-print">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
-                <CheckCircle size={18} />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  Tổng hợp đánh giá kết quả thực hiện {activeDeptConfig ? `(${activeDeptConfig.shortName})` : ''}
-                </div>
-                <div className="text-[11px] text-slate-500">Số liệu thực tế từ danh sách công việc đang lọc</div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-xs">
-              {/* Đã đánh giá */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-900 shadow-2xs font-semibold">
-                <span>Đã đánh giá:</span>
-                <span className="font-extrabold text-indigo-700 text-sm">
-                  {summaryStats.evaluated}/{summaryStats.total}
-                </span>
-              </div>
-
-              {/* Chưa đánh giá */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 shadow-2xs font-semibold">
-                <span>Chưa đánh giá:</span>
-                <span className="font-extrabold text-slate-800 text-sm">
-                  {summaryStats.notEvaluated}/{summaryStats.total}
-                </span>
-              </div>
-
-              {/* Hoàn thành tốt */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 shadow-2xs font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                <span>Hoàn thành tốt:</span>
-                <span className="font-extrabold text-emerald-700 text-sm">
-                  {summaryStats.good}
-                </span>
-              </div>
-
-              {/* Quá hạn (Chậm muộn) */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 shadow-2xs font-semibold">
-                <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
-                <span>Quá hạn (Chậm muộn):</span>
-                <span className="font-extrabold text-rose-700 text-sm">
-                  {summaryStats.overdue}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* PRINT AREA */}
-          <div id="print-area">
-            <div className="print-only mb-6 text-center">
-              <h2 className="text-xl font-bold uppercase">
-                {activeDeptConfig ? `LỊCH GIAO VIỆC - ${activeDeptConfig.name.toUpperCase()}` : 'LỊCH GIAO VIỆC CHUNG'}
-              </h2>
-              <h3 className="text-lg font-bold uppercase">TRƯỜNG THPT SƠN LƯƠNG</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                {activeDeptConfig && `Tổ trưởng: ${activeDeptHead?.name || 'Chưa cập nhật'} | `}
-                Tuần: {filterWeek || 'Tất cả các tuần'} | Ngày in: {new Date().toLocaleDateString('vi-VN')}
-              </p>
-            </div>
-
-            <Card className="overflow-hidden border border-slate-200 shadow-sm rounded-none sm:rounded-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-slate-400">
-                  <thead>
-                    <tr className="bg-blue-50/80 text-sm font-bold text-slate-800 text-center">
-                      <th className="px-3 py-3 border border-slate-400 w-24">Thứ/Tuần</th>
-                      <th className="px-3 py-3 border border-slate-400 w-28">Ngày giao</th>
-                      {activeTab === 'all' && (
-                        <th className="px-3 py-3 border border-slate-400 w-36 text-center">Phạm vi</th>
-                      )}
-                      <th className="px-4 py-3 border border-slate-400 text-left min-w-[260px]">Nội dung công việc</th>
-                      <th className="px-3 py-3 border border-slate-400 w-48">Người thực hiện</th>
-                      <th className="px-3 py-3 border border-slate-400 w-28">Thời hạn</th>
-                      <th className="px-3 py-3 border border-slate-400 w-36">Người đánh giá</th>
-                      <th className="px-3 py-3 border border-slate-400 w-48 text-center no-print">Kết quả thực hiện</th>
-                      <th className="px-3 py-3 border border-slate-400 w-16 no-print">Thao tác</th>
+          {/* HIỂN THỊ DỮ LIỆU: BẢNG CHI TIẾT HOẶC LỊCH THEO THỨ */}
+          {viewLayout === 'calendar' ? (
+            <TaskWeeklyCalendarView
+              currentWeek={currentWeek}
+              tasks={filteredAssignments}
+              teachers={teachers}
+              getTeacherNames={getTeacherNames}
+              getEffectiveStatus={getEffectiveTaskStatus}
+              onEditTask={openEditModal}
+              onProgressTask={openProgressModal}
+              onCreateTaskForDay={(isoDate) => {
+                setEditingAssignment(null);
+                setFormData({
+                  departmentId: activeDeptConfig ? activeDeptConfig.id : 'global',
+                  scope: activeDeptConfig ? 'department' : 'school',
+                  academic_year: selectedYear,
+                  academicYear: selectedYear,
+                  week_number: currentWeek.weekNumber,
+                  weekNumber: currentWeek.weekNumber,
+                  weekLabel: currentWeek.weekLabel,
+                  workDate: isoDate,
+                  deadline: isoDate,
+                  priority: 'Trung bình',
+                  status: 'Chưa thực hiện',
+                  assigneeIds: [],
+                  requirements: '',
+                  note: '',
+                  evaluatorId: user?.id || ''
+                });
+                setIsModalOpen(true);
+              }}
+              isAdminOrHead={canManageTasks}
+            />
+          ) : (
+            /* BẢNG GIAO VIỆC THEO TUẦN (Yêu cầu 4) */
+            <div className="bg-white rounded-[22px] border border-slate-200/90 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs sm:text-sm">
+                <thead>
+                  <tr className="bg-slate-100/90 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider text-[11px] sm:text-xs">
+                    <th className="py-3 px-3 border-r border-slate-200 text-center w-12 shrink-0">STT</th>
+                    <th className="py-3 px-4 border-r border-slate-200 min-w-[260px]">Nội dung công việc</th>
+                    <th className="py-3 px-3 border-r border-slate-200 min-w-[170px]">Người được giao</th>
+                    <th className="py-3 px-3 border-r border-slate-200 min-w-[130px] text-center">Tổ / Đơn vị</th>
+                    <th className="py-3 px-3 border-r border-slate-200 w-24 text-center">Ngày giao</th>
+                    <th className="py-3 px-3 border-r border-slate-200 w-28 text-center">Hạn hoàn thành</th>
+                    <th className="py-3 px-3 border-r border-slate-200 min-w-[140px] text-center">Trạng thái</th>
+                    <th className="py-3 px-4 border-r border-slate-200 min-w-[180px]">Kết quả</th>
+                    <th className="py-3 px-3 text-center min-w-[110px] no-print">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {filteredAssignments.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-12 px-4 text-center text-slate-500">
+                        <div className="max-w-md mx-auto space-y-2">
+                          <LayoutList size={32} className="mx-auto text-slate-400" />
+                          <p className="font-bold text-slate-700 text-sm">
+                            {currentWeekAssignments.length === 0
+                              ? "Tuần này chưa có công việc được giao."
+                              : "Không có công việc nào phù hợp với bộ lọc."}
+                          </p>
+                          {currentWeekAssignments.length === 0 && canManageTasks && (
+                            <button
+                              type="button"
+                              onClick={openCreateModal}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-1.5 mt-2"
+                            >
+                              <Plus size={14} /> + Giao việc tuần này
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="bg-white">
-                    {filteredAssignments.length === 0 ? (
-                      <tr>
-                        <td 
-                          colSpan={activeTab === 'all' ? 9 : 8} 
-                          className="px-4 py-12 text-center border border-slate-400 text-slate-500 bg-slate-50"
+                  ) : (
+                    filteredAssignments.map((task, index) => {
+                      const effectiveStatus = getEffectiveTaskStatus(task);
+                      const isPast = isTaskOverdue(task);
+                      const deptName = getAssignmentDepartmentName(task);
+                      const isAssignee = isUserAnAssignee(task, user?.id);
+                      const canEditThisTask = canManageTasks || task.createdBy === user?.id;
+
+                      return (
+                        <tr 
+                          key={task.id} 
+                          className={cn(
+                            "hover:bg-blue-50/40 transition-colors",
+                            effectiveStatus === 'Quá hạn' && "bg-rose-50/30"
+                          )}
                         >
-                          <div className="max-w-md mx-auto space-y-3">
-                            <div className="w-12 h-12 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center mx-auto">
-                              <LayoutList size={24} />
-                            </div>
-                            <p className="font-bold text-slate-700">
-                              {activeDeptConfig 
-                                ? `Chưa có công việc nào thuộc ${activeDeptConfig.name}.`
-                                : 'Không tìm thấy công việc nào phù hợp với bộ lọc.'
-                              }
-                            </p>
-                            {canManageTasks && activeDeptConfig && (
-                              <button
-                                onClick={() => openCreateModal(activeDeptConfig.slug)}
-                                className={cn("px-4 py-2 rounded-xl text-xs font-bold text-white inline-flex items-center gap-2", activeDeptConfig.color.bg)}
-                              >
-                                <Plus size={14} /> Giao việc ngay cho {activeDeptConfig.shortName}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredAssignments.map((assignment) => {
-                        const isOverdue = (() => { 
-                          const d = safeParseDate(assignment.deadline); 
-                          return d ? d < new Date() && assignment.status !== 'Đã hoàn thành' && assignment.status !== 'Đã đánh giá' : false; 
-                        })();
-                        const isAssignee = isUserAnAssignee(assignment, user?.id);
-                        const resolvedAssignees = getResolvedAssigneeTeachers(assignment);
-                        const dept = getAssignmentDepartment(assignment);
+                          {/* STT */}
+                          <td className="py-3 px-3 border-r border-slate-200 text-center font-bold text-slate-600">
+                            {index + 1}
+                          </td>
 
-                        return (
-                          <tr key={assignment.id} className="hover:bg-slate-50/60 transition-colors">
-                            <td className="px-3 py-3 border border-slate-400 text-center text-sm text-slate-800 font-semibold">
-                              {assignment.weekLabel}
-                            </td>
-                            <td className="px-3 py-3 border border-slate-400 text-center text-sm text-slate-800">
-                              {safeFormatLocale(assignment.workDate, 'toLocaleDateString', 'Chưa cập nhật')}
-                            </td>
-                            
-                            {/* Scope Badge in 'All' Tab */}
-                            {activeTab === 'all' && (
-                              <td className="px-3 py-3 border border-slate-400 text-center align-top">
-                                <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 block text-center">
-                                  Toàn trường
+                          {/* NỘI DUNG CÔNG VIỆC */}
+                          <td className="py-3 px-4 border-r border-slate-200 align-top">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-slate-900 leading-snug">
+                                  {task.content}
                                 </span>
-                              </td>
-                            )}
+                                {task.priority && renderPriorityBadge(task.priority)}
+                              </div>
 
-                            <td className="px-4 py-3 border border-slate-400 text-sm text-slate-800 text-left align-top">
-                              <div className="whitespace-pre-wrap leading-relaxed font-medium">{assignment.content}</div>
-                              {assignment.note && (
-                                <div className="mt-2 text-xs text-slate-500 italic bg-slate-50 p-1.5 rounded border border-slate-100">
-                                  <span className="font-semibold mr-1">Ghi chú:</span> {assignment.note}
+                              {task.requirements && (
+                                <div className="text-xs text-slate-600 bg-slate-50 p-1.5 rounded-lg border border-slate-200/80">
+                                  <span className="font-semibold text-slate-700">Yêu cầu:</span> {task.requirements}
                                 </div>
                               )}
-                            </td>
 
-                            <td className="px-3 py-3 border border-slate-400 text-center text-sm text-slate-800 align-top">
-                              <div className="flex flex-col gap-1 items-center">
-                                {getTeacherNames(assignment).split(', ').map((name, i) => (
-                                  <div 
-                                    key={i} 
-                                    className="bg-slate-100 border border-slate-200 px-2 py-1 rounded text-xs w-full text-center truncate font-medium text-slate-700" 
-                                    title={name}
+                              {task.note && (
+                                <div className="text-[11px] text-slate-500 italic">
+                                  <span className="font-medium">Ghi chú:</span> {task.note}
+                                </div>
+                              )}
+
+                              {task.evidenceUrl && (
+                                <div className="pt-1">
+                                  <a
+                                    href={task.evidenceUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200"
                                   >
-                                    {name}
+                                    <Paperclip size={12} />
+                                    <span>{task.evidenceName || 'Minh chứng đính kèm'}</span>
+                                    <ExternalLink size={10} />
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* NGƯỜI ĐƯỢC GIAO */}
+                          <td className="py-3 px-3 border-r border-slate-200 align-top">
+                            <div className="space-y-1">
+                              {getTeacherNames(task).split(', ').map((name, i) => (
+                                <div
+                                  key={i}
+                                  className="text-xs font-semibold px-2 py-0.5 bg-slate-100 border border-slate-200 rounded-md text-slate-700 truncate max-w-[170px]"
+                                  title={name}
+                                >
+                                  {name}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* TỔ/ĐƠN VỊ */}
+                          <td className="py-3 px-3 border-r border-slate-200 align-top text-center">
+                            <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200 inline-block">
+                              {deptName}
+                            </span>
+                          </td>
+
+                          {/* NGÀY GIAO */}
+                          <td className="py-3 px-3 border-r border-slate-200 align-top text-center text-xs font-medium text-slate-700">
+                            {safeFormatLocale(task.workDate, 'toLocaleDateString', '—')}
+                          </td>
+
+                          {/* HẠN HOÀN THÀNH */}
+                          <td className="py-3 px-3 border-r border-slate-200 align-top text-center text-xs">
+                            <span className={cn(
+                              "font-bold",
+                              isPast ? "text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200" : "text-slate-700"
+                            )}>
+                              {safeFormatLocale(task.deadline, 'toLocaleDateString', '—')}
+                            </span>
+                          </td>
+
+                          {/* TRẠNG THÁI */}
+                          <td className="py-3 px-3 border-r border-slate-200 align-top text-center">
+                            {renderStatusBadge(effectiveStatus, task.progress)}
+                          </td>
+
+                          {/* KẾT QUẢ */}
+                          <td className="py-3 px-4 border-r border-slate-200 align-top">
+                            {(() => {
+                              const resultText = getTaskResultText(task);
+                              if (!resultText) {
+                                return <span className="text-slate-400 text-xs italic">—</span>;
+                              }
+                              return (
+                                <div className="space-y-1 text-xs">
+                                  <div className="text-slate-800 font-medium line-clamp-3">
+                                    {resultText}
                                   </div>
-                                ))}
-                              </div>
-                            </td>
+                                </div>
+                              );
+                            })()}
+                          </td>
 
-                            <td className="px-3 py-3 border border-slate-400 text-center text-sm text-slate-800 align-top">
-                              <div className={cn("font-semibold", isOverdue ? "text-rose-600" : "text-slate-700")}>
-                                {safeFormatLocale(assignment.deadline, 'toLocaleDateString', 'Chưa cập nhật')}
-                              </div>
-                            </td>
+                          {/* THAO TÁC */}
+                          <td className="py-3 px-3 align-top text-center no-print">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* Nút Cập nhật tiến độ & Kết quả (cho người được giao hoặc quản lý) */}
+                              <button
+                                type="button"
+                                onClick={() => openProgressModal(task)}
+                                className="px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                                title="Cập nhật trạng thái, tiến độ và kết quả thực hiện"
+                              >
+                                Cập nhật
+                              </button>
 
-                            <td className="px-3 py-3 border border-slate-400 text-center text-sm text-slate-800 align-top">
-                              <div className="font-medium text-slate-700">
-                                {getTeacherName(assignment.evaluatorId)}
-                              </div>
-                            </td>
+                              {/* Nút Đánh giá (cho BGH / TTCM / Người đánh giá) */}
+                              {canEvaluateTask(task) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEvaluatingAssignment(task);
+                                    setIsEvalModalOpen(true);
+                                  }}
+                                  className="px-2 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                                  title="Đánh giá công việc / kết nối KPI"
+                                >
+                                  Đánh giá
+                                </button>
+                              )}
 
-                            {/* CỘT KẾT QUẢ THỰC HIỆN: CHỈ HIỂN THỊ KẾT QUẢ ĐÃ ĐƯỢC LƯU TRONG DATABASE */}
-                            <td className="px-3 py-3 border border-slate-400 text-left align-top no-print">
-                              {(() => {
-                                const evaluatedList = getEvaluatedAssignees(assignment);
-                                // TRẠNG THÁI BAN ĐẦU: Chưa có đánh giá nào -> TRỐNG HOÀN TOÀN
-                                if (evaluatedList.length === 0) {
-                                  return null;
-                                }
-
-                                // ĐÃ CÓ ĐÁNH GIÁ: CHỈ hiển thị những CBGVNV ĐÃ CÓ KẾT QUẢ ĐÁNH GIÁ ĐÃ LƯU
-                                return (
-                                  <div className="space-y-1.5 py-0.5">
-                                    {evaluatedList.map(item => (
-                                      <div 
-                                        key={item.id} 
-                                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 p-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs"
-                                      >
-                                        <span className="font-semibold text-slate-800 truncate max-w-[130px]" title={item.name}>
-                                          {item.name}:
-                                        </span>
-                                        <div className="shrink-0">
-                                          {renderResultBadge(item.result)}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-                            </td>
-
-                            <td className="px-3 py-3 border border-slate-400 text-center align-top no-print relative">
-                              <div className="flex items-center justify-center gap-1">
-                                {canEvaluateTask(assignment) && (
-                                  (() => {
-                                    const allAssigned = resolvedAssignees;
-                                    const allEvaluated = allAssigned.length > 0 && allAssigned.every(t => {
-                                      const r = assignment.assigneeResults?.[t.id];
-                                      return r === 'Hoàn thành tốt' || r === 'Quá hạn (Chậm muộn)';
-                                    });
-                                    return (
-                                      <button 
-                                        onClick={() => openEvalModal(assignment)}
-                                        className={cn(
-                                          "inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border transition-all shadow-2xs cursor-pointer",
-                                          allEvaluated 
-                                            ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100" 
-                                            : "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
-                                        )}
-                                        title={allEvaluated ? "Đã đánh giá tất cả CBGVNV (bấm để xem lại/sửa)" : "Đánh giá công việc"}
-                                      >
-                                        {allEvaluated ? (
-                                          <>
-                                            <Check size={12} className="stroke-[3]" />
-                                            <span>Đã đánh giá</span>
-                                          </>
-                                        ) : (
-                                          <span>Đánh giá</span>
-                                        )}
-                                      </button>
-                                    );
-                                  })()
-                                )}
-                                <button 
-                                  onClick={() => setActiveMenu(activeMenu === assignment.id ? null : assignment.id)}
-                                  className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors"
-                                  title="Tùy chọn khác"
+                              {/* Menu khác */}
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveMenu(activeMenu === task.id ? null : task.id)}
+                                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
                                 >
                                   <MoreVertical size={16} />
                                 </button>
-                              </div>
-                              
-                              {activeMenu === assignment.id && (
-                                <div className="absolute right-8 top-2 bg-white border border-slate-200 shadow-xl rounded-xl py-1.5 z-20 w-56 text-left">
-                                  {/* Detail / Evaluation */}
-                                  <button 
-                                    onClick={() => { setActiveMenu(null); openEvalModal(assignment); }} 
-                                    className="w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left flex items-center gap-2"
-                                  >
-                                    <Eye size={16} className="text-slate-500" /> Xem chi tiết / Đánh giá
-                                  </button>
 
-                                  {/* Manager operations */}
-                                  {canManageTasks && (
-                                    <>
-                                      <div className="h-px bg-slate-100 my-1"></div>
-                                      <button 
-                                        onClick={() => openEditModal(assignment)} 
-                                        className="w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left flex items-center gap-2"
-                                      >
-                                        <Edit size={16} className="text-slate-500" /> Sửa công việc
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDelete(assignment.id)} 
-                                        className="w-full px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 text-left flex items-center gap-2"
-                                      >
-                                        <Trash2 size={16} /> Xóa công việc
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+                                {activeMenu === task.id && (
+                                  <div className="absolute right-0 top-6 bg-white border border-slate-200 shadow-xl rounded-xl py-1.5 z-30 w-44 text-left animate-in fade-in zoom-in-95 duration-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => openProgressModal(task)}
+                                      className="w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    >
+                                      <CheckCircle size={14} className="text-blue-600" /> Báo cáo tiến độ
+                                    </button>
+
+                                    {canEditThisTask && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => openEditModal(task)}
+                                          className="w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                        >
+                                          <Edit size={14} className="text-slate-500" /> Chỉnh sửa việc
+                                        </button>
+                                        <div className="h-px bg-slate-100 my-1"></div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDelete(task.id)}
+                                          className="w-full px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer font-medium"
+                                        >
+                                          <Trash2 size={14} /> Xóa công việc
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
+          )}
         </div>
       )}
 
-      {/* CREATE / EDIT TASK MODAL */}
+      {/* MODAL TẠO & NHẬP LỊCH GIAO VIỆC TRƯỜNG */}
+      <TaskImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        selectedWeek={selectedWeekNumber}
+        selectedYear={selectedYear}
+        onImportTasks={async (newTasks) => {
+          await importWorkAssignments(newTasks);
+        }}
+        onResetToOfficial={async () => {
+          await seedOrResetSchoolTasks();
+        }}
+      />
+
+      {/* CREATE / EDIT TASK MODAL (Yêu cầu 10) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white/95 backdrop-blur-2xl rounded-[24px] shadow-2xl border border-white/50 w-full max-w-3xl overflow-hidden my-8">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/70">
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 to-indigo-50/60">
               <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {editingAssignment 
-                    ? 'Chỉnh sửa thông tin công việc' 
-                    : formDeptConfig 
-                      ? `Giao việc mới cho ${formDeptConfig.name}` 
-                      : 'Giao việc chung toàn trường'
-                  }
-                </h2>
+                <h3 className="text-base sm:text-lg font-bold text-slate-800">
+                  {editingAssignment ? 'Chỉnh sửa công việc giao' : '+ Giao việc mới'}
+                </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Phân công nhiệm vụ, thời hạn và chỉ định người theo dõi đánh giá
+                  Phân công nhiệm vụ cho tuần học: <strong>{currentWeek.label}</strong>
                 </p>
               </div>
-              <button 
-                onClick={() => setIsModalOpen(false)} 
-                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-full hover:bg-slate-200/50 transition-colors"
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-white transition-colors cursor-pointer"
               >
-                <Trash2 size={0} /> {/* Spacer */}
                 <span className="text-2xl leading-none">&times;</span>
               </button>
             </div>
-            
-            <form onSubmit={handleSave} className="p-6 space-y-5">
-              {/* SELECT TARGET DEPARTMENT */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700 flex items-center justify-between">
-                  <span>Phạm vi giao việc / Đơn vị thực hiện <span className="text-rose-500">*</span></span>
-                  {formDeptConfig && (
-                    <span className={cn("text-xs font-bold px-2 py-0.5 rounded-md border", formDeptConfig.color.badge)}>
-                      {formDeptConfig.shortName}
-                    </span>
-                  )}
+
+            <form onSubmit={handleSave} className="p-5 sm:p-6 space-y-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+              {/* 1. NỘI DUNG CÔNG VIỆC */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                  Nội dung công việc <span className="text-rose-500">*</span>
                 </label>
-                
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, departmentId: 'global', scope: 'school' })}
-                      className={cn(
-                        "p-2.5 rounded-xl border text-xs font-bold transition-all text-center flex flex-col items-center gap-1",
-                        formData.departmentId === 'global' || !formData.departmentId
-                          ? "bg-slate-800 text-white border-slate-800 shadow-sm"
-                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                      )}
-                    >
-                      <Building2 size={16} />
-                      <span>Chung toàn trường</span>
-                    </button>
-                  )}
+                <textarea
+                  required
+                  rows={2}
+                  value={formData.content || ''}
+                  onChange={e => setFormData({ ...formData, content: e.target.value })}
+                  placeholder="Nhập tên và nội dung công việc được giao..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                />
+              </div>
+
+              {/* 2. TỔ / ĐƠN VỊ */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
+                  Tổ / Đơn vị thực hiện <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, departmentId: 'global', scope: 'school' })}
+                    className={cn(
+                      "p-2 rounded-xl border text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer",
+                      formData.departmentId === 'global' || !formData.departmentId
+                        ? "bg-slate-800 text-white border-slate-800 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    )}
+                  >
+                    <Building2 size={14} />
+                    <span>Toàn trường</span>
+                  </button>
 
                   {PRESET_DEPARTMENTS.map(dept => {
                     const isSelected = formData.departmentId === dept.id;
-                    const IconComp = dept.icon;
-                    // If user is TTCM and not admin, only allow their department
-                    if (!isAdmin && isHead && userDeptConfig && userDeptConfig.id !== dept.id) {
-                      return null;
-                    }
                     return (
                       <button
                         key={dept.id}
                         type="button"
-                        onClick={() => {
-                          setFormData({ ...formData, departmentId: dept.id, scope: 'department' });
-                          // Auto suggest head as evaluator if current evaluator is empty
-                          const deptHead = teachers.find(t => 
-                            isTeacherInDept(t, dept) && 
-                            ((t.role || '').includes('TTCM') || (t.position || '').toLowerCase().includes('tổ trưởng'))
-                          );
-                          if (deptHead && !formData.evaluatorId) {
-                            setFormData(prev => ({ ...prev, departmentId: dept.id, scope: 'department', evaluatorId: deptHead.id }));
-                          }
-                        }}
+                        onClick={() => setFormData({ ...formData, departmentId: dept.id, scope: 'department' })}
                         className={cn(
-                          "p-2.5 rounded-xl border text-xs font-bold transition-all text-center flex flex-col items-center gap-1",
+                          "p-2 rounded-xl border text-xs font-bold transition-all text-center truncate cursor-pointer",
                           isSelected
-                            ? cn(dept.color.bg, "text-white border-transparent shadow-sm")
-                            : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                            ? cn(dept.color.bg, "text-white border-transparent shadow-xs")
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                         )}
                       >
-                        <IconComp size={16} />
-                        <span className="truncate w-full">{dept.shortName}</span>
+                        {dept.shortName}
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-xs text-slate-500 italic mt-1">
-                  {formData.departmentId === 'global' || !formData.departmentId
-                    ? '• Công việc chung toàn trường sẽ hiển thị tại danh mục "Chung toàn trường".'
-                    : '• Khi tổ chuyên môn giao việc, nội dung công việc chỉ hiển thị trong tổ chuyên môn, không hiển thị lên công việc chung toàn trường.'}
-                </p>
               </div>
 
-              {/* DATE & TIME */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Thứ / Tuần học <span className="text-rose-500">*</span></label>
-                  <select 
-                    required
-                    value={formData.weekLabel || ''}
-                    onChange={e => setFormData({...formData, weekLabel: e.target.value})}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  >
-                    {WEEKS.map(w => <option key={w} value={w}>{w}</option>)}
-                  </select>
-                </div>
-                
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Ngày giao việc <span className="text-rose-500">*</span></label>
-                  <input 
-                    required
-                    type="date" 
-                    value={formData.workDate}
-                    onChange={e => setFormData({...formData, workDate: e.target.value})}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* CONTENT */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">Nội dung công việc <span className="text-rose-500">*</span></label>
-                <textarea 
-                  required
-                  rows={3}
-                  value={formData.content || ''}
-                  onChange={e => setFormData({...formData, content: e.target.value})}
-                  placeholder="Nhập nội dung chi tiết công việc cần thực hiện..."
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
-                />
-              </div>
-
-              {/* ASSIGNEES SELECTION */}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="text-sm font-semibold text-slate-700">
-                    Người thực hiện (Chọn một hoặc nhiều) <span className="text-rose-500">*</span>
+              {/* 3. NGƯỜI ĐƯỢC GIAO */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                  Người được giao (Chọn một hoặc nhiều) <span className="text-rose-500">*</span>
+                </label>
+                <div className="max-h-40 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1 custom-scrollbar text-xs">
+                  {/* Nhóm nhanh */}
+                  <label className="flex items-center gap-2.5 p-1.5 rounded hover:bg-blue-50 cursor-pointer font-bold text-blue-900 border-b border-slate-200 pb-2 mb-1">
+                    <input
+                      type="checkbox"
+                      checked={formData.assigneeIds?.includes('GROUP_ALL') || false}
+                      onChange={() => toggleAssignee('GROUP_ALL')}
+                      className="w-4 h-4 rounded text-blue-600"
+                    />
+                    <span>Toàn thể CBGVNV</span>
                   </label>
-                  
-                  {/* Department Quick Helpers */}
-                  {formDeptConfig && (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => selectAllDeptTeachers(formDeptConfig)}
-                        className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md font-bold transition-colors"
-                      >
-                        ✓ Chọn tất cả {formDeptConfig.shortName}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deselectDeptTeachers(formDeptConfig)}
-                        className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-md font-medium transition-colors"
-                      >
-                        ✕ Bỏ chọn
-                      </button>
-                    </div>
-                  )}
-                </div>
 
-                <div className="w-full max-h-48 overflow-y-auto bg-slate-50 border border-slate-200 rounded-lg p-2 space-y-1 custom-scrollbar">
-                  {/* Whole Department Group Token */}
                   {formDeptConfig && (
-                    <label className={cn(
-                      "flex items-center gap-3 p-2 rounded cursor-pointer mb-1 border font-bold text-sm transition-colors",
-                      formDeptConfig.color.badge
-                    )}>
-                      <input 
-                        type="checkbox" 
+                    <label className="flex items-center gap-2.5 p-1.5 rounded hover:bg-blue-50 cursor-pointer font-bold text-indigo-900 border-b border-slate-200 pb-2 mb-1">
+                      <input
+                        type="checkbox"
                         checked={formData.assigneeIds?.includes(formDeptConfig.groupToken) || false}
                         onChange={() => toggleAssignee(formDeptConfig.groupToken)}
-                        className="w-4 h-4 rounded border-slate-300 focus:ring-2"
+                        className="w-4 h-4 rounded text-indigo-600"
                       />
-                      <span>Toàn thể thành viên {formDeptConfig.name}</span>
+                      <span>Tất cả thành viên {formDeptConfig.shortName}</span>
                     </label>
                   )}
 
-                  {/* School-wide groups if in global scope */}
-                  {(!formDeptConfig || formData.departmentId === 'global') && (
-                    <>
-                      <label className="flex items-center gap-3 p-2 hover:bg-slate-100 rounded cursor-pointer bg-blue-50/50 border border-blue-100 mb-1">
-                        <input 
-                          type="checkbox" 
-                          checked={formData.assigneeIds?.includes('GROUP_ALL') || false}
-                          onChange={() => toggleAssignee('GROUP_ALL')}
-                          className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-blue-800 font-bold">Toàn thể CBGVNV</span>
-                      </label>
-                      <label className="flex items-center gap-3 p-2 hover:bg-slate-100 rounded cursor-pointer bg-emerald-50/50 border border-emerald-100 mb-2">
-                        <input 
-                          type="checkbox" 
-                          checked={formData.assigneeIds?.includes('GROUP_GVCN') || false}
-                          onChange={() => toggleAssignee('GROUP_GVCN')}
-                          className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
-                        />
-                        <span className="text-sm text-emerald-800 font-bold">Giáo viên chủ nhiệm (GVCN)</span>
-                      </label>
-                    </>
-                  )}
-
-                  {/* Teachers in target department */}
+                  {/* Giáo viên trong tổ / trường */}
                   {formDeptTeachers.map(t => {
                     const isChecked = formData.assigneeIds?.includes(t.id) || false;
-                    const deptObj = departments.find(d => d.id === t.departmentId);
-                    const isHeadTeacher = (t.role || '').includes('TTCM') || (t.position || '').toLowerCase().includes('tổ trưởng');
-
                     return (
-                      <label 
-                        key={t.id} 
+                      <label
+                        key={t.id}
                         className={cn(
-                          "flex items-center justify-between p-2 rounded cursor-pointer transition-colors",
-                          isChecked ? "bg-blue-50/70 border border-blue-100" : "hover:bg-slate-100"
+                          "flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors",
+                          isChecked ? "bg-blue-100/70 font-semibold text-blue-950" : "hover:bg-slate-100 text-slate-700"
                         )}
                       >
-                        <div className="flex items-center gap-3">
-                          <input 
-                            type="checkbox" 
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
                             checked={isChecked}
                             onChange={() => toggleAssignee(t.id)}
-                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                            className="w-3.5 h-3.5 rounded text-blue-600"
                           />
-                          <span className="text-sm text-slate-800 font-medium">{t.name}</span>
-                          {t.subject && (
-                            <span className="text-xs px-2 py-0.5 bg-slate-200/60 rounded text-slate-600 font-medium">
-                              Môn {t.subject}
-                            </span>
-                          )}
+                          <span>{t.name}</span>
+                          {t.subject && <span className="text-[10px] text-slate-400">({t.subject})</span>}
                         </div>
-                        <div className="flex items-center gap-2">
-                          {isHeadTeacher && (
-                            <span className="text-[11px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded">
-                              Tổ trưởng
-                            </span>
-                          )}
-                          <span className="text-xs text-slate-400">
-                            {deptObj?.name || 'Tổ chuyên môn'}
-                          </span>
-                        </div>
+                        <span className="text-[10px] text-slate-400">{t.position || t.role}</span>
                       </label>
                     );
                   })}
-
-                  {/* Cross-Department Expansion */}
-                  {formDeptConfig && otherDeptTeachers.length > 0 && (
-                    <div className="pt-2 border-t border-slate-200 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowCrossDeptTeachers(!showCrossDeptTeachers)}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 mb-1"
-                      >
-                        <ChevronRight size={14} className={cn("transition-transform", showCrossDeptTeachers && "rotate-90")} />
-                        {showCrossDeptTeachers ? 'Ẩn giáo viên các tổ khác' : '+ Thêm giáo viên các tổ khác (Nếu phối hợp liên tổ)'}
-                      </button>
-
-                      {showCrossDeptTeachers && otherDeptTeachers.map(t => {
-                        const isChecked = formData.assigneeIds?.includes(t.id) || false;
-                        const deptObj = departments.find(d => d.id === t.departmentId);
-                        return (
-                          <label key={t.id} className="flex items-center justify-between p-2 hover:bg-slate-100 rounded cursor-pointer text-xs">
-                            <div className="flex items-center gap-3">
-                              <input 
-                                type="checkbox" 
-                                checked={isChecked}
-                                onChange={() => toggleAssignee(t.id)}
-                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                              />
-                              <span className="font-medium text-slate-800">{t.name}</span>
-                              {t.subject && <span className="text-slate-500">({t.subject})</span>}
-                            </div>
-                            <span className="text-slate-400">{deptObj?.name || ''}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               </div>
-              
-              {/* DEADLINE & EVALUATOR */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Thời hạn hoàn thành <span className="text-rose-500">*</span></label>
-                  <input 
+
+              {/* 4. NGÀY GIAO & HẠN HOÀN THÀNH */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                    Ngày giao <span className="text-rose-500">*</span>
+                  </label>
+                  <input
                     required
-                    type="date" 
-                    value={formData.deadline}
-                    min={formData.workDate}
-                    onChange={e => setFormData({...formData, deadline: e.target.value})}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    type="date"
+                    value={formData.workDate}
+                    onChange={e => setFormData({ ...formData, workDate: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
-                
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Người đánh giá <span className="text-rose-500">*</span></label>
-                  <select 
-                    required
-                    value={formData.evaluatorId || ''}
-                    onChange={e => setFormData({...formData, evaluatorId: e.target.value})}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  >
-                    <option value="" disabled>-- Chọn Người đánh giá --</option>
-                    {(() => {
-                      const evaluators = teachers.filter(t => {
-                        const r = (t.role || '').toUpperCase();
-                        const p = (t.position || '').toUpperCase();
-                        const n = (t.name || '').toUpperCase();
-                        return r.includes('BGH') || r.includes('HIỆU TRƯỞNG') || r.includes('HIEU TRUONG') || 
-                               r.includes('TTCM') || r.includes('TỔ TRƯỞNG') || r.includes('TO TRUONG') || 
-                               r.includes('PHT') || r.includes('HT') ||
-                               p.includes('BÍ THƯ') || r.includes('BÍ THƯ') || n.includes('BÍ THƯ');
-                      });
-                      
-                      const listToShow = evaluators.length > 0 ? evaluators : teachers;
 
-                      return listToShow.map(t => {
-                        const r = (t.role || '').toUpperCase();
-                        const roleName = (r.includes('BGH') || r.includes('HIỆU TRƯỞNG') || r.includes('HIEU TRUONG') || r.includes('PHT') || r.includes('HT')) ? 'Ban Giám hiệu' : 
-                                         (r.includes('TTCM') || r.includes('TỔ TRƯỞNG') || r.includes('TO TRUONG')) ? 'Tổ trưởng' : 
-                                         t.position || t.role || 'Giáo viên';
-                        return (
-                          <option key={t.id} value={t.id}>{t.name} - {roleName}</option>
-                        );
-                      });
-                    })()}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                    Hạn hoàn thành <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="date"
+                    value={formData.deadline}
+                    min={formData.workDate}
+                    onChange={e => setFormData({ ...formData, deadline: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* 5. MỨC ĐỘ ƯU TIÊN & TRẠNG THÁI */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                    Mức độ ưu tiên
+                  </label>
+                  <select
+                    value={formData.priority || 'Trung bình'}
+                    onChange={e => setFormData({ ...formData, priority: e.target.value as WorkAssignmentPriority })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                  >
+                    <option value="Thấp">Thấp</option>
+                    <option value="Trung bình">Trung bình</option>
+                    <option value="Cao">Cao</option>
+                    <option value="Khẩn cấp">Khẩn cấp 🔥</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                    Trạng thái khởi tạo
+                  </label>
+                  <select
+                    value={formData.status || 'Chưa thực hiện'}
+                    onChange={e => setFormData({ ...formData, status: e.target.value as WorkAssignmentStatus })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                  >
+                    <option value="Chưa thực hiện">Chưa thực hiện</option>
+                    <option value="Đang thực hiện">Đang thực hiện</option>
+                    <option value="Hoàn thành">Hoàn thành</option>
+                    <option value="Hoàn thành tốt">Hoàn thành tốt ⭐</option>
+                    <option value="Chậm tiến độ">Chậm tiến độ</option>
                   </select>
                 </div>
               </div>
 
-              {/* NOTES */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">Ghi chú bổ sung</label>
-                <input 
-                  type="text" 
-                  value={formData.note || ''}
-                  onChange={e => setFormData({...formData, note: e.target.value})}
-                  placeholder="Ghi chú thêm nếu có..."
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+              {/* 6. NỘI DUNG YÊU CẦU */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                  Nội dung yêu cầu chi tiết
+                </label>
+                <textarea
+                  rows={2}
+                  value={formData.requirements || ''}
+                  onChange={e => setFormData({ ...formData, requirements: e.target.value })}
+                  placeholder="Yêu cầu cụ thể, tiêu chí đạt, mẫu sản phẩm bàn giao..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                 />
               </div>
 
-              {/* KẾT QUẢ THỰC HIỆN CÔNG VIỆC (Người quản lý chỉ xem) */}
-              {editingAssignment && (
-                <div className="space-y-3 pt-3 border-t border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                      Kết quả thực hiện của người được giao:
+              {/* 7. GHI CHÚ */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                  Ghi chú
+                </label>
+                <input
+                  type="text"
+                  value={formData.note || ''}
+                  onChange={e => setFormData({ ...formData, note: e.target.value })}
+                  placeholder="Ghi chú thêm nếu có..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              {/* 8. FILE MINH CHỨNG NẾU CÓ */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                  File minh chứng / Đường dẫn đính kèm nếu có
+                </label>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={formData.evidenceUrl || ''}
+                    onChange={e => setFormData({ ...formData, evidenceUrl: e.target.value })}
+                    placeholder="Nhập link liên kết nếu có (https://...)"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition-colors">
+                      <Paperclip size={13} />
+                      <span>Chọn file đính kèm</span>
+                      <input
+                        type="file"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                      />
                     </label>
-                    <span className="text-xs text-slate-500 italic">Người quản lý chỉ xem kết quả</span>
-                  </div>
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                    {(() => {
-                      const evaluatedList = getEvaluatedAssignees(editingAssignment);
-                      if (evaluatedList.length === 0) {
-                        return <div className="text-xs text-slate-500 italic">Chưa có kết quả đánh giá nào</div>;
-                      }
-                      return evaluatedList.map(item => (
-                        <div key={item.id} className="flex items-center justify-between py-1 border-b border-slate-200/60 last:border-b-0 text-xs">
-                          <span className="font-semibold text-slate-800">{item.name}:</span>
-                          <div className="shrink-0">{renderResultBadge(item.result)}</div>
-                        </div>
-                      ));
-                    })()}
+                    {formData.evidenceName && (
+                      <span className="text-xs text-slate-600 font-medium truncate max-w-[200px]">
+                        {formData.evidenceName}
+                      </span>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* MODAL FOOTER */}
-              <div className="pt-6 border-t border-slate-100 flex justify-end gap-3">
-                <button 
+              {/* FOOTER */}
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2.5">
+                <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
                 >
-                  Hủy bỏ
+                  Hủy
                 </button>
-                <button 
+                <button
                   type="submit"
-                  className={cn(
-                    "px-5 py-2.5 text-sm font-bold text-white rounded-lg transition-colors flex items-center gap-2 shadow-sm",
-                    formDeptConfig ? formDeptConfig.color.bg : "bg-blue-600 hover:bg-blue-700"
-                  )}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
                 >
-                  <CheckCircle size={16} />
-                  {editingAssignment ? 'Lưu thay đổi' : 'Giao việc ngay'}
+                  <CheckCircle size={15} />
+                  <span>{editingAssignment ? 'Lưu cập nhật' : 'Giao việc ngay'}</span>
                 </button>
               </div>
             </form>
@@ -1920,7 +1910,23 @@ export default function Tasks() {
         </div>
       )}
 
-      {/* EVALUATION / DETAIL MODAL */}
+      {/* MODAL CẬP NHẬT TIẾN ĐỘ & KẾT QUẢ (Yêu cầu 11) */}
+      {isProgressModalOpen && progressAssignment && (
+        <TaskProgressModal
+          task={progressAssignment}
+          onClose={() => {
+            setIsProgressModalOpen(false);
+            setProgressAssignment(null);
+          }}
+          onSave={async (id, updates) => {
+            await updateWorkAssignment(id, updates);
+            setIsProgressModalOpen(false);
+            setProgressAssignment(null);
+          }}
+        />
+      )}
+
+      {/* MODAL ĐÁNH GIÁ CÔNG VIỆC / KẾT NỐI KPI */}
       {isEvalModalOpen && evaluatingAssignment && (
         <TaskEvaluationModal 
           assignment={evaluatingAssignment} 
@@ -1939,27 +1945,31 @@ export default function Tasks() {
         />
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
+      {/* MODAL XÁC NHẬN XÓA CÔNG VIỆC */}
       {deletingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white/95 backdrop-blur-2xl rounded-[24px] shadow-2xl border border-white/50 w-full max-w-sm overflow-hidden">
-            <div className="p-6 text-center">
-              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4">
-                <Trash2 size={24} />
-              </div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2">Xóa công việc</h3>
-              <p className="text-sm text-slate-500">Bạn có chắc chắn muốn xóa công việc này? Dữ liệu lịch sử sẽ bị mất và không thể khôi phục.</p>
+        <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-sm p-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 size={24} />
             </div>
-            <div className="flex bg-slate-50 p-4 gap-3 justify-end">
+            <div>
+              <h3 className="text-base font-bold text-slate-800">Xóa công việc</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Bạn có chắc chắn muốn xóa công việc này? Dữ liệu sẽ bị xóa vĩnh viễn.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
               <button
+                type="button"
                 onClick={() => setDeletingId(null)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
               >
                 Hủy bỏ
               </button>
               <button
+                type="button"
                 onClick={confirmDelete}
-                className="px-4 py-2 text-sm font-medium text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors"
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer"
               >
                 Xác nhận xóa
               </button>

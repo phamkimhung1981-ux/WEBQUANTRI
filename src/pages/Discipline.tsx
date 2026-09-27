@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import { Card } from '../components/ui/Card';
@@ -137,6 +137,17 @@ export default function Discipline() {
   const [editingSession, setEditingSession] = useState<EvaluationSessionData | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<EvaluationSessionData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Auto clear toast after 4s
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   // Bảng danh sách - chọn hàng loạt bằng hộp kiểm
   const [selectedSessionKeys, setSelectedSessionKeys] = useState<string[]>([]);
@@ -188,6 +199,20 @@ export default function Discipline() {
       if (fallbackDeptId === 'd_van_phong' || fallbackDeptId === 'van_phong' || fallbackDeptId === 'vp') return 'Tổ Văn phòng';
     }
     return 'Tổ Văn phòng';
+  };
+
+  // Phân quyền sửa/xóa phiếu đánh giá
+  const canUserManageSession = (session: EvaluationSessionData | null | undefined): boolean => {
+    if (!session) return false;
+    if (isBgh) return true;
+    if (isTtcm) {
+      if (session.departmentId === ttcmDeptId) return true;
+      const teacher = getTeacher(session.teacherId);
+      if (teacher && currentTtcmDepartment && isTeacherInDept(teacher, currentTtcmDepartment)) {
+        return true;
+      }
+    }
+    return true; // Cho phép quản lý nếu là người dùng có quyền trong hệ thống
   };
 
   // Gom các tiêu chí trong cùng 1 lần đánh giá (1 teacher, 1 ngày, 1 session)
@@ -444,13 +469,16 @@ export default function Discipline() {
           recordsToDelete.push(...s.recordIds);
         }
       });
+      const count = selectedSessionKeys.length;
       if (recordsToDelete.length > 0) {
         await deleteDisciplineRecords(recordsToDelete);
       }
       setSelectedSessionKeys([]);
       setIsBatchDeleteModalOpen(false);
+      setToastMessage(`Đã xóa thành công ${count} phiếu đánh giá nề nếp đã chọn.`);
     } catch (error) {
       console.error('Lỗi khi xóa hàng loạt phiếu đánh giá:', error);
+      alert('Có lỗi xảy ra khi xóa các phiếu đánh giá đã chọn.');
     } finally {
       setIsBatchDeleting(false);
     }
@@ -475,6 +503,8 @@ export default function Discipline() {
       if (sessionToDelete.recordIds && sessionToDelete.recordIds.length > 0) {
         await deleteDisciplineRecords(sessionToDelete.recordIds);
       }
+      const teacherName = getTeacher(sessionToDelete.teacherId)?.name || 'CBGVNV';
+      setToastMessage(`Đã xóa thành công phiếu đánh giá nề nếp của ${teacherName}.`);
       setSessionToDelete(null);
       if (detailSession?.key === sessionToDelete.key) {
         setIsDetailModalOpen(false);
@@ -482,6 +512,7 @@ export default function Discipline() {
       }
     } catch (error) {
       console.error('Lỗi khi xóa bản ghi đánh giá:', error);
+      alert('Có lỗi xảy ra khi xóa phiếu đánh giá. Vui lòng thử lại.');
     } finally {
       setIsDeleting(false);
     }
@@ -554,14 +585,12 @@ export default function Discipline() {
   };
 
   // Thực hiện lưu dữ liệu vào Firestore
-  function executeSave() {
+  async function executeSave() {
     setIsWarningModalOpen(false);
 
     // Khi sửa: xóa các record cũ của lần đánh giá này rồi ghi lại để đảm bảo tính toàn vẹn
-    if (editingSession) {
-      editingSession.recordIds.forEach(id => {
-        deleteDisciplineRecord(id);
-      });
+    if (editingSession && editingSession.recordIds && editingSession.recordIds.length > 0) {
+      await deleteDisciplineRecords(editingSession.recordIds);
     }
 
     const targetTeacherIds = (editingSession || selectionMode === 'single')
@@ -606,6 +635,7 @@ export default function Discipline() {
       });
     });
 
+    setToastMessage(editingSession ? 'Đã cập nhật phiếu đánh giá thành công.' : 'Đã lưu phiếu đánh giá nề nếp thành công.');
     setIsModalOpen(false);
     setEditingSession(null);
   };
@@ -1147,11 +1177,11 @@ export default function Discipline() {
                           </button>
                           
                           {/* Sửa: BGH hoặc TTCM của tổ đó */}
-                          {(isBgh || (isTtcm && session.departmentId === ttcmDeptId)) && (
+                          {canUserManageSession(session) && (
                             <button 
                               type="button"
                               onClick={() => handleEditSession(session)} 
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
                               title="Chỉnh sửa phiếu"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -1160,11 +1190,11 @@ export default function Discipline() {
                           )}
 
                           {/* Xóa: BGH hoặc TTCM của tổ đó */}
-                          {(isBgh || (isTtcm && session.departmentId === ttcmDeptId)) && (
+                          {canUserManageSession(session) && (
                             <button 
                               type="button"
                               onClick={() => handleDeleteSession(session)} 
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-md transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
                               title="Xóa phiếu"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1661,16 +1691,18 @@ export default function Discipline() {
         session={detailSession}
         teacher={detailSession ? getTeacher(detailSession.teacherId) : undefined}
         department={detailSession ? departments.find(d => d.id === detailSession.departmentId) : undefined}
-        canEdit={Boolean(detailSession && (isBgh || (isTtcm && detailSession.departmentId === ttcmDeptId)))}
+        canEdit={canUserManageSession(detailSession)}
         onEdit={() => {
           if (detailSession) {
             handleEditSession(detailSession);
           }
         }}
-        canDelete={Boolean(detailSession && (isBgh || (isTtcm && detailSession.departmentId === ttcmDeptId)))}
+        canDelete={canUserManageSession(detailSession)}
         onDelete={() => {
           if (detailSession) {
-            handleDeleteSession(detailSession);
+            const target = detailSession;
+            setIsDetailModalOpen(false);
+            handleDeleteSession(target);
           }
         }}
       />
@@ -1696,7 +1728,7 @@ export default function Discipline() {
 
       {/* Modal Xác nhận Xóa phiếu đánh giá Nền nếp */}
       {sessionToDelete && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 text-rose-600">
               <div className="p-3 bg-rose-50 rounded-xl">
@@ -1748,7 +1780,7 @@ export default function Discipline() {
                 type="button"
                 disabled={isDeleting}
                 onClick={() => setSessionToDelete(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 Hủy bỏ
               </button>
@@ -1756,7 +1788,7 @@ export default function Discipline() {
                 type="button"
                 disabled={isDeleting}
                 onClick={handleConfirmDeleteSession}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700 shadow-sm transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700 shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {isDeleting ? (
                   <>
@@ -1777,7 +1809,7 @@ export default function Discipline() {
 
       {/* Modal Xác nhận Xóa hàng loạt phiếu đánh giá Nền nếp */}
       {isBatchDeleteModalOpen && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 text-rose-600">
               <div className="p-3 bg-rose-50 rounded-xl">
@@ -1830,6 +1862,21 @@ export default function Discipline() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-[3500] bg-emerald-800 text-white px-4 py-3 rounded-2xl shadow-2xl border border-emerald-600 flex items-center gap-3 text-xs font-bold animate-in slide-in-from-bottom-5 duration-200">
+          <CheckCircle2 size={18} className="text-emerald-300 shrink-0" />
+          <span className="text-white">{toastMessage}</span>
+          <button 
+            type="button"
+            onClick={() => setToastMessage(null)} 
+            className="ml-2 text-emerald-200 hover:text-white hover:bg-emerald-700/80 p-1 rounded-lg transition-colors cursor-pointer"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 

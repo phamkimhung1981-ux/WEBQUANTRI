@@ -16,7 +16,8 @@ import {
   Camera,
   RefreshCw,
   Award,
-  ShieldCheck
+  ShieldCheck,
+  UserCheck
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
@@ -54,8 +55,26 @@ export default function Dashboard() {
   const totalClasses = schoolStats?.totalClasses || 36;
   const schoolYear = schoolStats?.schoolYear || '2026 - 2027';
 
-  // 8 Main Modules with icons, descriptions and corresponding app routes
+  // Main Modules with icons, descriptions and corresponding app routes
   const modules = [
+    {
+      id: 'calendar',
+      title: 'LỊCH CÔNG TÁC',
+      desc: 'Lịch tuần & Sự kiện',
+      icon: Calendar,
+      route: '/calendar',
+      gradient: 'from-blue-600 to-indigo-700',
+      shadowColor: 'shadow-blue-500/30'
+    },
+    {
+      id: 'school_work_schedule',
+      title: 'LỊCH CÔNG VIỆC TRƯỜNG',
+      desc: 'Phân công - Trực ban - Đánh giá',
+      icon: CalendarCheck,
+      route: '/school-work-schedule',
+      gradient: 'from-blue-600 to-indigo-600',
+      shadowColor: 'shadow-blue-500/30'
+    },
     {
       id: 'kpi_cbql',
       title: 'KPI CBQL',
@@ -67,12 +86,21 @@ export default function Dashboard() {
     },
     {
       id: 'kpi_gvnv',
-      title: 'KPI GV - NV',
-      desc: 'Đánh giá GV & NV',
+      title: 'KPI GIÁO VIÊN',
+      desc: 'Đánh giá Giáo viên',
       icon: GraduationCap,
       route: '/kpi-gvnv',
       gradient: 'from-emerald-600 to-teal-700',
       shadowColor: 'shadow-emerald-500/30'
+    },
+    {
+      id: 'kpi_nv',
+      title: 'KPI NHÂN VIÊN',
+      desc: 'Đánh giá Nhân viên hành chính',
+      icon: UserCheck,
+      route: '/kpi-nv',
+      gradient: 'from-teal-600 to-emerald-800',
+      shadowColor: 'shadow-teal-500/30'
     },
     {
       id: 'discipline',
@@ -82,15 +110,6 @@ export default function Dashboard() {
       route: '/discipline',
       gradient: 'from-amber-500 to-orange-600',
       shadowColor: 'shadow-amber-500/30'
-    },
-    {
-      id: 'tasks',
-      title: 'GIAO VIỆC',
-      desc: 'Phân công - Theo dõi',
-      icon: ClipboardCheck,
-      route: '/tasks',
-      gradient: 'from-blue-600 to-indigo-600',
-      shadowColor: 'shadow-blue-500/30'
     },
     {
       id: 'teachers',
@@ -109,15 +128,6 @@ export default function Dashboard() {
       route: '/departments',
       gradient: 'from-purple-600 to-pink-600',
       shadowColor: 'shadow-purple-500/30'
-    },
-    {
-      id: 'attendance',
-      title: 'CHẤM CÔNG',
-      desc: 'Ngày công - Nghỉ phép',
-      icon: CalendarCheck,
-      route: '/leaves',
-      gradient: 'from-sky-500 to-blue-600',
-      shadowColor: 'shadow-sky-500/30'
     },
     {
       id: 'reports',

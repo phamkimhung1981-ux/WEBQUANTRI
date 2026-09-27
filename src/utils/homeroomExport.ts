@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
-import { Student, ConductRecord, ConductCriterion, ClassificationType } from '../types/homeroom';
-import { calculateConductScore } from '../lib/homeroomData';
+import { Student, ConductRecord, ConductCriterion, ClassificationType, EvaluationRatingConfig } from '../types/homeroom';
+import { calculateConductScore, checkStudentHasSpecialWarning } from '../lib/homeroomData';
 
 interface ExportData {
   className: string;
@@ -11,6 +11,7 @@ interface ExportData {
   records: ConductRecord[];
   criteria: ConductCriterion[];
   baseScore?: number;
+  ratingConfig?: EvaluationRatingConfig | null;
 }
 
 export function exportHomeroomToExcel({
@@ -21,7 +22,8 @@ export function exportHomeroomToExcel({
   students,
   records,
   criteria,
-  baseScore = 100
+  baseScore = 100,
+  ratingConfig
 }: ExportData) {
   // Column definitions matching "Theo dõi nền nếp.xlsx"
   const criteriaColumns = [
@@ -60,6 +62,7 @@ export function exportHomeroomToExcel({
     'Tổng điểm bị trừ',
     'Tổng điểm cộng',
     'Tổng số điểm đạt được',
+    'Cảnh báo đặc biệt',
     'Xếp loại rèn luyện'
   ];
   excelData.push(headerRow);
@@ -67,6 +70,7 @@ export function exportHomeroomToExcel({
   // Student rows
   students.forEach((student, index) => {
     const studentRecords = records.filter(r => r.studentId === student.id);
+    const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords);
 
     let totalMinus = 0;
     let totalPlus = 0;
@@ -91,7 +95,7 @@ export function exportHomeroomToExcel({
       }
     });
 
-    const { totalScore, classification } = calculateConductScore(baseScore, totalPlus, totalMinus);
+    const { totalScore, classification } = calculateConductScore(baseScore, totalPlus, totalMinus, undefined, hasSpecialWarning, ratingConfig);
 
     const row = [
       String(index + 1).padStart(2, '0'),
@@ -100,7 +104,8 @@ export function exportHomeroomToExcel({
       totalMinus > 0 ? `-${totalMinus}` : '0',
       totalPlus > 0 ? `+${totalPlus}` : '0',
       totalScore,
-      classification
+      hasSpecialWarning ? 'CÓ' : 'KHÔNG',
+      hasSpecialWarning ? 'YẾU / CHƯA ĐẠT' : classification
     ];
 
     excelData.push(row);

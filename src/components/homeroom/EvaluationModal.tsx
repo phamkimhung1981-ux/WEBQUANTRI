@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Award, CheckCircle, ShieldCheck, AlertCircle, FileText, Send } from 'lucide-react';
 import { Student, ConductEvaluation, ConductRecord, ClassificationType, ConfirmationStatus, ClassInfo } from '../../types/homeroom';
-import { calculateConductScore } from '../../lib/homeroomData';
+import { calculateConductScore, evaluateStudentConductRules, checkStudentHasSpecialWarning } from '../../lib/homeroomData';
 import { useAuth } from '../../store/AuthContext';
 
 interface EvaluationModalProps {
@@ -39,19 +39,24 @@ export default function EvaluationModal({
   // Calculate totals from records
   let totalPlus = 0;
   let totalMinus = 0;
+  const studentRecords = student ? records.filter(r => r.studentId === student.id) : [];
+  const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords);
 
   if (student) {
-    records.filter(r => r.studentId === student.id).forEach(r => {
+    studentRecords.forEach(r => {
+      if (r.recordType === 'TICH_CUC' || r.point === 0) return;
       if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
       else totalMinus += Math.abs(r.point);
     });
   }
 
-  const { totalScore, classification: calcClass } = calculateConductScore(100, totalPlus, totalMinus);
+  const { totalScore, classification: calcClass } = calculateConductScore(100, totalPlus, totalMinus, undefined, hasSpecialWarning);
 
   useEffect(() => {
     if (isOpen) {
-      if (existingEvaluation) {
+      if (hasSpecialWarning) {
+        setProposedClassification('Chưa đạt');
+      } else if (existingEvaluation) {
         setTeacherComment(existingEvaluation.teacherComment || '');
         setPrincipalComment(existingEvaluation.principalComment || '');
         setProposedClassification(existingEvaluation.classification || calcClass);
@@ -62,7 +67,7 @@ export default function EvaluationModal({
       }
       setErrorMsg('');
     }
-  }, [isOpen, existingEvaluation, calcClass]);
+  }, [isOpen, existingEvaluation, calcClass, hasSpecialWarning]);
 
   if (!isOpen || !student || !selectedClass) return null;
 
@@ -70,6 +75,8 @@ export default function EvaluationModal({
     try {
       setSubmitting(true);
       setErrorMsg('');
+
+      const finalClass = hasSpecialWarning ? 'Chưa đạt' : proposedClassification;
 
       await onSaveEvaluation({
         id: existingEvaluation?.id,
@@ -82,7 +89,11 @@ export default function EvaluationModal({
         totalPlus,
         totalMinus,
         totalScore,
-        classification: proposedClassification,
+        classification: finalClass,
+        hasSeriousViolation: hasSpecialWarning || existingEvaluation?.hasSeriousViolation,
+        special_warning: hasSpecialWarning,
+        special_warning_message: hasSpecialWarning ? 'Học sinh có vi phạm thuộc nhóm cảnh báo đặc biệt.' : undefined,
+        conduct_rating: hasSpecialWarning ? 'YẾU / CHƯA ĐẠT' : undefined,
         teacherComment,
         teacherId: user?.id || 'gvcn',
         teacherName: user?.name || 'Giáo viên Chủ nhiệm',
@@ -123,7 +134,7 @@ export default function EvaluationModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+    <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-[2000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 my-8">
         {/* Header */}
         <div className="bg-gradient-to-r from-[#123B78] to-[#1457D9] text-white p-5 flex items-center justify-between">
@@ -159,6 +170,24 @@ export default function EvaluationModal({
             </div>
           </div>
 
+          {/* Conduct Warning Rule Banner */}
+          {(() => {
+            const studentRecords = records.filter(r => r.studentId === student.id);
+            const ruleEval = evaluateStudentConductRules(studentRecords);
+            if (!ruleEval.hasWarning) return null;
+            return (
+              <div className="bg-rose-50 border border-rose-300 p-3.5 rounded-xl text-xs space-y-1">
+                <p className="font-bold text-rose-900 flex items-center gap-1.5">
+                  <AlertCircle size={16} className="text-rose-600" /> 
+                  <span>CẢNH BÁO RÈN LUYỆN: {ruleEval.primaryBadge}</span>
+                </p>
+                <p className="text-rose-800">
+                  Học sinh có vi phạm đặc biệt nghiêm trọng. Đề xuất hệ thống: <strong className="underline">{ruleEval.proposedRating}</strong>. Yêu cầu BGH phê duyệt kết quả chính thức.
+                </p>
+              </div>
+            );
+          })()}
+
           {/* Point Breakdown */}
           <div className="grid grid-cols-3 gap-3 text-center text-xs">
             <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl">
@@ -183,14 +212,29 @@ export default function EvaluationModal({
               </label>
               <select
                 value={proposedClassification}
-                onChange={(e) => setProposedClassification(e.target.value as ClassificationType)}
-                className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                onChange={(e) => {
+                  if (hasSpecialWarning && e.target.value !== 'Chưa đạt') {
+                    alert('Học sinh có vi phạm thuộc nhóm Cảnh báo đặc biệt. Hệ thống tự động xếp loại YẾU / CHƯA ĐẠT!');
+                    setProposedClassification('Chưa đạt');
+                    return;
+                  }
+                  setProposedClassification(e.target.value as ClassificationType);
+                }}
+                disabled={hasSpecialWarning}
+                className={`w-full px-3 py-2 text-xs font-bold border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none ${
+                  hasSpecialWarning ? 'bg-rose-50 text-rose-900 border-rose-400 font-extrabold cursor-not-allowed' : 'bg-white border-slate-300'
+                }`}
               >
                 <option value="Tốt">Tốt (Từ 90 đến 100+ điểm)</option>
                 <option value="Khá">Khá (Từ 70 đến 89 điểm)</option>
                 <option value="Đạt">Đạt (Từ 50 đến 69 điểm)</option>
-                <option value="Chưa đạt">Chưa đạt (Dưới 50 điểm)</option>
+                <option value="Chưa đạt">🔴 Chưa đạt / Yếu (Có vi phạm cảnh báo đặc biệt hoặc dưới 50đ)</option>
               </select>
+              {hasSpecialWarning && (
+                <p className="text-[11px] text-rose-700 font-bold mt-1">
+                  ⚠️ Học sinh có vi phạm thuộc diện cảnh báo đặc biệt. Hệ thống tự động kích hoạt xếp loại YẾU / CHƯA ĐẠT.
+                </p>
+              )}
             </div>
 
             <div>

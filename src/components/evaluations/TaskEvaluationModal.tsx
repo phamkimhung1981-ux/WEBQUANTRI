@@ -44,8 +44,12 @@ export default function TaskEvaluationModal({ assignment, initialAssigneeId, onC
     if (assigneeIds.includes('GROUP_ALL')) return true;
     if (assigneeIds.includes('GROUP_GVCN') && (t.isHomeroom || (t.position || '').toLowerCase().includes('gvcn') || (t.position || '').toLowerCase().includes('chủ nhiệm'))) return true;
     
+    if (assignment.departmentId && assignment.departmentId !== 'global' && assignment.departmentId !== 'all') {
+      if (t.departmentId === assignment.departmentId) return true;
+    }
+
     for (const group of PRESET_DEPT_TOKENS) {
-      if (assigneeIds.includes(group.groupToken)) {
+      if (assigneeIds.includes(group.groupToken) || assigneeIds.includes(group.deptId)) {
         if (t.departmentId === group.deptId) return true;
         const sub = (t.subject || '').toLowerCase();
         if (group.subjects.some(s => sub.includes(s))) return true;
@@ -54,9 +58,17 @@ export default function TaskEvaluationModal({ assignment, initialAssigneeId, onC
     return assigneeIds.includes(t.id);
   });
 
-  if (actualAssignees.length === 0 && assignment.assigneeId) {
-    const single = teachers.find(t => t.id === assignment.assigneeId);
-    if (single) actualAssignees = [single];
+  if (actualAssignees.length === 0) {
+    if (assignment.assigneeId) {
+      const single = teachers.find(t => t.id === assignment.assigneeId);
+      if (single) actualAssignees = [single];
+    }
+    if (actualAssignees.length === 0 && assignment.departmentId && assignment.departmentId !== 'global') {
+      actualAssignees = teachers.filter(t => t.departmentId === assignment.departmentId);
+    }
+    if (actualAssignees.length === 0) {
+      actualAssignees = teachers;
+    }
   }
 
   // Danh sách các ID giáo viên được tick chọn qua hộp kiểm (Checkbox)
@@ -64,8 +76,8 @@ export default function TaskEvaluationModal({ assignment, initialAssigneeId, onC
     if (initialAssigneeId && actualAssignees.some(t => t.id === initialAssigneeId)) {
       return [initialAssigneeId];
     }
-    // Mặc định chọn tất cả để tiện đánh giá nhanh
-    return actualAssignees.map(t => t.id);
+    // Bỏ chọn mặc định để người dùng / GV tự tích chọn qua hộp kiểm
+    return [];
   });
 
   // Giáo viên đang được xem chi tiết (để nhập ghi chú riêng hoặc chấm điểm KPI)
@@ -303,15 +315,28 @@ export default function TaskEvaluationModal({ assignment, initialAssigneeId, onC
     if (e) e.preventDefault();
 
     // Thu thập tất cả các kết quả hợp lệ
-    const cleanResults: Record<string, ExecutionResult> = {};
+    let cleanResults: Record<string, ExecutionResult> = {};
     Object.entries(assigneeResultsMap).forEach(([tId, res]) => {
       if (res === 'Hoàn thành tốt' || res === 'Quá hạn (Chậm muộn)') {
         cleanResults[tId] = res;
       }
     });
 
+    // Tự động gán kết quả "Hoàn thành tốt" cho các CBGVNV đang được chọn nếu chưa bấm áp dụng kết quả
+    if (Object.keys(cleanResults).length === 0 && checkedAssigneeIds.length > 0) {
+      checkedAssigneeIds.forEach(tId => {
+        cleanResults[tId] = 'Hoàn thành tốt';
+      });
+    }
+
+    if (Object.keys(cleanResults).length === 0 && actualAssignees.length > 0) {
+      actualAssignees.forEach(t => {
+        cleanResults[t.id] = 'Hoàn thành tốt';
+      });
+    }
+
     if (Object.keys(cleanResults).length === 0) {
-      alert('Vui lòng tick chọn ít nhất 01 CBGVNV và chọn kết quả đánh giá (Hoàn thành tốt hoặc Quá hạn) trước khi bấm Lưu.');
+      alert('Vui lòng chọn hoặc tick chọn ít nhất 01 CBGVNV để gán kết quả đánh giá trước khi bấm Lưu.');
       return;
     }
 

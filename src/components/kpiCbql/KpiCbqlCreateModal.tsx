@@ -134,12 +134,16 @@ export default function KpiCbqlCreateModal({
     return allSelectableTeachers.filter(t => !selectedTeacher || t.id !== selectedTeacher.id);
   }, [selectedTeacher, allSelectableTeachers, departments]);
 
-  // Auto pick evaluator if not set
+  // Auto-select first eligible evaluator
   useEffect(() => {
-    if (eligibleEvaluators.length > 0 && (!selectedEvaluatorId || !eligibleEvaluators.some(e => e.id === selectedEvaluatorId))) {
-      setSelectedEvaluatorId(eligibleEvaluators[0].id);
+    if (isOpen && (!selectedEvaluatorId || !allSelectableTeachers.some(t => t.id === selectedEvaluatorId))) {
+      if (eligibleEvaluators.length > 0) {
+        setSelectedEvaluatorId(eligibleEvaluators[0].id);
+      }
     }
-  }, [eligibleEvaluators, selectedEvaluatorId]);
+  }, [isOpen, selectedTeacherId, selectedEvaluatorId, eligibleEvaluators, allSelectableTeachers]);
+
+  // Keep evaluator unselected by default so the user must choose manually
 
   // KIỂM TRA UNIQUE CONSTRAINT: CBQL + Kỳ đánh giá
   const duplicateForm = useMemo(() => {
@@ -170,11 +174,16 @@ export default function KpiCbqlCreateModal({
       return;
     }
 
-    const evaluator = allSelectableTeachers.find(t => t.id === selectedEvaluatorId) || {
-      id: 'bgh_truong',
-      name: 'Hiệu trưởng / Ban Giám hiệu',
-      position: 'Hiệu trưởng / Thủ trưởng đơn vị'
-    };
+    if (!selectedEvaluatorId) {
+      setErrorMsg("Vui lòng chọn cán bộ quản lý/lãnh đạo đánh giá trước khi gửi phiếu.");
+      return;
+    }
+
+    const evaluator = allSelectableTeachers.find(t => t.id === selectedEvaluatorId);
+    if (!evaluator) {
+      setErrorMsg("Vui lòng chọn cán bộ quản lý/lãnh đạo đánh giá trước khi gửi phiếu.");
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -434,6 +443,7 @@ export default function KpiCbqlCreateModal({
               required
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
             >
+              <option value="">-- Chọn cán bộ quản lý đánh giá --</option>
               {eligibleEvaluators.map(t => (
                 <option key={t.id} value={t.id}>
                   [{t.role || 'BGH'}] {t.name} — {t.position || 'Hiệu trưởng / Thủ trưởng đơn vị'}

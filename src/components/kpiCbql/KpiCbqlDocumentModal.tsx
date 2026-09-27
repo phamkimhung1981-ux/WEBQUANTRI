@@ -134,6 +134,15 @@ export default function KpiCbqlDocumentModal({
     return allSelectableTeachers.filter(t => !selectedTeacher || t.id !== selectedTeacher.id);
   }, [selectedTeacher, allSelectableTeachers, departments]);
 
+  // Auto select default evaluator if none selected
+  useEffect(() => {
+    if (isOpen && (!selectedEvaluatorId || !allSelectableTeachers.some(t => t.id === selectedEvaluatorId))) {
+      if (eligibleEvaluators.length > 0) {
+        setSelectedEvaluatorId(eligibleEvaluators[0].id);
+      }
+    }
+  }, [isOpen, selectedTeacherId, selectedEvaluatorId, eligibleEvaluators, allSelectableTeachers]);
+
   // Score Items
   const [items, setItems] = useState<KpiCbqlScoreItem[]>([]);
   const [selfComment, setSelfComment] = useState<string>('');
@@ -201,14 +210,7 @@ export default function KpiCbqlDocumentModal({
     }
   }, [isOpen, initialMode, initialForm, isCreate, user, cbqlTeachers, allSelectableTeachers, departments, periods]);
 
-  // Auto assign evaluator if not set in Create mode
-  useEffect(() => {
-    if (isCreate && eligibleEvaluators.length > 0) {
-      if (!selectedEvaluatorId || !eligibleEvaluators.some(e => e.id === selectedEvaluatorId)) {
-        setSelectedEvaluatorId(eligibleEvaluators[0].id);
-      }
-    }
-  }, [isCreate, eligibleEvaluators, selectedEvaluatorId]);
+  // Keep evaluator unselected by default so the user must choose manually
 
   // Check unique constraint for Create mode
   const duplicateForm = useMemo(() => {
@@ -359,6 +361,16 @@ export default function KpiCbqlDocumentModal({
       setErrorMsg(`Cán bộ ${selectedTeacher.name} đã có phiếu đánh giá cho kỳ ${selectedPeriod.name}. Mỗi CBQL chỉ có 01 phiếu trong một kỳ!`);
       return;
     }
+    if (!selectedEvaluatorId) {
+      setErrorMsg("Vui lòng chọn cán bộ quản lý/lãnh đạo đánh giá trước khi gửi phiếu.");
+      return;
+    }
+
+    const selectedEvaluator = teachers.find(t => t.id === selectedEvaluatorId);
+    if (!selectedEvaluator) {
+      setErrorMsg("Vui lòng chọn cán bộ quản lý/lãnh đạo đánh giá trước khi gửi phiếu.");
+      return;
+    }
 
     try {
       setIsSaving(true);
@@ -381,7 +393,7 @@ export default function KpiCbqlDocumentModal({
         selfEvaluatorId: selectedTeacher.id,
         selfEvaluatorName: selectedTeacher.name,
 
-        evaluatorId: selectedEvaluatorId || 'bgh_truong',
+        evaluatorId: selectedEvaluatorId,
         evaluatorName: selectedEvaluator.name,
         evaluatorPosition: (selectedEvaluator as any).position || 'Hiệu trưởng',
 
@@ -530,7 +542,7 @@ export default function KpiCbqlDocumentModal({
   const statusBadge = initialForm ? getCbqlFormStatusBadge(initialForm.status) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-sm overflow-y-auto">
+    <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-[2000] flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div className="relative w-full max-w-5xl max-h-[96vh] bg-white rounded-2xl shadow-2xl border border-slate-300 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
         {/* TOP ACTION BAR */}
@@ -773,6 +785,7 @@ export default function KpiCbqlDocumentModal({
                       onChange={(e) => setSelectedEvaluatorId(e.target.value)}
                       className="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500"
                     >
+                      <option value="">-- Chọn cán bộ quản lý đánh giá --</option>
                       {eligibleEvaluators.map(e => (
                         <option key={e.id} value={e.id}>
                           {e.name} ({e.position || 'Thủ trưởng'})

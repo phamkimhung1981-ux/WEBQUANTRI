@@ -6,7 +6,7 @@ import {
   LogOut, 
   ChevronDown, 
   Home, 
-  CheckSquare, 
+  CalendarDays,
   BarChart3, 
   Users, 
   FileText, 
@@ -58,10 +58,11 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
 
   const navMenuItems = [
     { name: 'Trang chủ', path: '/', icon: Home, matchPaths: ['/'] },
-    { name: 'Công việc', path: '/tasks', icon: CheckSquare, matchPaths: ['/tasks'] },
+    { name: 'Lịch công tác', path: '/calendar', icon: CalendarDays, matchPaths: ['/calendar'] },
     { name: 'CBGVNV', path: '/teachers', icon: Users, matchPaths: ['/teachers'] },
     { name: 'Văn bản', path: '/documents', icon: FileText, matchPaths: ['/documents', '/van-ban'] },
-    { name: 'KPI GVNV', path: '/kpi-gvnv', icon: GraduationCap, matchPaths: ['/kpi-gvnv'] },
+    { name: 'KPI Giáo viên', path: '/kpi-gvnv', icon: GraduationCap, matchPaths: ['/kpi-gvnv'] },
+    { name: 'KPI Nhân viên', path: '/kpi-nv', icon: UserCheck, matchPaths: ['/kpi-nv', '/kpi-nhan-vien', '/kpi-staff'] },
     { name: 'Thống kê', path: '/reports', icon: TrendingUp, matchPaths: ['/reports', '/analytics'] },
   ];
 
@@ -80,7 +81,7 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
     <>
       <header 
         id="app-main-header"
-        className="sticky top-0 z-40 h-[76px] w-full bg-white/90 backdrop-blur-[12px] border-b border-white/60 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.06)] px-4 sm:px-6 lg:px-8 transition-all duration-300 flex items-center justify-between"
+        className="main-header sticky top-0 z-[200] h-[76px] w-full bg-white/90 backdrop-blur-[12px] border-b border-white/60 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.06)] px-4 sm:px-6 lg:px-8 transition-all duration-300 flex items-center justify-between"
       >
         {/* BÊN TRÁI: LOGO & TÊN TRƯỜNG */}
         <div className="flex items-center gap-3 shrink-0">
@@ -155,7 +156,7 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
           {/* Thông báo */}
           <button 
             id="notifications-bell-btn"
-            onClick={() => navigate('/tasks')}
+            onClick={() => navigate('/notifications')}
             className="relative p-2.5 text-[#1457D9] bg-white/90 border border-slate-200/80 shadow-sm rounded-xl hover:shadow-md hover:bg-blue-50/70 hover:-translate-y-0.5 transition-all"
             title="Thông báo hệ thống"
           >

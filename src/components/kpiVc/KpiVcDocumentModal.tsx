@@ -15,7 +15,16 @@ import {
   Building,
   Award,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  Users,
+  Settings,
+  FileCheck,
+  CheckSquare,
+  Square,
+  Clock
 } from 'lucide-react';
 import { 
   KpiVcForm, 
@@ -31,12 +40,16 @@ import {
   resolveVcTeacherPosition,
   resolveVcTeacherDepartment,
   calculateVcTotals,
+  calculateVcSelfTotals,
+  calculateVcTtcmTotals,
+  calculateVcTctmTotals,
   calculateVcManagerTotals,
   resolveVcClassification,
   createCriteriaSnapshot,
   initializeVcScoreItems,
   DEFAULT_VC_GROUPS,
-  DEFAULT_VC_CRITERIA
+  DEFAULT_VC_CRITERIA,
+  DEFAULT_VC_PERIODS
 } from '../../lib/kpiVcData';
 import { getEligibleEvaluators } from '../../lib/kpiTargetAudienceUtils';
 import { 
@@ -52,7 +65,7 @@ interface KpiVcDocumentModalProps {
   isOpen: boolean;
   onClose: () => void;
   form: KpiVcForm | null;
-  mode: 'create' | 'edit' | 'self_eval' | 'leader_eval' | 'view';
+  mode: 'create' | 'edit' | 'self_eval' | 'ttcm_eval' | 'leader_eval' | 'view';
   teachers: Teacher[];
   departments: Department[];
   periods: KpiVcPeriod[];
@@ -85,7 +98,7 @@ export default function KpiVcDocumentModal({
     return getEligibleVcTeachers(teachers);
   }, [teachers]);
 
-  // Form State
+  // --- SINGLE FORM STATE (FOR EDIT / VIEW / EVAL MODES) ---
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>('');
@@ -95,20 +108,54 @@ export default function KpiVcDocumentModal({
   const [selfClassification, setSelfClassification] = useState<string>('Hoàn thành tốt nhiệm vụ');
   const [selfComment, setSelfComment] = useState<string>('');
 
-  // Leader Assessment
+  // TTCM Assessment
+  const [ttcmClassification, setTtcmClassification] = useState<string>('Hoàn thành tốt nhiệm vụ');
+  const [ttcmComment, setTtcmComment] = useState<string>('');
+  const [ttcmDate, setTtcmDate] = useState<string>('');
+  const [ttcmEvaluatorName, setTtcmEvaluatorName] = useState<string>('');
+
+  // Leader (CBQL) Assessment
   const [leaderClassification, setLeaderClassification] = useState<string>('Hoàn thành tốt nhiệm vụ');
   const [leaderComment, setLeaderComment] = useState<string>('');
   const [leaderDate, setLeaderDate] = useState<string>('');
   const [leaderSignName, setLeaderSignName] = useState<string>('Hiệu trưởng / Ban Giám hiệu');
   const [managerGeneralComment, setManagerGeneralComment] = useState<string>('');
 
-  // Current selected teacher object
+  // Items State (list of scored criteria)
+  const [scoreItems, setScoreItems] = useState<KpiVcScoreItem[]>([]);
+
+  // --- MULTI-SELECTION & WORKSPACE STATE FOR CREATE MODE ---
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState<string[]>([]);
+  const [audienceTab, setAudienceTab] = useState<'by_dept' | 'by_teacher'>('by_dept');
+  const [teacherSearch, setTeacherSearch] = useState<string>('');
+  const [teacherFilter, setTeacherFilter] = useState<'all' | 'selected' | 'unselected'>('all');
+  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
+
+  // Evaluation Settings State (Create Mode)
+  const [allowSelfEval, setAllowSelfEval] = useState<boolean>(true);
+  const [allowLeaderEval, setAllowLeaderEval] = useState<boolean>(true);
+  const [allowEditCriteria, setAllowEditCriteria] = useState<boolean>(true);
+  const [allowComment, setAllowComment] = useState<boolean>(true);
+  const [allowEvidence, setAllowEvidence] = useState<boolean>(true);
+  const [dueDate, setDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().split('T')[0];
+  });
+  const [evaluationNote, setEvaluationNote] = useState<string>('');
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const lastInitializedKey = useRef<string | null>(null);
+
+  // --- MEMOIZED HELPERS ---
   const selectedTeacher = useMemo(() => {
     return eligibleTeachers.find(t => t.id === selectedTeacherId) || 
       teachers.find(t => t.id === selectedTeacherId) || null;
   }, [eligibleTeachers, teachers, selectedTeacherId]);
 
-  // Compute eligible evaluators strictly according to position rules and department
   const eligibleEvaluatorsResult = useMemo(() => {
     return getEligibleEvaluators(selectedTeacher, teachers, departments);
   }, [selectedTeacher, teachers, departments]);
@@ -117,33 +164,33 @@ export default function KpiVcDocumentModal({
     return eligibleEvaluatorsResult.evaluators || [];
   }, [eligibleEvaluatorsResult]);
 
-  // List of all CBQL / BGH / TTCM / Department Heads in the school
   const allCbqlEvaluators = useMemo(() => {
     const list = teachers.filter(t => {
-      const roleStr = String(t.role || '');
+      if (!t) return false;
+      const roleStr = String(t.role || '').toUpperCase();
       const posStr = String(t.position || '').toLowerCase();
       const isHead = departments.some(d => d.headId === t.id);
-      return (
-        roleStr === 'BGH' ||
-        roleStr === 'TTCM' ||
-        roleStr === 'NHAN_SU' ||
-        roleStr === 'admin' ||
-        roleStr === 'manager' ||
-        Boolean((t as any).isManager) ||
+
+      const isManagerRole = ['BGH', 'TTCM', 'NHAN_SU', 'ADMIN', 'MANAGER', 'CBQL', 'QL'].includes(roleStr);
+      const isManagerPos = 
         posStr.includes('hiệu trưởng') ||
         posStr.includes('phó hiệu trưởng') ||
         posStr.includes('tổ trưởng') ||
+        posStr.includes('phó tổ trưởng') ||
         posStr.includes('bgh') ||
         posStr.includes('quản lý') ||
         posStr.includes('trưởng') ||
         posStr.includes('lãnh đạo') ||
-        isHead
-      );
+        posStr.includes('bí thư') ||
+        posStr.includes('chủ nhiệm') ||
+        posStr.includes('ttcm') ||
+        posStr.includes('tpcm');
+
+      return isManagerRole || isManagerPos || isHead || Boolean((t as any).isManager);
     });
     return list.length > 0 ? list : teachers;
   }, [teachers, departments]);
 
-  // Other CBQLs not in recommended list
   const otherCbqlList = useMemo(() => {
     return allCbqlEvaluators.filter(t => !recommendedEvaluators.some(r => r.id === t.id));
   }, [allCbqlEvaluators, recommendedEvaluators]);
@@ -152,43 +199,64 @@ export default function KpiVcDocumentModal({
     return teachers.find(t => t.id === selectedEvaluatorId) || null;
   }, [teachers, selectedEvaluatorId]);
 
-  const handleEvaluatorChange = (evaluatorId: string) => {
-    setSelectedEvaluatorId(evaluatorId);
-    const ev = teachers.find(t => t.id === evaluatorId);
-    if (ev) {
-      setLeaderSignName(ev.name);
+  const selectedPeriod = useMemo(() => {
+    return periods.find(p => p.id === selectedPeriodId) || null;
+  }, [periods, selectedPeriodId]);
+
+  const resolvedPosition = useMemo(() => {
+    return form ? form.position : resolveVcTeacherPosition(selectedTeacher, departments);
+  }, [form, selectedTeacher, departments]);
+
+  const resolvedDepartment = useMemo(() => {
+    return form ? form.department : resolveVcTeacherDepartment(selectedTeacher, departments);
+  }, [form, selectedTeacher, departments]);
+
+  // Active Groups & Criteria
+  const activeGroups = useMemo(() => {
+    if (form?.criteriaSnapshot?.groups && form.criteriaSnapshot.groups.length > 0) {
+      return form.criteriaSnapshot.groups;
     }
-  };
+    return groups.length > 0 ? groups : DEFAULT_VC_GROUPS;
+  }, [form, groups]);
 
-  const handleTeacherChange = (newTeacherId: string) => {
-    setSelectedTeacherId(newTeacherId);
-    const newTeacher = teachers.find(t => t.id === newTeacherId);
-    if (newTeacher) {
-      const res = getEligibleEvaluators(newTeacher, teachers, departments);
-      let defaultEvalId = res.defaultEvaluatorId;
-      if (user && res.evaluators.some(e => e.id === user.id)) {
-        defaultEvalId = user.id;
-      }
-      if (defaultEvalId) {
-        setSelectedEvaluatorId(defaultEvalId);
-        const ev = teachers.find(t => t.id === defaultEvalId);
-        if (ev) {
-          setLeaderSignName(ev.name);
-        }
-      }
+  const activeCriteria = useMemo(() => {
+    if (form?.criteriaSnapshot?.criteria && form.criteriaSnapshot.criteria.length > 0) {
+      return form.criteriaSnapshot.criteria;
     }
-  };
+    return criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
+  }, [form, criteria]);
 
-  // Items State (list of scored criteria)
-  const [scoreItems, setScoreItems] = useState<KpiVcScoreItem[]>([]);
+  // Score Calculations
+  const totals = useMemo(() => {
+    return calculateVcTotals(scoreItems);
+  }, [scoreItems]);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const ttcmTotals = useMemo(() => {
+    return calculateVcTtcmTotals(scoreItems);
+  }, [scoreItems]);
 
-  const lastInitializedKey = useRef<string | null>(null);
+  const managerTotals = useMemo(() => {
+    return calculateVcManagerTotals(scoreItems);
+  }, [scoreItems]);
 
-  // Initialize data on open
+  const groupScores = totals.groupScores;
+  const totalScore = totals.totalScore;
+
+  const ttcmGroupScores = ttcmTotals.ttcmGroupScores;
+  const ttcmTotalScore = ttcmTotals.ttcmTotalScore;
+
+  const managerGroupScores = managerTotals.managerGroupScores;
+  const managerTotalScore = managerTotals.managerTotalScore;
+
+  const hasAnyTtcmScore = useMemo(() => {
+    return scoreItems.some(it => typeof it.ttcmScore === 'number' && it.ttcmScore !== null);
+  }, [scoreItems]);
+
+  const hasAnyManagerScore = useMemo(() => {
+    return scoreItems.some(it => typeof it.managerScore === 'number' && it.managerScore !== null);
+  }, [scoreItems]);
+
+  // --- INITIALIZATION ON OPEN ---
   useEffect(() => {
     if (!isOpen) {
       lastInitializedKey.current = null;
@@ -211,34 +279,65 @@ export default function KpiVcDocumentModal({
       setSelectedTeacherId(form.employeeId);
       setSelectedPeriodId(form.periodId);
       
-      const empTeacher = teachers.find(t => t.id === form.employeeId);
-      const evalRes = getEligibleEvaluators(empTeacher, teachers, departments);
-      
       let matchedEvalId = form.evaluatorId || '';
       if (!matchedEvalId && form.evaluatorName) {
         const foundObj = teachers.find(t => t.name.trim().toLowerCase() === form.evaluatorName.trim().toLowerCase());
         if (foundObj) matchedEvalId = foundObj.id;
       }
-      if (!matchedEvalId) {
-        matchedEvalId = evalRes.defaultEvaluatorId;
-      }
 
       setSelectedEvaluatorId(matchedEvalId);
-      setScoreItems(form.items || []);
+      
+      const rawItems = form.items || [];
+      const currentCriteria = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
+      const defaultItems = initializeVcScoreItems(currentCriteria);
+      
+      let itemsToUse = rawItems;
+      if (!rawItems || rawItems.length === 0 || rawItems.length < defaultItems.length) {
+        const existingMap = new Map<string, KpiVcScoreItem>();
+        rawItems.forEach(it => {
+          if (it.criterionId) existingMap.set(it.criterionId, it);
+          if (it.criterionCode) existingMap.set(it.criterionCode, it);
+        });
+        itemsToUse = defaultItems.map(defItem => {
+          const found = existingMap.get(defItem.criterionId) || existingMap.get(defItem.criterionCode);
+          if (found) {
+            return {
+              ...defItem,
+              selfScore: typeof found.selfScore === 'number' ? found.selfScore : defItem.maxScore,
+              note: found.note || '',
+              ttcmScore: found.ttcmScore !== undefined ? found.ttcmScore : null,
+              ttcmComment: found.ttcmComment || '',
+              managerScore: found.managerScore !== undefined ? found.managerScore : null,
+              managerComment: found.managerComment || ''
+            };
+          }
+          return defItem;
+        });
+      }
+      
+      setScoreItems(itemsToUse);
       setSelfClassification(form.selfClassification || resolveVcClassification(form.totalScore));
       setSelfDate(form.selfDate || todayStr);
       setSelfComment(form.selfComment || '');
       setLeaderClassification(form.leaderClassification || form.selfClassification || 'Hoàn thành tốt nhiệm vụ');
       setLeaderComment(form.leaderComment || '');
       setLeaderDate(form.leaderDate || todayStr);
-      setLeaderSignName(form.leaderSignName || form.evaluatorName || teachers.find(t => t.id === matchedEvalId)?.name || 'Hiệu trưởng');
+      setLeaderSignName(form.leaderSignName || form.evaluatorName || (matchedEvalId ? (teachers.find(t => t.id === matchedEvalId)?.name || '') : ''));
       setManagerGeneralComment(form.managerGeneralComment || '');
     } else {
       // CREATE MODE
       const defaultPeriod = periods.find(p => p.status === 'active') || periods[0];
       setSelectedPeriodId(defaultPeriod?.id || '');
 
-      // Pick default teacher: current user if regular teacher, or first eligible teacher
+      // Select ALL eligible teachers by default for Create Mode
+      const allEligibleIds = eligibleTeachers.map(t => t.id);
+      setSelectedTeacherIds(allEligibleIds);
+
+      // Expand all departments by default
+      const initialExpanded: Record<string, boolean> = {};
+      departments.forEach(d => { initialExpanded[d.id] = true; });
+      setExpandedDepts(initialExpanded);
+
       let targetTeacherId = '';
       if (user && eligibleTeachers.some(t => t.id === user.id)) {
         targetTeacherId = user.id;
@@ -247,25 +346,15 @@ export default function KpiVcDocumentModal({
       }
       setSelectedTeacherId(targetTeacherId);
 
-      // Default Evaluator selection for this target teacher
-      const targetTeacherObj = teachers.find(t => t.id === targetTeacherId);
-      const evalRes = getEligibleEvaluators(targetTeacherObj, teachers, departments);
-      
-      let defaultEvalId = evalRes.defaultEvaluatorId;
-      if (user && evalRes.evaluators.some(e => e.id === user.id)) {
-        defaultEvalId = user.id;
-      }
-      setSelectedEvaluatorId(defaultEvalId);
-      const defaultEvalObj = teachers.find(t => t.id === defaultEvalId);
-      setLeaderSignName(defaultEvalObj?.name || 'Hiệu trưởng');
+      setSelectedEvaluatorId('');
+      setLeaderSignName('');
 
-      // Initialize default items from current active criteria
-      const activeCriteria = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
-      const initialItems = initializeVcScoreItems(activeCriteria);
+      const initialCriteria = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
+      const initialItems = initializeVcScoreItems(initialCriteria);
       setScoreItems(initialItems);
 
-      const totals = calculateVcTotals(initialItems);
-      setSelfClassification(resolveVcClassification(totals.totalScore));
+      const initTotals = calculateVcTotals(initialItems);
+      setSelfClassification(resolveVcClassification(initTotals.totalScore));
       setSelfDate(todayStr);
       setSelfComment('');
       setLeaderClassification('Hoàn thành tốt nhiệm vụ');
@@ -275,189 +364,226 @@ export default function KpiVcDocumentModal({
     }
   }, [isOpen, form, mode, periods, eligibleTeachers, teachers, departments, criteria, user]);
 
-  // Ensure selected teacher and period are populated if loaded asynchronously
+  // Ensure selectedPeriodId is auto-populated if periods arrive after initial render
   useEffect(() => {
-    if (isOpen && (mode === 'create' || !form)) {
-      if (!selectedTeacherId && eligibleTeachers.length > 0) {
-        const initTeacherId = (user && eligibleTeachers.some(t => t.id === user.id)) ? user.id : eligibleTeachers[0].id;
-        handleTeacherChange(initTeacherId);
-      }
-      if (!selectedPeriodId && periods.length > 0) {
-        const defaultPeriod = periods.find(p => p.status === 'active') || periods[0];
-        setSelectedPeriodId(defaultPeriod?.id || '');
+    if (!selectedPeriodId && periods && periods.length > 0) {
+      const activePeriod = periods.find(p => p.status === 'active') || periods[0];
+      if (activePeriod) {
+        setSelectedPeriodId(activePeriod.id);
       }
     }
-  }, [isOpen, mode, form, eligibleTeachers, periods, user, selectedTeacherId, selectedPeriodId]);
-
-  // Current selected period object
-  const selectedPeriod = useMemo(() => {
-    return periods.find(p => p.id === selectedPeriodId) || null;
   }, [periods, selectedPeriodId]);
 
-  // Resolved Position & Department
-  const resolvedPosition = useMemo(() => {
-    return form ? form.position : resolveVcTeacherPosition(selectedTeacher, departments);
-  }, [form, selectedTeacher, departments]);
-
-  const resolvedDepartment = useMemo(() => {
-    return form ? form.department : resolveVcTeacherDepartment(selectedTeacher, departments);
-  }, [form, selectedTeacher, departments]);
-
-  // Real-time calculations of group and total scores
-  const { groupScores, totalScore } = useMemo(() => {
-    return calculateVcTotals(scoreItems);
-  }, [scoreItems]);
-
-  // Auto-sync classification on totalScore change if user hasn't typed a custom one
+  // Tự động chọn Cán bộ quản lý phù hợp nếu chưa chọn hoặc id không còn hợp lệ
   useEffect(() => {
-    if (!form || mode === 'create') {
-      setSelfClassification(resolveVcClassification(totalScore));
-    }
-  }, [totalScore, form, mode]);
-
-  // Handle score change for input criteria
-  const handleScoreChange = (criterionId: string, valStr: string, maxScore: number) => {
-    let numVal = parseFloat(valStr);
-    if (isNaN(numVal)) {
-      numVal = 0;
-    }
-    // Constrain: 0 <= score <= maxScore
-    if (numVal < 0) numVal = 0;
-    if (numVal > maxScore) numVal = maxScore;
-
-    setScoreItems(prev => prev.map(item => {
-      if (item.criterionId === criterionId) {
-        return {
-          ...item,
-          selfScore: numVal
-        };
+    if (!isOpen) return;
+    if (!selectedEvaluatorId || !teachers.some(t => t.id === selectedEvaluatorId)) {
+      const bestId = eligibleEvaluatorsResult.defaultEvaluatorId || 
+                     recommendedEvaluators[0]?.id || 
+                     allCbqlEvaluators[0]?.id || '';
+      if (bestId) {
+        setSelectedEvaluatorId(bestId);
+        const ev = teachers.find(t => t.id === bestId);
+        if (ev) setLeaderSignName(ev.name);
       }
-      return item;
-    }));
+    }
+  }, [isOpen, selectedTeacherId, selectedEvaluatorId, eligibleEvaluatorsResult, recommendedEvaluators, allCbqlEvaluators, teachers]);
+
+  // --- HANDLERS FOR MULTI-SELECT (CREATE MODE) ---
+  const getTeachersInDept = (deptId: string) => {
+    const dept = departments.find(d => d.id === deptId);
+    return eligibleTeachers.filter(t => {
+      if (t.departmentId === deptId) return true;
+      if (dept && t.department === dept.name) return true;
+      return false;
+    });
   };
 
-  // Handle level change for select_level criteria (Group III.2)
-  const handleLevelSelect = (criterionId: string, levelCode: string, levelName: string, levelScore: number) => {
-    setScoreItems(prev => prev.map(item => {
-      if (item.criterionId === criterionId) {
-        return {
-          ...item,
-          selectedLevelCode: levelCode,
-          selectedLevelName: levelName,
-          selfScore: levelScore
-        };
-      }
-      return item;
-    }));
+  const isDeptFullySelected = (deptId: string) => {
+    const teachersInDept = getTeachersInDept(deptId);
+    if (teachersInDept.length === 0) return false;
+    return teachersInDept.every(t => selectedTeacherIds.includes(t.id));
   };
 
-  // Check read-only state
-  const isLocked = form?.status === 'locked';
-  const isReadOnly = mode === 'view' || (isLocked && !isAdmin);
+  const isDeptPartiallySelected = (deptId: string) => {
+    const teachersInDept = getTeachersInDept(deptId);
+    const count = teachersInDept.filter(t => selectedTeacherIds.includes(t.id)).length;
+    return count > 0 && count < teachersInDept.length;
+  };
 
-  // Manager evaluation permissions
+  const toggleSelectDept = (deptId: string) => {
+    const teachersInDept = getTeachersInDept(deptId);
+    const idsInDept = teachersInDept.map(t => t.id);
+    const fullySelected = isDeptFullySelected(deptId);
 
-  const canEditManager = isAdmin || user?.role === 'BGH' || user?.role === 'CBQL' || 
-    (user?.position || '').toLowerCase().includes('hiệu trưởng') || 
-    (user?.position || '').toLowerCase().includes('phó hiệu trưởng') || 
-    (user?.position || '').toLowerCase().includes('tổ trưởng') || 
-    mode === 'leader_eval';
-
-  // Handle manager score change
-  const handleManagerScoreChange = (criterionId: string, valStr: string, maxScore: number) => {
-    let numVal = parseFloat(valStr);
-    if (isNaN(numVal)) {
-      numVal = 0;
-    }
-    if (numVal < 0) numVal = 0;
-    if (numVal > maxScore) {
-      numVal = maxScore;
-      setErrorMsg('Điểm đánh giá của CBQL không được vượt quá điểm tối đa.');
+    if (fullySelected) {
+      setSelectedTeacherIds(prev => prev.filter(id => !idsInDept.includes(id)));
     } else {
-      setErrorMsg(null);
+      setSelectedTeacherIds(prev => Array.from(new Set([...prev, ...idsInDept])));
     }
-
-    setScoreItems(prev => prev.map(item => {
-      if (item.criterionId === criterionId) {
-        return {
-          ...item,
-          managerScore: numVal
-        };
-      }
-      return item;
-    }));
   };
 
-  // Handle manager comment change
-  const handleManagerCommentChange = (criterionId: string, comment: string) => {
-    setScoreItems(prev => prev.map(item => {
-      if (item.criterionId === criterionId) {
-        return {
-          ...item,
-          managerComment: comment
-        };
+  const toggleSelectTeacher = (teacherId: string) => {
+    setSelectedTeacherIds(prev => {
+      if (prev.includes(teacherId)) {
+        return prev.filter(id => id !== teacherId);
+      } else {
+        return [...prev, teacherId];
       }
-      return item;
-    }));
+    });
   };
 
-  // Real-time calculations of manager scores and ratio
-  const { managerGroupScores, managerTotalScore, evaluatedCount, ratio } = useMemo(() => {
-    return calculateVcManagerTotals(scoreItems);
-  }, [scoreItems]);
+  const filteredTeachers = useMemo(() => {
+    return eligibleTeachers.filter(t => {
+      if (teacherSearch.trim()) {
+        const q = teacherSearch.toLowerCase().trim();
+        const matchName = t.name.toLowerCase().includes(q);
+        const matchCode = (t.code || '').toLowerCase().includes(q);
+        const matchUsername = (t.username || '').toLowerCase().includes(q);
+        if (!matchName && !matchCode && !matchUsername) return false;
+      }
+      const isSel = selectedTeacherIds.includes(t.id);
+      if (teacherFilter === 'selected' && !isSel) return false;
+      if (teacherFilter === 'unselected' && isSel) return false;
+      return true;
+    });
+  }, [eligibleTeachers, teacherSearch, teacherFilter, selectedTeacherIds]);
 
-  const hasAnyManagerScore = evaluatedCount > 0;
-
-  // Active Groups to render in table
-  const activeGroups = useMemo(() => {
-    const list = groups.length > 0 ? groups : DEFAULT_VC_GROUPS;
-    return list.filter(g => g.isActive).sort((a, b) => a.order - b.order);
-  }, [groups]);
-
-  // Active Criteria
-  const activeCriteria = useMemo(() => {
-    if (form?.criteriaSnapshot?.criteria && form.criteriaSnapshot.criteria.length > 0) {
-      return form.criteriaSnapshot.criteria;
+  // --- HANDLERS FOR SINGLE FORM ---
+  const handleEvaluatorChange = (evaluatorId: string) => {
+    setSelectedEvaluatorId(evaluatorId);
+    const ev = teachers.find(t => t.id === evaluatorId);
+    if (ev) {
+      setLeaderSignName(ev.name);
+    } else {
+      setLeaderSignName('');
     }
-    const list = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
-    return list.filter(c => c.isActive).sort((a, b) => a.order - b.order);
-  }, [form, criteria]);
+  };
 
-  // Form Save Handler
-  const handleSaveForm = async (targetStatus: KpiVcFormStatus = 'draft') => {
-    setErrorMsg(null);
-    setSuccessMsg(null);
+  const handleTeacherChange = (newTeacherId: string) => {
+    setSelectedTeacherId(newTeacherId);
+    setSelectedEvaluatorId('');
+    setLeaderSignName('');
+  };
 
-    // Determine final status
-    const finalStatus: KpiVcFormStatus = targetStatus;
+  const handleSelfScoreChange = (criterionId: string, value: number, selectedLevelCode?: string) => {
+    setScoreItems(prev => {
+      const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          selfScore: value,
+          selectedLevelCode: selectedLevelCode !== undefined ? selectedLevelCode : updated[existingIdx].selectedLevelCode
+        };
+        return updated;
+      } else {
+        return [
+          ...prev,
+          {
+            criterionId,
+            selfScore: value,
+            selectedLevelCode
+          }
+        ];
+      }
+    });
+  };
 
-    const currentTeacher = selectedTeacher || (form ? {
-      id: form.employeeId,
-      name: form.employeeName,
-      code: form.employeeCode,
-      username: form.employeeUsername,
-      avatar: form.employeeAvatar,
-      departmentId: form.departmentId
-    } as any : null);
+  const handleTtcmScoreChange = (criterionId: string, value: number) => {
+    setScoreItems(prev => {
+      const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          ttcmScore: value
+        };
+        return updated;
+      } else {
+        return [
+          ...prev,
+          {
+            criterionId,
+            selfScore: 0,
+            ttcmScore: value
+          }
+        ];
+      }
+    });
+  };
 
-    const currentPeriod = selectedPeriod || (form ? {
-      id: form.periodId,
-      name: form.periodName,
-      academicYear: form.academicYear
-    } as any : null);
+  const handleNoteChange = (criterionId: string, note: string) => {
+    setScoreItems(prev => {
+      const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          note
+        };
+        return updated;
+      } else {
+        return [
+          ...prev,
+          {
+            criterionId,
+            selfScore: 0,
+            note
+          }
+        ];
+      }
+    });
+  };
 
-    if (!currentTeacher && (mode === 'create' || !form)) {
-      setErrorMsg('Vui lòng chọn cán bộ, giáo viên hoặc nhân viên.');
+  const handleManagerScoreChange = (criterionId: string, value: number) => {
+    setScoreItems(prev => {
+      const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          managerScore: value
+        };
+        return updated;
+      } else {
+        return [
+          ...prev,
+          {
+            criterionId,
+            selfScore: 0,
+            managerScore: value
+          }
+        ];
+      }
+    });
+  };
+
+  // --- BATCH FORM CREATION (FOR CREATE MODE) ---
+  const handleBatchCreateForms = async (isDraft: boolean = false) => {
+    if (selectedTeacherIds.length === 0) {
+      setErrorMsg('Vui lòng chọn ít nhất 1 cán bộ, giáo viên, nhân viên.');
       return;
     }
+    
+    let targetPeriodId = selectedPeriodId;
+    if (!targetPeriodId && periods && periods.length > 0) {
+      const activePeriod = periods.find(p => p.status === 'active') || periods[0];
+      targetPeriodId = activePeriod?.id || '';
+    }
+    if (!targetPeriodId && DEFAULT_VC_PERIODS.length > 0) {
+      targetPeriodId = DEFAULT_VC_PERIODS[0].id;
+    }
 
-    if (!currentPeriod && (mode === 'create' || !form)) {
+    if (!targetPeriodId) {
       setErrorMsg('Vui lòng chọn kỳ đánh giá.');
       return;
     }
 
     try {
       setIsSubmitting(true);
+      setErrorMsg(null);
+      setSuccessMsg(null);
 
       const actor = {
         id: user?.id || 'admin',
@@ -465,111 +591,166 @@ export default function KpiVcDocumentModal({
         role: user?.role
       };
 
-      if (mode === 'create' || !form) {
-        // CREATE / INITIAL SAVE
-        const snapshot = createCriteriaSnapshot(
-          groups.length > 0 ? groups : DEFAULT_VC_GROUPS,
-          criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA
-        );
+      const snapshot = createCriteriaSnapshot(
+        groups.length > 0 ? groups : DEFAULT_VC_GROUPS,
+        criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA
+      );
 
-        const evaluatorObj = selectedEvaluator || teachers.find(t => t.id === selectedEvaluatorId) || null;
-        const evaluatorNameResolved = evaluatorObj?.name || leaderSignName || user?.name || 'CBQL';
-        const evaluatorRoleResolved = evaluatorObj ? resolveVcTeacherPosition(evaluatorObj, departments) : (user?.role || 'CBQL');
-        const evaluatorIdResolved = selectedEvaluatorId || evaluatorObj?.id || user?.id || 'admin';
+      const activeCrit = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
+      const initialItems = initializeVcScoreItems(activeCrit);
+      const currentPeriod = periods.find(p => p.id === targetPeriodId) || DEFAULT_VC_PERIODS.find(p => p.id === targetPeriodId);
+      let createdCount = 0;
+
+      for (const tId of selectedTeacherIds) {
+        const teacherObj = eligibleTeachers.find(t => t.id === tId) || teachers.find(t => t.id === tId);
+        if (!teacherObj) continue;
+
+        const teacherPos = resolveVcTeacherPosition(teacherObj, departments);
+        const teacherDept = resolveVcTeacherDepartment(teacherObj, departments);
+
+        let evalId = selectedEvaluatorId || '';
+        if (!evalId) {
+          const res = getEligibleEvaluators(teacherObj, teachers, departments);
+          evalId = res.defaultEvaluatorId || (res.evaluators && res.evaluators[0]?.id) || (allCbqlEvaluators[0]?.id) || '';
+        }
+        let evalObj = evalId ? (teachers.find(t => t.id === evalId) || null) : null;
+
+        const evaluatorNameResolved = evalObj?.name || '';
+        const evaluatorRoleResolved = evalObj ? resolveVcTeacherPosition(evalObj, departments) : '';
 
         const newFormData: Omit<KpiVcForm, 'id' | 'createdAt' | 'updatedAt'> = {
-          employeeId: currentTeacher!.id,
-          employeeName: currentTeacher!.name,
-          employeeCode: currentTeacher!.code || `GV_${currentTeacher!.id}`,
-          employeeUsername: currentTeacher!.username || '',
-          employeeAvatar: currentTeacher!.avatar || null,
-          position: resolvedPosition || 'Giáo viên',
-          department: resolvedDepartment || 'Trường THPT Sơn Lương',
-          departmentId: currentTeacher!.departmentId || null,
+          employeeId: teacherObj.id,
+          employeeName: teacherObj.name || 'Cán bộ giáo viên',
+          employeeCode: teacherObj.code || `GV_${teacherObj.id}`,
+          employeeUsername: teacherObj.username || '',
+          employeeAvatar: teacherObj.avatar || null,
+          position: teacherPos || 'Giáo viên',
+          department: teacherDept || 'Trường THPT Sơn Lương',
+          departmentId: teacherObj.departmentId || null,
 
-          periodId: currentPeriod!.id,
-          periodName: currentPeriod!.name,
-          academicYear: currentPeriod!.academicYear || '2025-2026',
+          periodId: targetPeriodId,
+          periodName: currentPeriod?.name || 'Kỳ đánh giá KPI',
+          academicYear: currentPeriod?.academicYear || '2025-2026',
 
           criteriaSnapshot: snapshot,
-          items: scoreItems,
+          items: initialItems,
 
-          groupScores,
-          managerGroupScores,
-          totalScore,
-          managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
+          groupScores: { group_I: 15, group_II: 15, group_III: 70 },
+          managerGroupScores: {},
+          totalScore: 100,
+          managerTotalScore: null,
           maxTotalScore: 100,
 
-          selfClassification: selfClassification || 'Hoàn thành tốt nhiệm vụ',
+          selfClassification: 'Hoàn thành tốt nhiệm vụ',
           selfDate: selfDate || new Date().toLocaleDateString('vi-VN'),
-          selfSignName: currentTeacher!.name || '',
-          selfComment: selfComment || '',
+          selfSignName: teacherObj.name || '',
+          selfComment: evaluationNote || '',
 
-          leaderClassification: leaderClassification || 'Hoàn thành tốt nhiệm vụ',
-          leaderComment: leaderComment || '',
-          leaderDate: leaderDate || new Date().toLocaleDateString('vi-VN'),
-          leaderSignName: leaderSignName || evaluatorNameResolved,
-          managerGeneralComment: managerGeneralComment || '',
-          evaluatorId: evaluatorIdResolved,
-          evaluatorName: evaluatorNameResolved,
-          evaluatorRole: evaluatorRoleResolved,
-          managerEvaluatedAt: hasAnyManagerScore ? new Date().toLocaleDateString('vi-VN') : null,
+          leaderClassification: evaluatorNameResolved ? 'Hoàn thành tốt nhiệm vụ' : '',
+          leaderComment: '',
+          leaderDate: evaluatorNameResolved ? new Date().toLocaleDateString('vi-VN') : '',
+          leaderSignName: evaluatorNameResolved || '',
+          managerGeneralComment: '',
+          evaluatorId: evalId || '',
+          evaluatorName: evaluatorNameResolved || '',
+          evaluatorRole: evaluatorRoleResolved || '',
+          managerEvaluatedAt: null,
 
-          status: finalStatus,
+          status: isDraft ? 'draft' : 'self_evaluated',
           createdBy: actor.name
         };
 
-        const formId = await createVcForm(newFormData, actor);
-        setSuccessMsg(finalStatus === 'completed' ? 'Đã hoàn thành và lưu phiếu đánh giá thành công!' : 'Đã lưu phiếu đánh giá thành công!');
-        
-        if (onSaved) onSaved(formId);
-        setTimeout(() => {
-          onClose();
-        }, 1000);
-      } else {
-        // UPDATE EXISTING FORM
-        const formId = form.id;
-        const evaluatorObj = selectedEvaluator || teachers.find(t => t.id === selectedEvaluatorId) || null;
-        const evaluatorNameResolved = evaluatorObj?.name || leaderSignName || form.evaluatorName || user?.name || 'CBQL';
-        const evaluatorRoleResolved = evaluatorObj ? resolveVcTeacherPosition(evaluatorObj, departments) : (form.evaluatorRole || user?.role || 'CBQL');
-        const evaluatorIdResolved = selectedEvaluatorId || evaluatorObj?.id || form.evaluatorId || user?.id || 'admin';
-
-        const updatePayload: Partial<KpiVcForm> = {
-          employeeId: form.employeeId,
-          employeeName: form.employeeName,
-          periodId: form.periodId,
-          periodName: form.periodName,
-          academicYear: form.academicYear,
-          position: form.position || resolvedPosition,
-          department: form.department || resolvedDepartment,
-          items: scoreItems,
-          groupScores,
-          managerGroupScores,
-          totalScore,
-          managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
-          selfClassification: selfClassification || 'Hoàn thành tốt nhiệm vụ',
-          selfDate: selfDate || new Date().toLocaleDateString('vi-VN'),
-          selfComment: selfComment || '',
-          leaderClassification: leaderClassification || 'Hoàn thành tốt nhiệm vụ',
-          leaderComment: leaderComment || '',
-          leaderDate: leaderDate || new Date().toLocaleDateString('vi-VN'),
-          leaderSignName: leaderSignName || evaluatorNameResolved,
-          managerGeneralComment: managerGeneralComment || '',
-          evaluatorId: evaluatorIdResolved,
-          evaluatorName: evaluatorNameResolved,
-          evaluatorRole: evaluatorRoleResolved,
-          managerEvaluatedAt: hasAnyManagerScore ? new Date().toLocaleDateString('vi-VN') : (form.managerEvaluatedAt || null),
-          status: isLocked ? 'locked' : finalStatus
-        };
-
-        await updateVcForm(formId, updatePayload, actor);
-        setSuccessMsg(finalStatus === 'completed' ? 'Đã hoàn thành và chốt lưu phiếu đánh giá thành công!' : 'Đã cập nhật phiếu đánh giá thành công!');
-        
-        if (onSaved) onSaved(formId);
-        setTimeout(() => {
-          onClose();
-        }, 1000);
+        await createVcForm(newFormData, actor);
+        createdCount++;
       }
+
+      if (createdCount === 0) {
+        setErrorMsg('Không thể tạo phiếu: Không tìm thấy danh sách giáo viên/nhân viên hợp lệ.');
+        return;
+      }
+
+      setSuccessMsg(`Đã tạo và lưu thành công ${createdCount} phiếu đánh giá KPI cho Giáo viên!`);
+      if (onSaved) onSaved(selectedPeriodId);
+      setTimeout(() => {
+        onClose();
+      }, 1200);
+
+    } catch (err: any) {
+      console.error('Error batch creating VC forms:', err);
+      setErrorMsg(err.message || 'Lỗi khi tạo phiếu đánh giá.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // --- SINGLE FORM SAVE (FOR EDIT / EVAL MODES) ---
+  const handleSingleSave = async (finalStatus: KpiVcFormStatus) => {
+    if (!form) return;
+    if (canEditSelf && !selectedEvaluatorId) {
+      setErrorMsg("Vui lòng chọn cán bộ quản lý đánh giá.");
+      const el = document.getElementById('kpi-vc-document-modal');
+      if (el) el.scrollTop = 0;
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+
+      const actor = {
+        id: user?.id || 'admin',
+        name: user?.name || 'Quản trị viên',
+        role: user?.role
+      };
+
+      const formId = form.id;
+      const evaluatorObj = selectedEvaluatorId ? (teachers.find(t => t.id === selectedEvaluatorId) || null) : null;
+      const evaluatorNameResolved = evaluatorObj?.name || '';
+      const evaluatorRoleResolved = evaluatorObj ? resolveVcTeacherPosition(evaluatorObj, departments) : '';
+      const evaluatorIdResolved = selectedEvaluatorId || '';
+
+      const updatePayload: Partial<KpiVcForm> = {
+        employeeId: form.employeeId,
+        employeeName: form.employeeName,
+        periodId: form.periodId,
+        periodName: form.periodName,
+        academicYear: form.academicYear,
+        position: form.position || resolvedPosition,
+        department: form.department || resolvedDepartment,
+        items: scoreItems,
+        groupScores,
+        ttcmGroupScores,
+        managerGroupScores,
+        totalScore,
+        ttcmTotalScore: hasAnyTtcmScore ? ttcmTotalScore : null,
+        managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
+        selfClassification: selfClassification || 'Hoàn thành tốt nhiệm vụ',
+        selfDate: selfDate || new Date().toLocaleDateString('vi-VN'),
+        selfComment: selfComment || '',
+        ttcmClassification: ttcmClassification || 'Hoàn thành tốt nhiệm vụ',
+        ttcmComment: ttcmComment || '',
+        ttcmDate: ttcmDate || new Date().toLocaleDateString('vi-VN'),
+        ttcmEvaluatorName: ttcmEvaluatorName || user?.name || '',
+        leaderClassification: leaderClassification || 'Hoàn thành tốt nhiệm vụ',
+        leaderComment: leaderComment || '',
+        leaderDate: leaderDate || new Date().toLocaleDateString('vi-VN'),
+        leaderSignName: leaderSignName || evaluatorNameResolved,
+        managerGeneralComment: managerGeneralComment || '',
+        evaluatorId: evaluatorIdResolved,
+        evaluatorName: evaluatorNameResolved,
+        evaluatorRole: evaluatorRoleResolved,
+        managerEvaluatedAt: hasAnyManagerScore ? new Date().toLocaleDateString('vi-VN') : (form.managerEvaluatedAt || null),
+        status: finalStatus
+      };
+
+      await updateVcForm(formId, updatePayload, actor);
+      setSuccessMsg(finalStatus === 'completed' ? 'Đã hoàn thành và chốt lưu phiếu đánh giá thành công!' : 'Đã cập nhật phiếu đánh giá thành công!');
+      
+      if (onSaved) onSaved(formId);
+      setTimeout(() => {
+        onClose();
+      }, 1000);
     } catch (err: any) {
       console.error('Error saving VC form:', err);
       setErrorMsg(err.message || 'Lỗi khi lưu phiếu đánh giá.');
@@ -578,15 +759,686 @@ export default function KpiVcDocumentModal({
     }
   };
 
+  // READ ONLY CHECK FOR SINGLE FORM
+  const isTtcmUser = useMemo(() => {
+    if (isAdmin) return true;
+    if (user?.role === 'ttcm' || user?.role === 'to_truong') return true;
+    if (user?.position?.toLowerCase().includes('tổ trưởng') || user?.position?.toLowerCase().includes('ttcm')) return true;
+    return false;
+  }, [user, isAdmin]);
+
+  const isCbqlUser = useMemo(() => {
+    if (isAdmin) return true;
+    if (user?.role === 'cbql' || user?.role === 'hieu_truong' || user?.role === 'pht' || user?.role === 'phieu_danh_gia') return true;
+    if (user?.position?.toLowerCase().includes('hiệu trưởng') || user?.position?.toLowerCase().includes('phó hiệu trưởng')) return true;
+    return false;
+  }, [user, isAdmin]);
+
+  const isLocked = form?.status === 'locked';
+  const isReadOnly = mode === 'view' || isLocked;
+  const canEditSelf = (mode === 'create' || mode === 'edit' || mode === 'self_eval') && !isLocked;
+  const canEditTtcm = (mode === 'create' || mode === 'edit' || mode === 'ttcm_eval' || isTtcmUser) && !isLocked;
+  const canEditManager = (mode === 'create' || mode === 'edit' || mode === 'leader_eval' || isCbqlUser) && !isLocked;
+
+  const canChangeEvaluator = useMemo(() => {
+    if (isLocked) return false;
+    if (isAdmin) return true;
+    if (!form || form.status === 'draft') return true;
+    return false;
+  }, [form, isAdmin, isLocked]);
+
   if (!isOpen) return null;
 
+  // =========================================================================
+  // RENDER 1: FULL-SCREEN CREATE EVALUATION WORKSPACE (WHEN MODE === 'CREATE')
+  // =========================================================================
+  if (mode === 'create' || !form) {
+    return (
+      <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-40 bg-slate-50 flex flex-col font-sans overflow-y-auto">
+        <div className="bg-slate-50 w-full min-h-screen flex flex-col">
+          
+          {/* HEADER */}
+          <header className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white px-5 sm:px-8 py-4 flex items-center justify-between shrink-0 shadow-md z-10">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+                <FileCheck size={22} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-md bg-blue-500/30 border border-blue-400/40 text-[11px] font-extrabold text-blue-200">
+                    TẠO PHIẾU ĐÁNH GIÁ
+                  </span>
+                  <span className="text-xs text-blue-300 hidden sm:inline">Trường THPT Sơn Lương</span>
+                </div>
+                <h1 className="text-base sm:text-lg font-black text-white tracking-tight mt-0.5">
+                  Tạo phiếu đánh giá KPI Giáo viên
+                </h1>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2 bg-white/10 px-3.5 py-1.5 rounded-xl border border-white/15 text-xs text-blue-100 font-semibold">
+                <Users size={16} className="text-blue-300" />
+                <span>Số người đã chọn:</span>
+                <span className="text-sm font-extrabold text-white bg-blue-500/40 px-2 py-0.5 rounded-lg border border-blue-400/40 font-mono">
+                  {selectedTeacherIds.length} Giáo viên
+                </span>
+              </div>
+
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => handleBatchCreateForms(true)}
+                className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl border border-white/20 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Save size={15} /> Lưu nháp
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Đóng / Quay lại"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </header>
+
+          {/* NOTIFICATIONS */}
+          {errorMsg && (
+            <div className="mx-6 mt-3 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2 shrink-0">
+              <AlertCircle size={16} className="shrink-0 text-rose-600" />
+              <span className="font-semibold">{errorMsg}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="mx-6 mt-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 shrink-0">
+              <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+              <span className="font-semibold">{successMsg}</span>
+            </div>
+          )}
+
+          {/* MAIN WORKSPACE AREA */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
+            <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+              {/* LEFT COLUMN: KHU VỰC CHỌN ĐỐI TƯỢNG (40% width / lg:col-span-5) */}
+              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+                <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                      <Users size={16} className="text-blue-600" /> ĐỐI TƯỢNG ĐÁNH GIÁ
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Chọn danh sách giáo viên được tạo phiếu</p>
+                  </div>
+                  <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-extrabold rounded-lg border border-blue-200">
+                    Đã chọn {selectedTeacherIds.length} Giáo viên
+                  </span>
+                </div>
+
+                {/* TABS */}
+                <div className="p-3 bg-slate-100/70 border-b border-slate-200 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAudienceTab('by_dept')}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      audienceTab === 'by_dept'
+                        ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <Building size={15} /> Chọn theo Tổ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAudienceTab('by_teacher')}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      audienceTab === 'by_teacher'
+                        ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <User size={15} /> Chọn từng Giáo viên
+                  </button>
+                </div>
+
+                {/* TAB 1: CHỌN THEO TỔ */}
+                {audienceTab === 'by_dept' && (
+                  <div className="p-4 space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar">
+                    <div className="flex items-center justify-between mb-1 text-xs">
+                      <span className="font-bold text-slate-700">Danh sách Tổ chuyên môn & Phòng ban:</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTeacherIds(eligibleTeachers.map(t => t.id))}
+                          className="text-blue-600 hover:text-blue-800 font-bold hover:underline cursor-pointer"
+                        >
+                          Chọn tất cả
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTeacherIds([])}
+                          className="text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer"
+                        >
+                          Bỏ chọn
+                        </button>
+                      </div>
+                    </div>
+
+                    {departments.map((dept) => {
+                      const teachersInDept = getTeachersInDept(dept.id);
+                      if (teachersInDept.length === 0) return null;
+
+                      const selectedInDept = teachersInDept.filter(t => selectedTeacherIds.includes(t.id));
+                      const isFullySelected = selectedInDept.length === teachersInDept.length;
+                      const isPartiallySelected = selectedInDept.length > 0 && selectedInDept.length < teachersInDept.length;
+                      const isExpanded = !!expandedDepts[dept.id];
+
+                      return (
+                        <div
+                          key={dept.id}
+                          className={`rounded-xl border transition-all overflow-hidden ${
+                            isFullySelected
+                              ? 'bg-blue-50/40 border-blue-300'
+                              : isPartiallySelected
+                              ? 'bg-amber-50/30 border-amber-300'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          {/* DEPT HEADER ROW */}
+                          <div className="p-3.5 flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-3 cursor-pointer select-none flex-1 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isFullySelected}
+                                ref={el => { if (el) el.indeterminate = isPartiallySelected; }}
+                                onChange={() => toggleSelectDept(dept.id)}
+                                className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                              />
+                              <div className="truncate">
+                                <h3 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                                  {dept.name}
+                                </h3>
+                                <p className="text-[11px] text-slate-500">
+                                  Đã chọn: <span className="font-bold text-blue-700">{selectedInDept.length}</span>/{teachersInDept.length} người
+                                </p>
+                              </div>
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={() => setExpandedDepts(prev => ({ ...prev, [dept.id]: !prev[dept.id] }))}
+                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer shrink-0"
+                              title={isExpanded ? "Thu gọn" : "Xem danh sách giáo viên"}
+                            >
+                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                          </div>
+
+                          {/* EXPANDED LIST OF TEACHERS */}
+                          {isExpanded && (
+                            <div className="bg-slate-50/80 border-t border-slate-200/80 p-2.5 space-y-1.5 max-h-[250px] overflow-y-auto custom-scrollbar">
+                              {teachersInDept.map(t => {
+                                const isChecked = selectedTeacherIds.includes(t.id);
+                                return (
+                                  <label
+                                    key={t.id}
+                                    className={`flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
+                                      isChecked
+                                        ? 'bg-blue-100/70 border-blue-300 text-blue-950 font-semibold'
+                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => toggleSelectTeacher(t.id)}
+                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                      />
+                                      <span className="text-xs truncate font-medium">{t.name}</span>
+                                    </div>
+                                    <span className="text-[10.5px] font-mono text-slate-500 shrink-0">
+                                      {t.code || `GV${t.id}`}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* TAB 2: CHỌN TỪNG CBGVNV */}
+                {audienceTab === 'by_teacher' && (
+                  <div className="p-4 space-y-3">
+                    {/* SEARCH & FILTERS */}
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={teacherSearch}
+                        onChange={e => setTeacherSearch(e.target.value)}
+                        placeholder="🔍 Tìm theo tên hoặc mã Giáo viên..."
+                        className="w-full pl-9 pr-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs gap-2">
+                      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setTeacherFilter('all')}
+                          className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                            teacherFilter === 'all' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Tất cả ({eligibleTeachers.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTeacherFilter('selected')}
+                          className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                            teacherFilter === 'selected' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Đã chọn ({selectedTeacherIds.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTeacherFilter('unselected')}
+                          className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                            teacherFilter === 'unselected' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Chưa chọn ({eligibleTeachers.length - selectedTeacherIds.length})
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTeacherIds(eligibleTeachers.map(t => t.id))}
+                          className="text-blue-600 hover:text-blue-800 font-bold text-xs hover:underline cursor-pointer whitespace-nowrap"
+                        >
+                          Chọn tất cả
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTeacherIds([])}
+                          className="text-rose-600 hover:text-rose-800 font-bold text-xs hover:underline cursor-pointer whitespace-nowrap"
+                        >
+                          Bỏ chọn
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* HIGH-CAPACITY TEACHER LIST */}
+                    <div className="space-y-1.5 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+                      {filteredTeachers.length === 0 ? (
+                        <div className="p-8 text-center text-slate-400 text-xs">
+                          Không tìm thấy cán bộ giáo viên phù hợp.
+                        </div>
+                      ) : (
+                        filteredTeachers.map(t => {
+                          const isChecked = selectedTeacherIds.includes(t.id);
+                          const pos = resolveVcTeacherPosition(t, departments);
+                          const dept = resolveVcTeacherDepartment(t, departments);
+
+                          return (
+                            <label
+                              key={t.id}
+                              className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                                isChecked
+                                  ? 'bg-blue-50/90 border-blue-300 ring-1 ring-blue-400/30 shadow-2xs'
+                                  : 'bg-white border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleSelectTeacher(t.id)}
+                                  className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                />
+                                <div className="min-w-0">
+                                  <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                                    {t.name}
+                                  </p>
+                                  <p className="text-[11px] text-slate-500 truncate">
+                                    Mã: <span className="font-mono font-semibold">{t.code || `GV${t.id}`}</span> • {pos} ({dept})
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                isChecked ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {isChecked ? 'Đã chọn' : 'Chưa chọn'}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT COLUMN: THÔNG TIN PHIẾU & THIẾT LẬP (60% width / lg:col-span-7) */}
+              <div className="lg:col-span-7 space-y-6">
+
+                {/* SUMMARY BANNER */}
+                <div className="bg-gradient-to-r from-blue-950 via-indigo-900 to-slate-900 rounded-2xl p-5 text-white shadow-md border border-blue-800/50 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider font-extrabold text-blue-300">THÔNG TIN TÓM TẮT PHIẾU</span>
+                    <h3 className="text-sm sm:text-base font-black text-white mt-0.5">
+                      Phiếu đánh giá KPI Giáo viên ({selectedPeriod?.academicYear || '2026-2027'})
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-wrap text-xs">
+                    <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/15 flex items-center gap-2">
+                      <Users size={15} className="text-blue-300" />
+                      <span>Đối tượng: <strong className="text-white">{selectedTeacherIds.length} người</strong></span>
+                    </div>
+                    <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/15 flex items-center gap-2">
+                      <FileText size={15} className="text-indigo-300" />
+                      <span>Số tiêu chí: <strong className="text-white">23 tiêu chí</strong></span>
+                    </div>
+                    <div className="bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-400/30 text-emerald-200 font-bold">
+                      Trạng thái: Chưa lưu
+                    </div>
+                  </div>
+                </div>
+
+                {/* CARD 1: THÔNG TIN PHIẾU ĐÁNH GIÁ */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                  <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+                    <h2 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                      <FileText size={16} className="text-blue-600" /> THÔNG TIN PHIẾU ĐÁNH GIÁ
+                    </h2>
+                    <span className="text-xs font-semibold text-slate-500">Mẫu chuẩn THPT Sơn Lương</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    {/* Tên đợt đánh giá */}
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Tên đợt / Kỳ đánh giá <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={selectedPeriodId}
+                        onChange={e => setSelectedPeriodId(e.target.value)}
+                        className="w-full px-3 py-2 text-xs sm:text-sm font-semibold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      >
+                        {periods.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.academicYear}) {p.status === 'locked' ? '🔒 Đã khóa' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Năm học */}
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Năm học
+                      </label>
+                      <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-800 text-xs sm:text-sm">
+                        {selectedPeriod?.academicYear || '2025-2026'}
+                      </div>
+                    </div>
+
+                    {/* Ngày tạo phiếu */}
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Ngày tạo phiếu
+                      </label>
+                      <input
+                        type="date"
+                        value={selfDate.split('/').reverse().join('-')}
+                        onChange={e => {
+                          const parts = e.target.value.split('-');
+                          if (parts.length === 3) setSelfDate(`${parts[2]}/${parts[1]}/${parts[0]}`);
+                        }}
+                        className="w-full px-3 py-2 text-xs sm:text-sm font-semibold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Hạn hoàn thành */}
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Hạn hoàn thành
+                      </label>
+                      <input
+                        type="date"
+                        value={dueDate}
+                        onChange={e => setDueDate(e.target.value)}
+                        className="w-full px-3 py-2 text-xs sm:text-sm font-semibold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Loại đối tượng */}
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Loại đối tượng áp dụng
+                      </label>
+                      <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-xl font-semibold text-slate-800 text-xs sm:text-sm">
+                        Giáo viên (Viên chức)
+                      </div>
+                    </div>
+
+                    {/* Nhóm KPI */}
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Bộ tiêu chí KPI
+                      </label>
+                      <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-xl font-semibold text-slate-800 text-xs sm:text-sm">
+                        Bộ tiêu chí Giáo viên (23 tiêu chí - 100 điểm)
+                      </div>
+                    </div>
+
+                    {/* Ghi chú đợt đánh giá */}
+                    <div className="col-span-1 md:col-span-2">
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Ghi chú / Hướng dẫn đợt đánh giá
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={evaluationNote}
+                        onChange={e => setEvaluationNote(e.target.value)}
+                        placeholder="Nhập ghi chú hoặc hướng dẫn cán bộ giáo viên tự chấm điểm..."
+                        className="w-full px-3 py-2 text-xs font-normal bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* CARD 2: THIẾT LẬP ĐÁNH GIÁ */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                  <div className="border-b border-slate-100 pb-3">
+                    <h2 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                      <Settings size={16} className="text-blue-600" /> THIẾT LẬP ĐÁNH GIÁ
+                    </h2>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-100/60 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowSelfEval}
+                        onChange={e => setAllowSelfEval(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-bold text-slate-800">☑ Người được đánh giá tự đánh giá</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-100/60 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowLeaderEval}
+                        onChange={e => setAllowLeaderEval(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-bold text-slate-800">☑ Lãnh đạo đánh giá</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-100/60 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowEditCriteria}
+                        onChange={e => setAllowEditCriteria(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-bold text-slate-800">☑ Cho phép chỉnh sửa tiêu chí</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-100/60 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowComment}
+                        onChange={e => setAllowComment(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-bold text-slate-800">☑ Cho phép thêm nhận xét</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-100/60 transition-colors cursor-pointer col-span-1 sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={allowEvidence}
+                        onChange={e => setAllowEvidence(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-bold text-slate-800">☑ Cho phép đính kèm minh chứng</span>
+                    </label>
+                  </div>
+
+                  {/* NGƯỜI ĐÁNH GIÁ (CBQL) */}
+                  {allowLeaderEval && (
+                    <div className="pt-3 border-t border-slate-100 text-xs">
+                      <label className="block font-bold text-amber-950 mb-1.5">
+                        👑 Cán bộ quản lý / Lãnh đạo đánh giá *
+                      </label>
+                      <select
+                        value={selectedEvaluatorId}
+                        onChange={e => handleEvaluatorChange(e.target.value)}
+                        className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-amber-50 text-amber-950 border border-amber-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
+                      >
+                        <option value="">-- Chọn cán bộ quản lý đánh giá --</option>
+                        {recommendedEvaluators.length > 0 && (
+                          <optgroup label="⭐ Cán bộ quản lý đề xuất (Hiệu trưởng / Tổ trưởng)">
+                            {recommendedEvaluators.map(ev => {
+                              const pos = resolveVcTeacherPosition(ev, departments);
+                              const dept = resolveVcTeacherDepartment(ev, departments);
+                              return (
+                                <option key={`rec_${ev.id}`} value={ev.id}>
+                                  {ev.name} — [{pos}] ({dept})
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                        {otherCbqlList.length > 0 && (
+                          <optgroup label="👑 Cán bộ quản lý / Lãnh đạo khác">
+                            {otherCbqlList.map(ev => {
+                              const pos = resolveVcTeacherPosition(ev, departments);
+                              const dept = resolveVcTeacherDepartment(ev, departments);
+                              return (
+                                <option key={`oth_${ev.id}`} value={ev.id}>
+                                  {ev.name} — [{pos}] ({dept})
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                        {recommendedEvaluators.length === 0 && otherCbqlList.length === 0 && (
+                          <optgroup label="📋 Tất cả cán bộ giáo viên">
+                            {teachers.map(ev => {
+                              const pos = resolveVcTeacherPosition(ev, departments);
+                              const dept = resolveVcTeacherDepartment(ev, departments);
+                              return (
+                                <option key={`all_${ev.id}`} value={ev.id}>
+                                  {ev.name} — [{pos}] ({dept})
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                      </select>
+                      <p className="text-[11px] text-slate-500 italic mt-1 font-semibold text-amber-900">
+                        Giáo viên chủ động lựa chọn cán bộ quản lý/lãnh đạo thực hiện đánh giá phiếu này.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+
+          {/* FIXED FOOTER */}
+          <footer className="bg-white border-t border-slate-200 px-6 py-4 flex items-center justify-between shrink-0 shadow-lg z-20">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2"
+            >
+              ← Quay lại
+            </button>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Hủy
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => handleBatchCreateForms(true)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-2"
+              >
+                <Save size={16} /> Lưu nháp
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => handleBatchCreateForms(false)}
+                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black rounded-xl shadow-lg shadow-blue-500/30 transition-all cursor-pointer flex items-center gap-2 scale-105"
+              >
+                <CheckCircle2 size={18} /> {isSubmitting ? 'Đang tạo phiếu...' : '✓ Lưu phiếu'}
+              </button>
+            </div>
+          </footer>
+
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // RENDER 2: SINGLE FORM DOCUMENT MODAL (FOR EDIT / SELF_EVAL / LEADER_EVAL / VIEW)
+  // =========================================================================
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-[2000] flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       
       {/* Container phiếu */}
       <div 
         id="kpi-vc-document-modal" 
-        className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col my-auto max-h-[96vh] overflow-hidden border border-slate-200"
+        className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col my-auto max-h-[96vh] overflow-hidden border border-slate-200 font-sans"
       >
         
         {/* MODAL ACTION BAR TRÊN CÙNG */}
@@ -597,7 +1449,6 @@ export default function KpiVcDocumentModal({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                {mode === 'create' && 'TẠO PHIẾU ĐÁNH GIÁ KPI GIÁO VIÊN - NHÂN VIÊN'}
                 {mode === 'edit' && `CHỈNH SỬA PHIẾU KPI: ${form?.employeeName}`}
                 {mode === 'self_eval' && `TỰ CHẤM ĐIỂM KPI: ${form?.employeeName}`}
                 {mode === 'leader_eval' && `Ý KIẾN ĐÁNH GIÁ CỦA LÃNH ĐẠO: ${form?.employeeName}`}
@@ -685,7 +1536,7 @@ export default function KpiVcDocumentModal({
           <div className="flex items-center gap-3">
             <div className="bg-white border-2 border-blue-600/30 rounded-xl px-3 py-1 shadow-xs flex items-center gap-2">
               <span className="text-slate-500 uppercase text-[10px] font-extrabold">TỔNG ĐIỂM:</span>
-              <span className="text-base font-black text-blue-900">
+              <span className="text-base font-black text-blue-900 font-mono">
                 {totalScore} <span className="text-xs font-normal text-slate-400">/ 100</span>
               </span>
             </div>
@@ -719,7 +1570,7 @@ export default function KpiVcDocumentModal({
             {/* 1. HEADER CƠ QUAN VÀ QUỐC HIỆU */}
             <div className="flex justify-between items-start text-center mb-6">
               <div className="w-5/12 text-center">
-                <p className="text-xs sm:text-[13px] uppercase font-semibold">SỞ GD&ĐT TỈNH PHÚ THỌ</p>
+                <p className="text-xs sm:text-[13px] uppercase font-bold">SỞ GD&ĐT PHÚ THỌ</p>
                 <p className="text-xs sm:text-sm uppercase font-bold text-slate-900">TRƯỜNG THPT SƠN LƯƠNG</p>
                 <div className="w-24 h-[1px] bg-slate-800 mx-auto mt-1" />
               </div>
@@ -731,162 +1582,98 @@ export default function KpiVcDocumentModal({
             </div>
 
             {/* 2. TIÊU ĐỀ PHIẾU */}
-            <div className="text-center my-6">
+            <div className="text-center my-6 space-y-1">
               <h1 className="text-base sm:text-lg font-extrabold uppercase text-slate-900 leading-tight tracking-wide">
-                PHIẾU ĐÁNH GIÁ, CHẤM ĐIỂM NĂM HỌC {form ? form.academicYear : (selectedPeriod?.academicYear || '2025-2026')}
+                PHIẾU ĐÁNH GIÁ, CHẤM ĐIỂM KPI GIÁO VIÊN NĂM HỌC {form ? form.academicYear : (selectedPeriod?.academicYear || '2026–2027')}
               </h1>
-              <p className="text-xs sm:text-sm font-semibold italic text-slate-800 mt-1">
-                (Áp dụng đối với viên chức không giữ chức vụ lãnh đạo, quản lý)
-              </p>
-              <p className="text-xs font-semibold text-blue-900 mt-1">
-                Kỳ đánh giá: {form ? form.periodName : (selectedPeriod?.name || 'Kỳ đánh giá')} (Năm học: {form ? form.academicYear : (selectedPeriod?.academicYear || '2025-2026')})
+              <p className="text-xs sm:text-sm font-semibold italic text-slate-700">
+                (Dự thảo vận hành – đề nghị nhà trường xác nhận trước khi ban hành)
               </p>
             </div>
 
             {/* 3. THÔNG TIN VIÊN CHỨC */}
-            <div className="border border-slate-300 bg-slate-50/50 rounded-xl p-4 mb-6 space-y-3">
+            <div className="border border-slate-300 bg-slate-50/50 rounded-xl p-4 mb-4 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
-                {/* Họ và tên */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Họ và tên viên chức: <span className="text-rose-500">*</span>
-                  </label>
-                  {mode === 'create' ? (
-                    <div className="space-y-1">
-                      <select
-                        id="select-vc-employee"
-                        value={selectedTeacherId}
-                        onChange={(e) => handleTeacherChange(e.target.value)}
-                        className="w-full px-3 py-2 text-xs sm:text-sm font-semibold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        {!selectedTeacherId && (
-                          <option value="">-- Chọn cán bộ, giáo viên, nhân viên --</option>
-                        )}
-                        <optgroup label="📋 Danh sách Giáo viên & Nhân viên (Viên chức)">
-                          {eligibleTeachers.map(t => {
-                            const pos = resolveVcTeacherPosition(t, departments);
-                            const dept = resolveVcTeacherDepartment(t, departments);
-                            return (
-                              <option key={t.id} value={t.id}>
-                                [{pos}] {t.name} — {dept} ({t.code || t.username})
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                      </select>
-                      <p className="text-[10.5px] text-slate-500 italic">
-                        * Tự động lấy họ tên, chức vụ, đơn vị và tài khoản từ hệ thống hồ sơ.
-                      </p>
+                  <label className="block font-bold text-slate-700 mb-1">Họ và tên:</label>
+                  <div className="p-2.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 text-sm flex items-center justify-between">
+                    <div>
+                      <span>{form?.employeeName}</span>
+                      {form?.employeeCode && (
+                        <span className="text-xs text-slate-500 font-normal ml-2">
+                          ({form.employeeCode})
+                        </span>
+                      )}
                     </div>
-                  ) : (
-                    <div className="p-2.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 text-sm flex items-center justify-between">
-                      <div>
-                        <span>{form?.employeeName}</span>
-                        {form?.employeeCode && (
-                          <span className="text-xs text-slate-500 font-normal ml-2">
-                            ({form.employeeCode})
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
-                        {resolvedPosition}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Chức vụ */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Chức vụ:
-                  </label>
-                  <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs sm:text-sm">
-                    {resolvedPosition}
                   </div>
                 </div>
 
-                {/* Đơn vị công tác */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Đơn vị công tác:
-                  </label>
+                  <label className="block font-bold text-slate-700 mb-1">Chức vụ / môn:</label>
+                  <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs sm:text-sm">
+                    {resolvedPosition} {form?.subject ? `• Môn ${form.subject}` : ''}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Tổ chuyên môn:</label>
                   <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs sm:text-sm">
                     {resolvedDepartment}
                   </div>
                 </div>
 
-                {/* Kỳ đánh giá */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Kỳ đánh giá: <span className="text-rose-500">*</span>
-                  </label>
-                  {mode === 'create' ? (
-                    <select
-                      id="select-vc-period"
-                      value={selectedPeriodId}
-                      onChange={(e) => setSelectedPeriodId(e.target.value)}
-                      className="w-full px-3 py-2 text-xs sm:text-sm font-semibold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    >
-                      {periods.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.academicYear}) {p.status === 'locked' ? '🔒 Đã khóa' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs sm:text-sm">
-                      {form?.periodName} ({form?.academicYear})
-                    </div>
-                  )}
+                  <label className="block font-bold text-slate-700 mb-1">Kỳ đánh giá:</label>
+                  <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs sm:text-sm">
+                    {form?.periodName} ({form?.academicYear})
+                  </div>
                 </div>
 
-                {/* Cán bộ quản lý (CBQL) đánh giá */}
                 <div className="col-span-1 md:col-span-2 border-t border-slate-200 pt-3 mt-1">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-1.5 gap-1">
-                    <label htmlFor="select-vc-evaluator" className="font-bold text-amber-900 flex items-center gap-1.5 text-xs sm:text-sm">
-                      <span>👑 Cán bộ quản lý (CBQL) đánh giá:</span>
-                      <span className="text-rose-500">*</span>
-                    </label>
-                    {eligibleEvaluatorsResult.explanation && (
-                      <span className="text-[11px] text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 font-medium">
-                        💡 {eligibleEvaluatorsResult.explanation}
-                      </span>
-                    )}
-                  </div>
-
-                  {!isReadOnly || canEditManager ? (
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <label className="font-bold text-amber-900 block mb-1.5 text-xs sm:text-sm">
+                    👑 Cán bộ quản lý / Người có thẩm quyền đánh giá *
+                  </label>
+                  {canChangeEvaluator ? (
+                    <div className="flex flex-col gap-1.5">
                       <select
-                        id="select-vc-evaluator"
                         value={selectedEvaluatorId}
                         onChange={(e) => handleEvaluatorChange(e.target.value)}
-                        className="flex-1 px-3 py-2 text-xs sm:text-sm font-bold bg-amber-50/80 text-amber-950 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-amber-50/80 text-amber-950 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
                       >
-                        {!selectedEvaluatorId && (
-                          <option value="">-- Chọn Cán bộ quản lý đánh giá --</option>
-                        )}
+                        <option value="">-- Chọn cán bộ quản lý đánh giá --</option>
                         {recommendedEvaluators.length > 0 && (
-                          <optgroup label="⭐ Người đánh giá đúng thẩm quyền (Theo quy định đối tượng & tổ chuyên môn)">
+                          <optgroup label="⭐ Cán bộ quản lý đề xuất (Hiệu trưởng / Phó HT / Tổ trưởng)">
                             {recommendedEvaluators.map(ev => {
                               const pos = resolveVcTeacherPosition(ev, departments);
                               const dept = resolveVcTeacherDepartment(ev, departments);
                               return (
-                                <option key={ev.id} value={ev.id}>
+                                <option key={`s_rec_${ev.id}`} value={ev.id}>
                                   {ev.name} — [{pos}] ({dept})
                                 </option>
                               );
                             })}
                           </optgroup>
                         )}
-
                         {otherCbqlList.length > 0 && (
-                          <optgroup label="📋 Danh sách Ban Giám hiệu & Cán bộ quản lý khác">
+                          <optgroup label="👑 Cán bộ quản lý / Lãnh đạo khác">
                             {otherCbqlList.map(ev => {
                               const pos = resolveVcTeacherPosition(ev, departments);
                               const dept = resolveVcTeacherDepartment(ev, departments);
                               return (
-                                <option key={ev.id} value={ev.id}>
+                                <option key={`s_oth_${ev.id}`} value={ev.id}>
+                                  {ev.name} — [{pos}] ({dept})
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                        {recommendedEvaluators.length === 0 && otherCbqlList.length === 0 && (
+                          <optgroup label="📋 Tất cả cán bộ giáo viên">
+                            {teachers.map(ev => {
+                              const pos = resolveVcTeacherPosition(ev, departments);
+                              const dept = resolveVcTeacherDepartment(ev, departments);
+                              return (
+                                <option key={`s_all_${ev.id}`} value={ev.id}>
                                   {ev.name} — [{pos}] ({dept})
                                 </option>
                               );
@@ -894,11 +1681,9 @@ export default function KpiVcDocumentModal({
                           </optgroup>
                         )}
                       </select>
-                      {selectedEvaluator && (
-                        <span className="px-3 py-2 bg-amber-100 text-amber-900 rounded-lg text-xs font-semibold shrink-0 border border-amber-200">
-                          {resolveVcTeacherPosition(selectedEvaluator, departments)}
-                        </span>
-                      )}
+                      <p className="text-[11px] text-slate-500 italic font-semibold text-amber-900">
+                        Giáo viên chủ động lựa chọn cán bộ quản lý/lãnh đạo thực hiện đánh giá phiếu này.
+                      </p>
                     </div>
                   ) : (
                     <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg font-bold text-amber-950 text-xs sm:text-sm flex items-center justify-between">
@@ -912,6 +1697,13 @@ export default function KpiVcDocumentModal({
               </div>
             </div>
 
+            {/* CĂN CỨ VĂN BẢN HƯỚNG DẪN */}
+            <div className="bg-slate-50 border border-slate-300 rounded-xl p-3.5 mb-6 text-xs text-slate-700 text-justify leading-relaxed">
+              <p>
+                <strong>Căn cứ:</strong> Căn cứ mẫu Phiếu đánh giá, chấm điểm năm học 2025–2026 của Trường THPT Sơn Lương, phiếu này giữ cấu trúc 100 điểm gồm: (I) Chính trị tư tưởng, đạo đức lối sống 15 điểm; (II) Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật 15 điểm; (III) Kết quả thực hiện nhiệm vụ 70 điểm. Các nhiệm vụ ở phần III được chi tiết hóa để thuận lợi cho tự đánh giá, đánh giá của tổ chuyên môn và BGH. Các mức điểm KPI chi tiết dưới đây là đề xuất quản trị nội bộ, cần được nhà trường xác nhận trước khi áp dụng chính thức.
+              </p>
+            </div>
+
             {/* 4. TIÊU ĐỀ PHẦN A. NỘI DUNG CHẤM ĐIỂM */}
             <div className="my-5">
               <h2 className="text-sm sm:text-base font-extrabold uppercase text-slate-900 tracking-wide">
@@ -920,459 +1712,451 @@ export default function KpiVcDocumentModal({
             </div>
 
             {/* 5. BẢNG CHẤM ĐIỂM CHUẨN */}
-            <div className="border border-slate-400 rounded-lg overflow-hidden mb-8">
-              <table className="w-full text-left border-collapse">
+            <div className="border border-slate-400 rounded-lg overflow-x-auto mb-8">
+              <table className="w-full text-left border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="bg-slate-200/90 text-slate-900 border-b border-slate-400 font-bold text-center">
-                    <th className="p-2.5 border-r border-slate-400 w-12 sm:w-14">Stt</th>
-                    <th className="p-2.5 border-r border-slate-400 text-left">Nội dung đánh giá</th>
-                    <th className="p-2.5 border-r border-slate-400 w-20 sm:w-24">Điểm tối đa</th>
-                    <th className="p-2.5 border-r border-slate-400 bg-blue-50/70 text-blue-950 font-extrabold w-32 sm:w-40">
-                      Điểm cá nhân tự chấm
+                  <tr className="bg-slate-200/90 text-slate-900 border-b border-slate-400 font-bold text-center text-xs">
+                    <th className="p-2 border-r border-slate-400 w-10">Stt</th>
+                    <th className="p-2 border-r border-slate-400 text-left min-w-[200px]">Nội dung đánh giá</th>
+                    <th className="p-2 border-r border-slate-400 w-16">Tối đa</th>
+                    <th className="p-2 border-r border-slate-400 bg-blue-50/70 text-blue-950 font-extrabold w-24">
+                      Tự chấm
                     </th>
-                    <th className="p-2.5 bg-amber-50/70 text-amber-950 font-extrabold w-36 sm:w-44">
-                      Lãnh đạo (CBQL) đánh giá
+                    <th className="p-2 border-r border-slate-400 bg-purple-50/70 text-purple-950 font-extrabold w-24">
+                      TTCM đánh giá
                     </th>
+                    <th className="p-2 border-r border-slate-400 bg-amber-50/70 text-amber-950 font-extrabold w-24">
+                      CBQL đánh giá
+                    </th>
+                    <th className="p-2 text-slate-800 text-left min-w-[120px]">Ghi chú / Minh chứng</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-300">
-                  {/* LẶP QUA TỪNG NHÓM I, II, III */}
+                <tbody className="divide-y divide-slate-300 text-xs">
                   {activeGroups.map((group) => {
                     const groupCriteria = activeCriteria.filter(c => c.groupId === group.id);
                     const groupScore = groupScores[group.id] || 0;
+                    const groupTtcmScore = ttcmGroupScores[group.id] || 0;
                     const groupMgrScore = managerGroupScores[group.id] || 0;
 
                     return (
                       <React.Fragment key={group.id}>
-                        {/* HÀNG TIÊU ĐỀ NHÓM */}
                         <tr className="bg-slate-100/95 font-extrabold text-slate-900 border-y border-slate-400">
-                          <td className="p-2.5 text-center font-bold border-r border-slate-400 uppercase">
+                          <td className="p-2 text-center font-bold border-r border-slate-400 uppercase">
                             {group.code}
                           </td>
-                          <td className="p-2.5 border-r border-slate-400 uppercase font-bold text-blue-950">
+                          <td className="p-2 border-r border-slate-400 uppercase font-bold text-blue-950">
                             {group.name}
                           </td>
-                          <td className="p-2.5 text-center border-r border-slate-400 font-bold text-slate-900">
+                          <td className="p-2 text-center border-r border-slate-400 font-bold text-slate-900 font-mono">
                             {group.maxScore}
                           </td>
-                          <td className="p-2.5 text-center border-r border-slate-400 bg-blue-50/50 font-extrabold text-blue-900">
+                          <td className="p-2 text-center border-r border-slate-400 bg-blue-50/50 font-extrabold text-blue-900 font-mono">
                             {groupScore} / {group.maxScore}
                           </td>
-                          <td className="p-2.5 text-center bg-amber-50/50 font-extrabold text-amber-900">
+                          <td className="p-2 text-center border-r border-slate-400 bg-purple-50/50 font-extrabold text-purple-900 font-mono">
+                            {hasAnyTtcmScore || canEditTtcm ? `${groupTtcmScore} / ${group.maxScore}` : '---'}
+                          </td>
+                          <td className="p-2 text-center border-r border-slate-400 bg-amber-50/50 font-extrabold text-amber-900 font-mono">
                             {hasAnyManagerScore || canEditManager ? `${groupMgrScore} / ${group.maxScore}` : '---'}
                           </td>
+                          <td className="p-2 bg-slate-50"></td>
                         </tr>
 
-                        {/* LẶP TIÊU CHÍ TRONG NHÓM */}
                         {groupCriteria.map((criterion, cIdx) => {
                           const itemScore = scoreItems.find(it => it.criterionId === criterion.id);
-                          const currentScore = itemScore?.selfScore ?? criterion.maxScore;
+                          const currentSelfScore = itemScore?.selfScore ?? criterion.maxScore;
+                          const currentTtcmScore = itemScore?.ttcmScore;
+                          const currentManagerScore = itemScore?.managerScore;
 
-                          // Tiêu chí dạng chọn mức (III.2)
-                          if (criterion.scoreType === 'select_level') {
-                            const levels = criterion.levels || [];
+                          const isFirstIII1 = group.id === 'group_III' && (criterion.subGroup === 'A' || criterion.code.startsWith('III.1')) && cIdx === 0;
+                          const isFirstIII2 = group.id === 'group_III' && (criterion.subGroup === 'B' || !criterion.code.startsWith('III.1')) && (groupCriteria.findIndex(i => i.subGroup === 'B' || !i.code.startsWith('III.1')) === cIdx);
 
-                            return (
-                              <React.Fragment key={criterion.id}>
-                                <tr className="hover:bg-slate-50/60 transition-colors">
-                                  <td className="p-2.5 text-center font-semibold border-r border-slate-300 align-top">
-                                    {criterion.code.includes('.') ? criterion.code.split('.')[1] : `${cIdx + 1}`}
-                                  </td>
-                                  <td className="p-2.5 border-r border-slate-300 align-top" colSpan={2}>
-                                    <div className="font-bold text-slate-900 mb-2">
-                                      {criterion.content}
-                                    </div>
-
-                                    {/* 5 Mức chọn lựa */}
-                                    <div className="space-y-2 mt-2">
-                                      {levels.map(level => {
-                                        const isSelected = itemScore?.selectedLevelCode === level.code || 
-                                          (!itemScore?.selectedLevelCode && level.code === '2.1' && currentScore === 60);
-
-                                        return (
-                                          <label
-                                            key={level.id}
-                                            className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
-                                              isSelected
-                                                ? 'bg-blue-50/90 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
-                                                : 'bg-white border-slate-200 hover:bg-slate-50'
-                                            }`}
-                                          >
-                                            <input
-                                              type="radio"
-                                              name={`level_${criterion.id}`}
-                                              disabled={isReadOnly}
-                                              checked={isSelected}
-                                              onChange={() => handleLevelSelect(criterion.id, level.code, level.name, level.score)}
-                                              className="mt-1 w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300"
-                                            />
-                                            <div className="flex-1">
-                                              <div className="flex items-center justify-between gap-2">
-                                                <span className="font-extrabold text-blue-900 bg-blue-100/80 px-2 py-0.5 rounded text-xs">
-                                                  {level.name} (Tối đa {level.score} điểm)
-                                                </span>
-                                                <span className="text-xs font-bold text-slate-700">
-                                                  {level.score} điểm
-                                                </span>
-                                              </div>
-                                              <p className="text-xs text-slate-700 mt-1 leading-relaxed">
-                                                {level.description}
-                                              </p>
-                                            </div>
-                                          </label>
-                                        );
-                                      })}
-                                    </div>
-                                  </td>
-
-                                  {/* Cột cá nhân tự chấm mức điểm */}
-                                  <td className="p-2.5 text-center border-r border-slate-300 bg-blue-50/30 align-top font-extrabold text-blue-900">
-                                    {currentScore} điểm
-                                  </td>
-
-                                  {/* Cột Lãnh đạo đánh giá */}
-                                  <td className="p-2.5 text-center bg-amber-50/30 align-top">
-                                    {canEditManager && !isReadOnly ? (
-                                      <div className="flex flex-col items-center gap-1">
-                                        <input
-                                          type="number"
-                                          min={0}
-                                          max={criterion.maxScore}
-                                          step={0.5}
-                                          value={itemScore?.managerScore ?? ''}
-                                          placeholder={String(currentScore)}
-                                          onChange={(e) => handleManagerScoreChange(criterion.id, e.target.value, criterion.maxScore)}
-                                          className="w-20 px-2 py-1 text-center font-bold text-amber-900 bg-white border border-amber-300 rounded-md focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                                        />
-                                        <span className="text-[10px] text-amber-700">
-                                          (0 - {criterion.maxScore})
-                                        </span>
-                                      </div>
-                                    ) : (
-                                      <div className="font-extrabold text-amber-900 text-sm">
-                                        {itemScore?.managerScore !== undefined ? `${itemScore.managerScore} điểm` : '---'}
-                                      </div>
-                                    )}
+                          return (
+                            <React.Fragment key={criterion.id}>
+                              {isFirstIII1 && (
+                                <tr className="bg-slate-200/90 font-extrabold text-blue-950 border-y border-slate-300">
+                                  <td className="p-2 text-center font-bold">1</td>
+                                  <td colSpan={6} className="p-2 uppercase font-bold text-blue-950">
+                                    III.1. NĂNG LỰC VÀ KỸ NĂNG LÀM VIỆC (10 ĐIỂM)
                                   </td>
                                 </tr>
-                              </React.Fragment>
-                            );
-                          }
+                              )}
 
-                          // Tiêu chí thông thường (Nhập điểm)
-                          return (
-                            <tr key={criterion.id} className="hover:bg-slate-50/60 transition-colors">
-                              <td className="p-2.5 text-center font-medium border-r border-slate-300 align-top">
-                                {criterion.code.includes('.') ? criterion.code.split('.')[1] : `${cIdx + 1}`}
+                              {isFirstIII2 && (
+                                <tr className="bg-slate-200/90 font-extrabold text-blue-950 border-y border-slate-300">
+                                  <td className="p-2 text-center font-bold">2</td>
+                                  <td colSpan={6} className="p-2 uppercase font-bold text-blue-950">
+                                    III.2. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO (60 ĐIỂM)
+                                  </td>
+                                </tr>
+                              )}
+
+                              <tr className="hover:bg-slate-50/60 transition-colors">
+                              <td className="p-2 text-center font-semibold border-r border-slate-300">
+                                {criterion.code.includes('.') ? criterion.code.split('.').slice(-1)[0] : `${cIdx + 1}`}
                               </td>
-
-                              <td className="p-2.5 border-r border-slate-300 align-top leading-relaxed whitespace-pre-line text-slate-800">
+                              <td className="p-2 border-r border-slate-300 font-medium text-slate-800">
                                 {criterion.content}
                               </td>
-
-                              <td className="p-2.5 text-center border-r border-slate-300 align-top font-semibold text-slate-700">
+                              <td className="p-2 text-center border-r border-slate-300 font-bold text-slate-900 font-mono">
                                 {criterion.maxScore}
                               </td>
 
-                              <td className="p-2.5 text-center border-r border-slate-300 bg-blue-50/30 align-top">
-                                {isReadOnly ? (
-                                  <div className="font-extrabold text-blue-900 text-sm">
-                                    {currentScore}
-                                  </div>
+                              {/* TỰ CHẤM */}
+                              <td className="p-2 text-center border-r border-slate-300 bg-blue-50/30">
+                                {canEditSelf ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={criterion.maxScore}
+                                    step={0.5}
+                                    value={itemScore?.selfScore ?? criterion.maxScore}
+                                    onChange={(e) => handleSelfScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, parseFloat(e.target.value) || 0)))}
+                                    className="w-14 p-1 text-center font-bold bg-white border border-blue-300 rounded text-blue-900 focus:ring-2 focus:ring-blue-500 font-mono"
+                                  />
                                 ) : (
-                                  <div className="flex flex-col items-center gap-1">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={criterion.maxScore}
-                                      step={0.5}
-                                      value={currentScore}
-                                      onChange={(e) => handleScoreChange(criterion.id, e.target.value, criterion.maxScore)}
-                                      className="w-20 px-2 py-1 text-center font-bold text-blue-900 bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                    />
-                                    <span className="text-[10px] text-slate-500">
-                                      (0 - {criterion.maxScore})
-                                    </span>
-                                  </div>
+                                  <span className="font-bold text-blue-900 font-mono">{currentSelfScore}</span>
                                 )}
                               </td>
 
-                              <td className="p-2.5 text-center bg-amber-50/30 align-top">
-                                {canEditManager && !isReadOnly ? (
-                                  <div className="flex flex-col items-center gap-1">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={criterion.maxScore}
-                                      step={0.5}
-                                      value={itemScore?.managerScore ?? ''}
-                                      placeholder={String(currentScore)}
-                                      onChange={(e) => handleManagerScoreChange(criterion.id, e.target.value, criterion.maxScore)}
-                                      className="w-20 px-2 py-1 text-center font-bold text-amber-900 bg-white border border-amber-300 rounded-md focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                                    />
-                                    <span className="text-[10px] text-amber-700">
-                                      (0 - {criterion.maxScore})
-                                    </span>
-                                  </div>
+                              {/* TTCM ĐÁNH GIÁ */}
+                              <td className="p-2 text-center border-r border-slate-300 bg-purple-50/30">
+                                {canEditTtcm ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={criterion.maxScore}
+                                    step={0.5}
+                                    value={currentTtcmScore ?? ''}
+                                    onChange={(e) => handleTtcmScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, parseFloat(e.target.value) || 0)))}
+                                    className="w-14 p-1 text-center font-bold bg-white border border-purple-300 rounded text-purple-950 focus:ring-2 focus:ring-purple-500 font-mono"
+                                    placeholder="Điểm"
+                                  />
                                 ) : (
-                                  <div className="font-extrabold text-amber-900 text-sm">
-                                    {itemScore?.managerScore !== undefined ? itemScore.managerScore : '---'}
-                                  </div>
+                                  <span className="font-bold text-purple-950 font-mono">
+                                    {typeof currentTtcmScore === 'number' ? currentTtcmScore : '---'}
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* CBQL ĐÁNH GIÁ */}
+                              <td className="p-2 text-center border-r border-slate-300 bg-amber-50/30">
+                                {canEditManager ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={criterion.maxScore}
+                                    step={0.5}
+                                    value={currentManagerScore ?? ''}
+                                    onChange={(e) => handleManagerScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, parseFloat(e.target.value) || 0)))}
+                                    className="w-14 p-1 text-center font-bold bg-white border border-amber-300 rounded text-amber-950 focus:ring-2 focus:ring-amber-500 font-mono"
+                                    placeholder="Điểm"
+                                  />
+                                ) : (
+                                  <span className="font-bold text-amber-950 font-mono">
+                                    {typeof currentManagerScore === 'number' ? currentManagerScore : '---'}
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* GHI CHÚ */}
+                              <td className="p-2 text-left">
+                                {canEditSelf || canEditTtcm || canEditManager ? (
+                                  <input
+                                    type="text"
+                                    value={itemScore?.note || ''}
+                                    onChange={(e) => handleNoteChange(criterion.id, e.target.value)}
+                                    placeholder="Minh chứng / Ghi chú..."
+                                    className="w-full p-1 text-xs bg-white border border-slate-200 rounded focus:ring-1 focus:ring-blue-500"
+                                  />
+                                ) : (
+                                  <span className="text-slate-600 italic text-[11px]">{itemScore?.note || '---'}</span>
                                 )}
                               </td>
                             </tr>
-                          );
-                        })}
+                          </React.Fragment>
+                        );
+                      })}
                       </React.Fragment>
                     );
                   })}
-
-                  {/* TỔNG ĐIỂM TOÀN BẢNG */}
-                  <tr className="bg-slate-200/90 font-black text-slate-900 border-t-2 border-slate-400">
-                    <td className="p-3 text-center uppercase" colSpan={2}>
-                      TỔNG ĐIỂM
-                    </td>
-                    <td className="p-3 text-center border-r border-slate-400 font-extrabold">
-                      100
-                    </td>
-                    <td className="p-3 text-center border-r border-slate-400 bg-blue-100 text-blue-950 font-black text-base">
-                      {totalScore}
-                    </td>
-                    <td className="p-3 text-center bg-amber-100 text-amber-950 font-black text-base">
-                      {hasAnyManagerScore ? managerTotalScore : 'Chưa đánh giá'}
-                    </td>
-                  </tr>
                 </tbody>
+
+                <tfoot className="divide-y divide-slate-300 text-xs font-bold bg-slate-100">
+                  <tr className="bg-slate-200 font-extrabold text-slate-900 border-t-2 border-slate-400">
+                    <td colSpan={2} className="p-2 text-right uppercase font-black">
+                      TỔNG ĐIỂM TỐI ĐA:
+                    </td>
+                    <td className="p-2 text-center font-black font-mono">100</td>
+                    <td className="p-2 text-center bg-blue-100/70 font-black text-blue-950 font-mono">100</td>
+                    <td className="p-2 text-center bg-purple-100/70 font-black text-purple-950 font-mono">100</td>
+                    <td className="p-2 text-center bg-amber-100/70 font-black text-amber-950 font-mono">100</td>
+                    <td className="p-2"></td>
+                  </tr>
+
+                  <tr className="bg-blue-50/80 text-blue-950 border-t border-slate-300">
+                    <td colSpan={3} className="p-2 text-right font-bold uppercase">
+                      TỔNG GIÁO VIÊN TỰ CHẤM:
+                    </td>
+                    <td colSpan={3} className="p-2 text-left font-black text-blue-900 font-mono text-sm">
+                      {totalScore} / 100
+                    </td>
+                    <td className="p-2"></td>
+                  </tr>
+
+                  <tr className="bg-purple-50/80 text-purple-950 border-t border-slate-300">
+                    <td colSpan={3} className="p-2 text-right font-bold uppercase">
+                      TỔNG TTCM ĐÁNH GIÁ:
+                    </td>
+                    <td colSpan={3} className="p-2 text-left font-black text-purple-900 font-mono text-sm">
+                      {hasAnyTtcmScore ? `${ttcmTotalScore} / 100` : '___ / 100'}
+                    </td>
+                    <td className="p-2"></td>
+                  </tr>
+
+                  <tr className="bg-amber-50/80 text-amber-950 border-t border-slate-300">
+                    <td colSpan={3} className="p-2 text-right font-bold uppercase">
+                      TỔNG CBQL ĐÁNH GIÁ:
+                    </td>
+                    <td colSpan={3} className="p-2 text-left font-black text-amber-900 font-mono text-sm">
+                      {hasAnyManagerScore ? `${managerTotalScore} / 100` : '___ / 100'}
+                    </td>
+                    <td className="p-2"></td>
+                  </tr>
+
+                  <tr className="bg-emerald-100/90 text-emerald-950 border-t-2 border-emerald-600 text-sm font-extrabold">
+                    <td colSpan={3} className="p-2.5 text-right font-black uppercase text-emerald-950">
+                      ĐIỂM ĐÁNH GIÁ CUỐI CÙNG:
+                    </td>
+                    <td colSpan={3} className="p-2.5 text-left font-black text-emerald-900 font-mono text-base">
+                      {hasAnyManagerScore ? managerTotalScore : (hasAnyTtcmScore ? ttcmTotalScore : totalScore)} / 100
+                    </td>
+                    <td className="p-2"></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
-            {/* TỔNG KẾT & TỶ LỆ ĐÁNH GIÁ CBQL */}
-            <div className="bg-slate-50 border border-slate-300 rounded-xl p-4 mb-6 grid grid-cols-1 sm:grid-cols-4 gap-4 text-center">
-              <div>
-                <p className="text-xs text-slate-500 font-bold uppercase">Tổng điểm tối đa</p>
-                <p className="text-lg font-black text-slate-900">100 điểm</p>
-              </div>
-              <div>
-                <p className="text-xs text-blue-600 font-bold uppercase">Cá nhân tự chấm</p>
-                <p className="text-lg font-black text-blue-900">{totalScore} điểm</p>
-              </div>
-              <div>
-                <p className="text-xs text-amber-700 font-bold uppercase">CBQL đánh giá</p>
-                <p className="text-lg font-black text-amber-900">{hasAnyManagerScore ? `${managerTotalScore} điểm` : 'Chưa đánh giá'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-emerald-700 font-bold uppercase">Tỷ lệ CBQL</p>
-                <p className="text-lg font-black text-emerald-900">{hasAnyManagerScore ? `${ratio}%` : '---'}</p>
+            {/* QUY TẮC CHẤM ĐIỂM ĐỀ XUẤT */}
+            <div className="border border-slate-300 rounded-xl p-4 sm:p-5 mb-6 bg-slate-50/70 space-y-2">
+              <h3 className="font-extrabold text-slate-900 uppercase text-xs sm:text-sm tracking-wide border-b border-slate-200 pb-2">
+                QUY TẮC CHẤM ĐIỂM ĐỀ XUẤT
+              </h3>
+              <ol className="list-decimal list-inside text-xs text-slate-700 space-y-1.5 leading-relaxed font-medium">
+                <li>Giáo viên tự chấm dựa trên kết quả thực hiện thực tế và minh chứng; không tự chấm chỉ dựa vào cảm nhận.</li>
+                <li>Mỗi nhiệm vụ được chấm trong phạm vi điểm tối đa của dòng đó; không cộng vượt 100 điểm.</li>
+                <li>Nhiệm vụ không được giao hoặc không phát sinh theo vị trí việc làm được đánh dấu “N/A – Không áp dụng”, không quy về 0 điểm; tổng điểm được chuẩn hóa theo các nhiệm vụ áp dụng.</li>
+                <li>Kết quả học tập của học sinh chỉ là một nguồn minh chứng cho chất lượng và sự tiến bộ, không sử dụng điểm thi/điểm trung bình của học sinh làm tiêu chí duy nhất để quy trách nhiệm cho giáo viên.</li>
+                <li>Nhiệm vụ chủ nhiệm/kiêm nhiệm chỉ áp dụng đối với giáo viên được phân công.</li>
+                <li>Khi có vi phạm nghiêm trọng, việc xử lý điểm phải căn cứ quy định của nhà trường và quy định hiện hành; không tự động suy diễn từ một chỉ số đơn lẻ.</li>
+              </ol>
+            </div>
+
+            {/* GỢI Ý XẾP LOẠI KPI NỘI BỘ */}
+            <div className="border border-slate-300 rounded-xl p-4 sm:p-5 mb-8 bg-white space-y-3">
+              <h3 className="font-extrabold text-slate-900 uppercase text-xs sm:text-sm tracking-wide">
+                Gợi ý xếp loại KPI nội bộ (CẦN NHÀ TRƯỜNG XÁC NHẬN)
+              </h3>
+              <div className="border border-slate-300 rounded-lg overflow-hidden max-w-lg">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 font-bold text-slate-900 border-b border-slate-300">
+                      <th className="p-2 border-r border-slate-300 w-1/2">Tổng điểm KPI</th>
+                      <th className="p-2">Mức xếp loại đề xuất</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 font-medium">
+                    <tr>
+                      <td className="p-2 border-r border-slate-200">Dưới 70</td>
+                      <td className="p-2 text-rose-700 font-bold">Chưa hoàn thành</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 border-r border-slate-200">70 đến dưới 85</td>
+                      <td className="p-2 text-blue-700 font-bold">Hoàn thành</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 border-r border-slate-200">85 đến dưới 95</td>
+                      <td className="p-2 text-indigo-700 font-bold">Hoàn thành tốt</td>
+                    </tr>
+                    <tr className="bg-emerald-50/50">
+                      <td className="p-2 border-r border-slate-200">95 đến 100</td>
+                      <td className="p-2 text-emerald-800 font-extrabold">Hoàn thành xuất sắc</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {/* NHẬN XÉT CHUNG CỦA CBQL */}
-            <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-4 mb-6 space-y-2">
-              <label className="block font-extrabold text-amber-950 text-xs sm:text-sm uppercase tracking-wide">
-                Nhận xét chung của CBQL (Ưu điểm, hạn chế, kết quả thực hiện, kiến nghị):
-              </label>
-              {canEditManager && !isReadOnly ? (
-                <textarea
-                  rows={3}
-                  value={managerGeneralComment}
-                  onChange={(e) => setManagerGeneralComment(e.target.value)}
-                  placeholder="Nhập nhận xét chung của Cán bộ quản lý đối với viên chức trong kỳ đánh giá..."
-                  className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none text-slate-900"
-                />
-              ) : (
-                <p className="p-3 bg-white border border-amber-200 rounded-lg text-slate-800 italic text-xs sm:text-sm">
-                  {managerGeneralComment || 'Chưa có nhận xét chung từ CBQL.'}
-                </p>
-              )}
-            </div>
+            {/* B. TỰ ĐÁNH GIÁ VÀ XẾP LOẠI */}
+            <div className="border border-slate-300 rounded-xl p-4 sm:p-5 mb-8 bg-blue-50/20 space-y-4">
+              <h3 className="font-extrabold text-blue-950 uppercase text-xs sm:text-sm tracking-wide">
+                B. KẾT QUẢ TỰ ĐÁNH GIÁ VÀ XẾP LOẠI CÁ NHÂN
+              </h3>
 
-            {/* 6. PHẦN KẾT LUẬN & KÝ TÊN CÁ NHÂN */}
-            <div className="space-y-6 pt-2">
-              
-              {/* Xếp loại */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <span className="font-bold text-slate-800">Cá nhân tự xếp loại:</span>
-                {isReadOnly ? (
-                  <span className="font-extrabold text-blue-900 underline decoration-blue-500 underline-offset-4">
-                    {selfClassification}
-                  </span>
-                ) : (
-                  <select
-                    value={selfClassification}
-                    onChange={(e) => setSelfClassification(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-blue-900 text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  >
-                    <option value="Hoàn thành xuất sắc nhiệm vụ">Hoàn thành xuất sắc nhiệm vụ (90 - 100 điểm)</option>
-                    <option value="Hoàn thành tốt nhiệm vụ">Hoàn thành tốt nhiệm vụ (70 - 89.5 điểm)</option>
-                    <option value="Hoàn thành nhiệm vụ">Hoàn thành nhiệm vụ (50 - 69.5 điểm)</option>
-                    <option value="Không hoàn thành nhiệm vụ">Không hoàn thành nhiệm vụ (&lt; 50 điểm)</option>
-                  </select>
-                )}
-              </div>
-
-              {/* Ý kiến tự nhận xét thêm (nếu có) */}
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1 text-xs">
-                  Ý kiến tự nhận xét, kiến nghị (nếu có):
-                </label>
-                {isReadOnly ? (
-                  <p className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 italic">
-                    {selfComment || 'Không có ý kiến bổ sung.'}
-                  </p>
-                ) : (
-                  <textarea
-                    rows={2}
-                    value={selfComment}
-                    onChange={(e) => setSelfComment(e.target.value)}
-                    placeholder="Ghi chú thêm về thành tích, kết quả nổi bật trong kỳ..."
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                )}
-              </div>
-
-              {/* Chữ ký người tự chấm */}
-              <div className="flex justify-end pt-2 text-center">
-                <div className="w-64 space-y-1">
-                  <p className="italic text-xs text-slate-700">
-                    Sơn Lương, ngày {selfDate ? selfDate.split('/')[0] : '...'} tháng {selfDate ? selfDate.split('/')[1] : '...'} năm {selfDate ? selfDate.split('/')[2] : '...'}
-                  </p>
-                  <p className="font-bold uppercase text-slate-900">Người đánh giá</p>
-                  <p className="text-[11px] italic text-slate-500">(Ký và ghi rõ họ tên)</p>
-                  <div className="h-16 flex items-center justify-center">
-                    <span className="text-slate-300 italic text-xs">[Đã xác nhận tự chấm]</span>
-                  </div>
-                  <p className="font-bold text-slate-900">
-                    {form ? form.employeeName : (selectedTeacher?.name || 'Họ và tên')}
-                  </p>
-                </div>
-              </div>
-
-              {/* PHẦN B: B. Ý KIẾN NHẬN XÉT, ĐÁNH GIÁ (Phần dành cho người đứng đầu đơn vị) */}
-              <div className="border-t-2 border-slate-300 pt-6 mt-8 space-y-4">
-                <h3 className="font-extrabold uppercase text-slate-900 text-sm">
-                  B. Ý KIẾN NHẬN XÉT, ĐÁNH GIÁ <span className="font-normal normal-case text-xs italic text-slate-600">(Phần dành cho người đứng đầu đơn vị)</span>
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      Mức xếp loại của Thủ trưởng:
-                    </label>
-                    {isAdmin || mode === 'leader_eval' ? (
-                      <select
-                        value={leaderClassification}
-                        onChange={(e) => setLeaderClassification(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-blue-900 text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        <option value="Hoàn thành xuất sắc nhiệm vụ">Hoàn thành xuất sắc nhiệm vụ</option>
-                        <option value="Hoàn thành tốt nhiệm vụ">Hoàn thành tốt nhiệm vụ</option>
-                        <option value="Hoàn thành nhiệm vụ">Hoàn thành nhiệm vụ</option>
-                        <option value="Không hoàn thành nhiệm vụ">Không hoàn thành nhiệm vụ</option>
-                      </select>
-                    ) : (
-                      <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg font-bold text-slate-800">
-                        {leaderClassification || 'Chờ Thủ trưởng đơn vị xếp loại'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      Nhận xét của Thủ trưởng:
-                    </label>
-                    {isAdmin || mode === 'leader_eval' ? (
-                      <input
-                        type="text"
-                        value={leaderComment}
-                        onChange={(e) => setLeaderComment(e.target.value)}
-                        placeholder="Nhất trí với kết quả tự đánh giá / Lưu ý thêm..."
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      />
-                    ) : (
-                      <div className="p-2.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 italic">
-                        {leaderComment || 'Chưa có ý kiến nhận xét'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Ký tên của người đứng đầu đơn vị */}
-                <div className="flex justify-end pt-4 text-center">
-                  <div className="w-72 space-y-1">
-                    <p className="italic text-xs text-slate-700">
-                      Sơn Lương, ngày {leaderDate ? leaderDate.split('/')[0] : '...'} tháng {leaderDate ? leaderDate.split('/')[1] : '...'} năm {leaderDate ? leaderDate.split('/')[2] : '...'}
-                    </p>
-                    <p className="font-extrabold uppercase text-slate-900">NGƯỜI NHẬN XÉT, ĐÁNH GIÁ</p>
-                    <p className="text-[11px] italic text-slate-500">(Ký, ghi rõ họ tên; đóng dấu)</p>
-                    <div className="h-16 flex items-center justify-center">
-                      <span className="text-slate-300 italic text-xs">[Đóng dấu trường]</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Cá nhân tự xếp loại chất lượng:</label>
+                  {canEditSelf ? (
+                    <select
+                      value={selfClassification}
+                      onChange={(e) => setSelfClassification(e.target.value)}
+                      className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="Hoàn thành xuất sắc">Hoàn thành xuất sắc</option>
+                      <option value="Hoàn thành tốt">Hoàn thành tốt</option>
+                      <option value="Hoàn thành">Hoàn thành</option>
+                      <option value="Chưa hoàn thành">Chưa hoàn thành</option>
+                    </select>
+                  ) : (
+                    <div className="p-2.5 bg-white border border-blue-200 rounded-lg font-bold text-blue-900">
+                      {selfClassification}
                     </div>
-                    <p className="font-bold text-slate-900">
-                      {leaderSignName}
-                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Ý kiến / Ý kiến tự nhận xét của viên chức:</label>
+                  {canEditSelf ? (
+                    <textarea
+                      rows={2}
+                      value={selfComment}
+                      onChange={(e) => setSelfComment(e.target.value)}
+                      placeholder="Nhập ý kiến tự đánh giá..."
+                      className="w-full p-2 text-xs bg-white border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  ) : (
+                    <div className="p-2.5 bg-white border border-slate-200 rounded-lg italic text-slate-700 text-xs">
+                      {selfComment || 'Không có ý kiến thêm.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* C. Ý KIẾN CỦA LÃNH ĐẠO (CBQL) */}
+            <div className="border border-amber-300 rounded-xl p-4 sm:p-5 mb-8 bg-amber-50/30 space-y-4">
+              <h3 className="font-extrabold text-amber-950 uppercase text-xs sm:text-sm tracking-wide flex items-center justify-between">
+                <span>C. ĐÁNH GIÁ, XẾP LOẠI CỦA CÁN BỘ QUẢN LÝ (CBQL)</span>
+                {hasAnyManagerScore && (
+                  <span className="text-xs font-black text-amber-900 bg-amber-200/80 px-2.5 py-0.5 rounded-full border border-amber-300 font-mono">
+                    Điểm CBQL chấm: {managerTotalScore} / 100
+                  </span>
+                )}
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-amber-950 mb-1">CBQL xếp loại chất lượng viên chức:</label>
+                  {canEditManager ? (
+                    <select
+                      value={leaderClassification}
+                      onChange={(e) => setLeaderClassification(e.target.value)}
+                      className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    >
+                      <option value="Hoàn thành xuất sắc">Hoàn thành xuất sắc</option>
+                      <option value="Hoàn thành tốt">Hoàn thành tốt</option>
+                      <option value="Hoàn thành">Hoàn thành</option>
+                      <option value="Chưa hoàn thành">Chưa hoàn thành</option>
+                    </select>
+                  ) : (
+                    <div className="p-2.5 bg-white border border-amber-200 rounded-lg font-bold text-amber-950">
+                      {leaderClassification || 'Chưa đánh giá'}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-amber-950 mb-1">Ý kiến đánh giá, nhận xét của CBQL:</label>
+                  {canEditManager ? (
+                    <textarea
+                      rows={2}
+                      value={leaderComment}
+                      onChange={(e) => setLeaderComment(e.target.value)}
+                      placeholder="Nhập nhận xét ưu, khuyết điểm của viên chức..."
+                      className="w-full p-2 text-xs bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  ) : (
+                    <div className="p-2.5 bg-white border border-amber-200 rounded-lg italic text-amber-950 text-xs">
+                      {leaderComment || 'Chưa có nhận xét.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* CHỮ KÝ XÁC NHẬN - 3 KHỐI CHỮ KÝ CHUẨN THEO PDF */}
+            <div className="pt-6 border-t border-slate-300 mt-6 space-y-4">
+              <p className="text-right italic text-slate-600 text-xs">
+                Sơn Lương, ngày {selfDate ? selfDate.split('/')[0] || '...' : '...'} tháng {selfDate ? selfDate.split('/')[1] || '...' : '...'} năm 2026
+              </p>
+              <div className="grid grid-cols-3 text-center gap-2">
+                <div>
+                  <p className="font-bold text-slate-900 uppercase text-xs sm:text-sm">NGƯỜI TỰ ĐÁNH GIÁ</p>
+                  <p className="text-[11px] text-slate-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+                  <div className="h-20 flex items-center justify-center font-bold text-blue-900 text-xs sm:text-sm">
+                    {form?.employeeName || selectedTeacher?.name}
                   </div>
                 </div>
 
-              </div>
+                <div>
+                  <p className="font-bold text-slate-900 uppercase text-xs sm:text-sm">TỔ CHUYÊN MÔN ĐÁNH GIÁ</p>
+                  <p className="text-[11px] text-slate-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+                  <div className="h-20 flex items-center justify-center font-bold text-purple-950 text-xs sm:text-sm">
+                    {form?.ttcmEvaluatorName || '....................'}
+                  </div>
+                </div>
 
+                <div>
+                  <p className="font-bold text-amber-950 uppercase text-xs sm:text-sm">NGƯỜI CÓ THẨM QUYỀN PHÊ DUYỆT</p>
+                  <p className="font-extrabold text-amber-900 uppercase text-xs">DUYỆT</p>
+                  <p className="text-[11px] text-slate-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+                  <div className="h-16 flex items-center justify-center font-bold text-amber-900 text-xs sm:text-sm">
+                    {leaderSignName || selectedEvaluator?.name || 'Hiệu trưởng / Phó HT'}
+                  </div>
+                </div>
+              </div>
             </div>
 
           </div>
-
         </div>
 
-        {/* MODAL FOOTER BUTTONS */}
-        <div className="bg-white border-t border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
-            >
-              Đóng
-            </button>
+        {/* BOTTOM ACTION FOOTER FOR SINGLE FORM */}
+        <div className="bg-slate-100 border-t border-slate-200 px-6 py-4 flex items-center justify-between shrink-0 shadow-inner">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-300 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+          >
+            Đóng
+          </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (form && form.id) {
-                  exportVcFormToWord(form);
-                } else {
-                  alert('Vui lòng lưu phiếu trước khi xuất Word.');
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-            >
-              <FileText size={15} /> Xuất Word (.doc)
-            </button>
+          <div className="flex items-center gap-3">
+            {canEditSelf && (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => handleSingleSave('self_evaluated')}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2"
+              >
+                <Save size={16} /> Lưu phiếu
+              </button>
+            )}
+
+            {canEditManager && (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => handleSingleSave('completed')}
+                className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-2"
+              >
+                <CheckCircle2 size={18} /> Chốt lưu phiếu đánh giá
+              </button>
+            )}
           </div>
-
-          {!isReadOnly && (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => handleSaveForm('draft')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                <Save size={15} /> Lưu bản nháp
-              </button>
-
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => handleSaveForm('completed')}
-                className="inline-flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer"
-              >
-                <CheckCircle2 size={16} /> Hoàn thành & Lưu phiếu
-              </button>
-            </div>
-          )}
         </div>
 
       </div>
-
     </div>
   );
 }

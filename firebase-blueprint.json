@@ -188,7 +188,16 @@
         "className": { "type": "string" },
         "code": { "type": "string" },
         "name": { "type": "string" },
-        "gender": { "type": "string" }
+        "full_name": { "type": "string" },
+        "fullName": { "type": "string" },
+        "gender": { "type": "string" },
+        "dob": { "type": "string" },
+        "stt": { "type": "number" },
+        "parentPhone": { "type": "string" },
+        "parentName": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
       "required": ["id", "classId", "code", "name"]
     },
@@ -274,6 +283,81 @@
         "thresholds": { "type": "object" }
       },
       "required": ["id", "baseScore"]
+    },
+    "teacher_assessments": {
+      "title": "Teacher Assessment",
+      "description": "Phiếu ghi nhận đánh giá trực tiếp của Giáo viên chủ nhiệm",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "classId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "semester": { "type": "string" },
+        "schoolYear": { "type": "string" },
+        "recordDate": { "type": "string" },
+        "comment": { "type": "string" },
+        "levelRating": { "type": "string" },
+        "teacherProposedRating": { "type": "string" }
+      },
+      "required": ["id", "studentId", "classId", "semester", "schoolYear"]
+    },
+    "workAssignments": {
+      "title": "Work Assignment",
+      "description": "Bảng phân công giao việc theo tuần của trường THPT Sơn Lương",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "weekLabel": { "type": "string" },
+        "workDate": { "type": "string" },
+        "content": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "assigneeIds": { "type": "array" },
+        "deadline": { "type": "string" },
+        "evaluatorId": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "requirements": { "type": "string" },
+        "resultSummary": { "type": "string" },
+        "evidenceUrl": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["id", "content", "workDate", "deadline", "status"]
+    },
+    "evaluation_rating_configs": {
+      "title": "Evaluation Rating Config",
+      "description": "Cấu hình phân loại và ngưỡng điểm xếp loại rèn luyện học sinh",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "school_id": { "type": "string" },
+        "name": { "type": "string" },
+        "school_year": { "type": "string" },
+        "evaluation_period_type": { "type": "string" },
+        "evaluation_period_id": { "type": "string" },
+        "tiers": { "type": "array" },
+        "is_active": { "type": "boolean" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "name", "school_year", "tiers"]
+    },
+    "evaluation_rating_config_history": {
+      "title": "Evaluation Rating Config History",
+      "description": "Lịch sử thay đổi và điều chỉnh cấu hình xếp loại học sinh",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "config_id": { "type": "string" },
+        "action": { "type": "string" },
+        "performed_by": { "type": "string" },
+        "performed_at": { "type": "string" },
+        "before_change": { "type": "array" },
+        "after_change": { "type": "array" }
+      },
+      "required": ["id", "config_id", "action", "performed_by", "performed_at", "after_change"]
     }
   }
 }

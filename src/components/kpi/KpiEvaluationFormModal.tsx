@@ -257,6 +257,18 @@ export default function KpiEvaluationFormModal({
     }
   }, [isOpen, formToEdit, initialTeacher, initialMonth, initialAcademicYear, user, teachers, isBghOrAdmin, kpiEvaluationForms]);
 
+  // Auto-select evaluator if empty or not found
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!selectedEvaluatorId || !teachers.some(t => t.id === selectedEvaluatorId)) {
+      if (eligibleEvaluatorsResult.defaultEvaluatorId) {
+        setSelectedEvaluatorId(eligibleEvaluatorsResult.defaultEvaluatorId);
+      } else if (eligibleEvaluatorsResult.evaluators.length > 0) {
+        setSelectedEvaluatorId(eligibleEvaluatorsResult.evaluators[0].id);
+      }
+    }
+  }, [isOpen, selectedTeacherId, selectedEvaluatorId, eligibleEvaluatorsResult, teachers]);
+
   // Check existing form on period / employee change
   const checkExistingFormForPeriod = (tId: string, m: string, yr: string) => {
     if (!tId) return;
@@ -609,7 +621,7 @@ export default function KpiEvaluationFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-1 sm:p-3 overflow-y-auto">
+    <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-[2000] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-1 sm:p-3 overflow-y-auto">
       <div 
         id="kpi-evaluation-form-modal"
         className="relative w-full max-w-[98vw] 2xl:max-w-[1750px] bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[96vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200"
@@ -1124,58 +1136,136 @@ export default function KpiEvaluationFormModal({
                         </td>
 
                         {/* ========================================================= */}
-                        {/* PHẦN A: CÁC CỘT TỰ ĐÁNH GIÁ */}
+                        {/* PHẦN A: CÁC CỘT TỰ ĐÁNH GIÁ (DÙNG HỘP KIỂM CHECKBOX THAY DẠNG CHỌN MẶC ĐỊNH) */}
                         {/* ========================================================= */}
                         {(columnViewMode === 'all' || columnViewMode === 'self') && (
                           <>
-                            {/* Điểm trừ tự ĐG */}
+                            {/* Điểm trừ tự ĐG - Hộp kiểm (Checkbox) */}
                             <td className="px-2 py-2.5 border-r border-emerald-100 bg-emerald-50/20">
-                              <select
-                                disabled={!canEditPartA}
-                                value={selfMinus}
-                                onChange={(e) => {
-                                  const sc = parseFloat(e.target.value) || 0;
-                                  const matchingRule = (item.minus_rules || []).find(r => r.score === sc);
-                                  handlePartAMinusRuleChange(item.id, matchingRule?.label || '', sc);
-                                }}
-                                className="w-full p-1.5 text-[11px] bg-white border border-rose-300 rounded-lg text-rose-800 font-bold focus:ring-2 focus:ring-rose-500 disabled:opacity-75 disabled:bg-slate-100"
-                              >
-                                {(item.minus_rules || [{ label: 'Không vi phạm', score: 0 }]).map((r, rIdx) => (
-                                  <option key={rIdx} value={r.score}>
-                                    {r.score === 0 ? 'Không vi phạm (0đ)' : `-${r.score}đ: ${r.label}`}
-                                  </option>
-                                ))}
-                              </select>
-                              {selfMinus > 0 && (
-                                <div className="text-center font-black text-rose-700 text-xs mt-1">
-                                  Trừ: -{selfMinus}đ
-                                </div>
-                              )}
+                              <div className="space-y-1.5 min-w-[160px]">
+                                <label className={cn(
+                                  "flex items-center gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                  selfMinus === 0 
+                                    ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold" 
+                                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                )}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={!canEditPartA}
+                                    checked={selfMinus === 0}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        handlePartAMinusRuleChange(item.id, 'Không vi phạm', 0);
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                  />
+                                  <span>✓ Không vi phạm (0đ)</span>
+                                </label>
+
+                                {(item.minus_rules || []).filter(r => r.score > 0).map((r, rIdx) => {
+                                  const isChecked = selfMinus === r.score;
+                                  return (
+                                    <label 
+                                      key={rIdx} 
+                                      className={cn(
+                                        "flex items-start gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                        isChecked 
+                                          ? "bg-rose-50 border-rose-300 text-rose-900 font-bold shadow-xs" 
+                                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                      )}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={!canEditPartA}
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            handlePartAMinusRuleChange(item.id, r.label, r.score);
+                                          } else {
+                                            handlePartAMinusRuleChange(item.id, 'Không vi phạm', 0);
+                                          }
+                                        }}
+                                        className="w-4 h-4 mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer shrink-0"
+                                      />
+                                      <div className="leading-tight">
+                                        <span className="font-extrabold text-rose-700 mr-1">-{r.score}đ:</span>
+                                        <span>{r.label}</span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+
+                                {selfMinus > 0 && (
+                                  <div className="text-center font-black text-rose-700 text-xs pt-0.5">
+                                    Tổng trừ: -{selfMinus}đ
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
-                            {/* Điểm cộng tự ĐG */}
+                            {/* Điểm cộng tự ĐG - Hộp kiểm (Checkbox) */}
                             <td className="px-2 py-2.5 border-r border-emerald-100 bg-emerald-50/20">
-                              <select
-                                disabled={!canEditPartA}
-                                value={selfPlus}
-                                onChange={(e) => {
-                                  const sc = parseFloat(e.target.value) || 0;
-                                  const matchingRule = (item.plus_rules || []).find(r => r.score === sc);
-                                  handlePartAPlusRuleChange(item.id, matchingRule?.label || '', sc);
-                                }}
-                                className="w-full p-1.5 text-[11px] bg-white border border-emerald-300 rounded-lg text-emerald-800 font-bold focus:ring-2 focus:ring-emerald-500 disabled:opacity-75 disabled:bg-slate-100"
-                              >
-                                {(item.plus_rules || [{ label: 'Không cộng', score: 0 }]).map((r, rIdx) => (
-                                  <option key={rIdx} value={r.score}>
-                                    {r.score === 0 ? 'Không cộng (0đ)' : `+${r.score}đ: ${r.label}`}
-                                  </option>
-                                ))}
-                              </select>
-                              {selfPlus > 0 && (
-                                <div className="text-center font-black text-emerald-700 text-xs mt-1">
-                                  Cộng: +{selfPlus}đ
-                                </div>
-                              )}
+                              <div className="space-y-1.5 min-w-[160px]">
+                                <label className={cn(
+                                  "flex items-center gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                  selfPlus === 0 
+                                    ? "bg-slate-50 border-slate-200 text-slate-600 font-bold" 
+                                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                )}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={!canEditPartA}
+                                    checked={selfPlus === 0}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        handlePartAPlusRuleChange(item.id, 'Không cộng', 0);
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 cursor-pointer shrink-0"
+                                  />
+                                  <span>Không cộng (0đ)</span>
+                                </label>
+
+                                {(item.plus_rules || []).filter(r => r.score > 0).map((r, rIdx) => {
+                                  const isChecked = selfPlus === r.score;
+                                  return (
+                                    <label 
+                                      key={rIdx} 
+                                      className={cn(
+                                        "flex items-start gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                        isChecked 
+                                          ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold shadow-xs" 
+                                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                      )}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={!canEditPartA}
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            handlePartAPlusRuleChange(item.id, r.label, r.score);
+                                          } else {
+                                            handlePartAPlusRuleChange(item.id, 'Không cộng', 0);
+                                          }
+                                        }}
+                                        className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                      />
+                                      <div className="leading-tight">
+                                        <span className="font-extrabold text-emerald-700 mr-1">+{r.score}đ:</span>
+                                        <span>{r.label}</span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+
+                                {selfPlus > 0 && (
+                                  <div className="text-center font-black text-emerald-700 text-xs pt-0.5">
+                                    Tổng cộng: +{selfPlus}đ
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
                             {/* Điểm KPI tự ĐG (Tự động = Điểm nền - Trừ + Cộng) */}
@@ -1203,58 +1293,136 @@ export default function KpiEvaluationFormModal({
                         )}
 
                         {/* ========================================================= */}
-                        {/* PHẦN B: CÁC CỘT ĐÁNH GIÁ CỦA LÃNH ĐẠO / NGƯỜI ĐÁNH GIÁ */}
+                        {/* PHẦN B: CÁC CỘT ĐÁNH GIÁ CỦA LÃNH ĐẠO / NGƯỜI ĐÁNH GIÁ (HỘP KIỂM CHECKBOX) */}
                         {/* ========================================================= */}
                         {(columnViewMode === 'all' || columnViewMode === 'evaluator') && (
                           <>
-                            {/* Điểm trừ Lãnh đạo chấm */}
+                            {/* Điểm trừ Lãnh đạo chấm - Hộp kiểm (Checkbox) */}
                             <td className="px-2 py-2.5 border-r border-blue-100 bg-blue-50/20">
-                              <select
-                                disabled={!canEditPartB}
-                                value={evalMinus}
-                                onChange={(e) => {
-                                  const sc = parseFloat(e.target.value) || 0;
-                                  const matchingRule = (item.minus_rules || []).find(r => r.score === sc);
-                                  handlePartBMinusRuleChange(item.id, matchingRule?.label || '', sc);
-                                }}
-                                className="w-full p-1.5 text-[11px] bg-white border border-rose-300 rounded-lg text-rose-800 font-bold focus:ring-2 focus:ring-rose-500 disabled:opacity-75 disabled:bg-slate-100"
-                              >
-                                {(item.minus_rules || [{ label: 'Không vi phạm', score: 0 }]).map((r, rIdx) => (
-                                  <option key={rIdx} value={r.score}>
-                                    {r.score === 0 ? 'Không vi phạm (0đ)' : `-${r.score}đ: ${r.label}`}
-                                  </option>
-                                ))}
-                              </select>
-                              {evalMinus > 0 && (
-                                <div className="text-center font-black text-rose-700 text-xs mt-1">
-                                  Trừ: -{evalMinus}đ
-                                </div>
-                              )}
+                              <div className="space-y-1.5 min-w-[160px]">
+                                <label className={cn(
+                                  "flex items-center gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                  evalMinus === 0 
+                                    ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold" 
+                                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                )}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={!canEditPartB}
+                                    checked={evalMinus === 0}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        handlePartBMinusRuleChange(item.id, 'Không vi phạm', 0);
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                  />
+                                  <span>✓ Không vi phạm (0đ)</span>
+                                </label>
+
+                                {(item.minus_rules || []).filter(r => r.score > 0).map((r, rIdx) => {
+                                  const isChecked = evalMinus === r.score;
+                                  return (
+                                    <label 
+                                      key={rIdx} 
+                                      className={cn(
+                                        "flex items-start gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                        isChecked 
+                                          ? "bg-rose-50 border-rose-300 text-rose-900 font-bold shadow-xs" 
+                                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                      )}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={!canEditPartB}
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            handlePartBMinusRuleChange(item.id, r.label, r.score);
+                                          } else {
+                                            handlePartBMinusRuleChange(item.id, 'Không vi phạm', 0);
+                                          }
+                                        }}
+                                        className="w-4 h-4 mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer shrink-0"
+                                      />
+                                      <div className="leading-tight">
+                                        <span className="font-extrabold text-rose-700 mr-1">-{r.score}đ:</span>
+                                        <span>{r.label}</span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+
+                                {evalMinus > 0 && (
+                                  <div className="text-center font-black text-rose-700 text-xs pt-0.5">
+                                    Trừ LĐ: -{evalMinus}đ
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
-                            {/* Điểm cộng Lãnh đạo chấm */}
+                            {/* Điểm cộng Lãnh đạo chấm - Hộp kiểm (Checkbox) */}
                             <td className="px-2 py-2.5 border-r border-blue-100 bg-blue-50/20">
-                              <select
-                                disabled={!canEditPartB}
-                                value={evalPlus}
-                                onChange={(e) => {
-                                  const sc = parseFloat(e.target.value) || 0;
-                                  const matchingRule = (item.plus_rules || []).find(r => r.score === sc);
-                                  handlePartBPlusRuleChange(item.id, matchingRule?.label || '', sc);
-                                }}
-                                className="w-full p-1.5 text-[11px] bg-white border border-emerald-300 rounded-lg text-emerald-800 font-bold focus:ring-2 focus:ring-emerald-500 disabled:opacity-75 disabled:bg-slate-100"
-                              >
-                                {(item.plus_rules || [{ label: 'Không cộng', score: 0 }]).map((r, rIdx) => (
-                                  <option key={rIdx} value={r.score}>
-                                    {r.score === 0 ? 'Không cộng (0đ)' : `+${r.score}đ: ${r.label}`}
-                                  </option>
-                                ))}
-                              </select>
-                              {evalPlus > 0 && (
-                                <div className="text-center font-black text-emerald-700 text-xs mt-1">
-                                  Cộng: +{evalPlus}đ
-                                </div>
-                              )}
+                              <div className="space-y-1.5 min-w-[160px]">
+                                <label className={cn(
+                                  "flex items-center gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                  evalPlus === 0 
+                                    ? "bg-slate-50 border-slate-200 text-slate-600 font-bold" 
+                                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                )}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={!canEditPartB}
+                                    checked={evalPlus === 0}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        handlePartBPlusRuleChange(item.id, 'Không cộng', 0);
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 cursor-pointer shrink-0"
+                                  />
+                                  <span>Không cộng (0đ)</span>
+                                </label>
+
+                                {(item.plus_rules || []).filter(r => r.score > 0).map((r, rIdx) => {
+                                  const isChecked = evalPlus === r.score;
+                                  return (
+                                    <label 
+                                      key={rIdx} 
+                                      className={cn(
+                                        "flex items-start gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition-all select-none",
+                                        isChecked 
+                                          ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold shadow-xs" 
+                                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                      )}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={!canEditPartB}
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            handlePartBPlusRuleChange(item.id, r.label, r.score);
+                                          } else {
+                                            handlePartBPlusRuleChange(item.id, 'Không cộng', 0);
+                                          }
+                                        }}
+                                        className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                      />
+                                      <div className="leading-tight">
+                                        <span className="font-extrabold text-emerald-700 mr-1">+{r.score}đ:</span>
+                                        <span>{r.label}</span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+
+                                {evalPlus > 0 && (
+                                  <div className="text-center font-black text-emerald-700 text-xs pt-0.5">
+                                    Cộng LĐ: +{evalPlus}đ
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
                             {/* Điểm KPI cuối cùng (Tự động = Điểm nền - Trừ LĐ + Cộng LĐ) */}

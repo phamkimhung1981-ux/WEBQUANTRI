@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { Card } from '../components/ui/Card';
-import { Users, CheckCircle, Clock, Award, Edit2, Trash2, Plus, X } from 'lucide-react';
+import { Users, CheckCircle, Clock, Award, Edit2, Trash2, Plus, X, FileSpreadsheet } from 'lucide-react';
 import { Department } from '../types';
 import BackButton from '../components/ui/BackButton';
 
@@ -63,17 +63,26 @@ export default function Departments() {
             <p className="text-sm font-medium text-slate-500 mt-0.5">Thông tin và kết quả thi đua các tổ chuyên môn</p>
           </div>
         </div>
-        <button 
-          onClick={() => {
-            setEditingDept(null);
-            setFormData({ name: '', headId: '' });
-            setIsModalOpen(true);
-          }}
-          className="inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-[13px] font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Thêm tổ
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/department-schedule"
+            className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-xs text-[13px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
+          >
+            <FileSpreadsheet className="mr-2 h-4 w-4 text-blue-600" />
+            Lịch giao việc tổ CM
+          </Link>
+          <button 
+            onClick={() => {
+              setEditingDept(null);
+              setFormData({ name: '', headId: '' });
+              setIsModalOpen(true);
+            }}
+            className="inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-[13px] font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Thêm tổ
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -94,14 +103,14 @@ export default function Departments() {
           // Find task path for department based on keyword matching
           let taskPath = '';
           const lowerName = dept.name.toLowerCase();
-          if (lowerName.includes('toán') || lowerName.includes('toan') || lowerName.includes('lý') || lowerName.includes('ly') || lowerName.includes('tin') || lowerName.includes('cn')) {
+          if (lowerName.includes('văn phòng') || lowerName.includes('van phong') || lowerName.includes('hành chính') || lowerName.includes('hanh chinh')) {
+            taskPath = '/tasks/van-phong';
+          } else if (lowerName.includes('toán') || lowerName.includes('toan') || lowerName.includes('lý') || lowerName.includes('ly') || lowerName.includes('tin') || lowerName.includes('cn')) {
             taskPath = '/tasks/toan-ly-tin-cn';
-          } else if (lowerName.includes('văn') || lowerName.includes('van') || lowerName.includes('sử') || lowerName.includes('su') || lowerName.includes('địa') || lowerName.includes('dia') || lowerName.includes('gdkt')) {
-            taskPath = '/tasks/van-su-dia-gdkt-pl-an';
           } else if (lowerName.includes('hóa') || lowerName.includes('hoa') || lowerName.includes('sinh') || lowerName.includes('qpan') || lowerName.includes('gdqpan') || lowerName.includes('nn')) {
             taskPath = '/tasks/hoa-ly-sinh-gdqpan-nn';
-          } else if (lowerName.includes('văn phòng') || lowerName.includes('van phong') || lowerName.includes('hành chính') || lowerName.includes('hanh chinh')) {
-            taskPath = '/tasks/van-phong';
+          } else if (lowerName.includes('văn') || lowerName.includes('van') || lowerName.includes('sử') || lowerName.includes('su') || lowerName.includes('địa') || lowerName.includes('dia') || lowerName.includes('gdkt')) {
+            taskPath = '/tasks/van-su-dia-gdkt-pl-an';
           }
 
           return (
@@ -175,16 +184,15 @@ export default function Departments() {
                     </div>
                   </div>
 
-                  {taskPath && (
-                    <div className="pt-4 border-t border-slate-100 flex justify-end">
-                      <Link 
-                        to={taskPath} 
-                        className="inline-flex items-center gap-1.5 text-[12px] font-extrabold text-blue-600 hover:text-blue-800 hover:underline transition-all bg-blue-50 hover:bg-blue-100/80 px-3 py-1.5 rounded-lg"
-                      >
-                        Giao việc cho tổ &rarr;
-                      </Link>
-                    </div>
-                  )}
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                    <Link
+                      to={`/department-schedule?dept=${dept.id}`}
+                      className="inline-flex items-center gap-1.5 text-[12px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
+                    >
+                      <FileSpreadsheet size={14} className="text-blue-600" />
+                      Lịch giao việc tổ CM &rarr;
+                    </Link>
+                  </div>
                 </div>
               </div>
             </Card>

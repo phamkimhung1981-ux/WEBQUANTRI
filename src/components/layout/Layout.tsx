@@ -9,18 +9,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isDashboard = location.pathname === '/';
 
   return (
-    <div className="flex h-screen bg-[#F4F8FF] overflow-hidden font-sans text-[#123B78]">
+    <div className="app-layout font-sans text-[#123B78]">
       <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} hideOnDesktop={false} />
       
-      <div className="flex flex-col flex-1 w-0 overflow-hidden relative">
-        <Header onMenuClick={() => setSidebarOpen(true)} />
+      <div className="main-content flex flex-col min-w-0 h-screen overflow-y-auto custom-scrollbar">
+        <Header onMenuClick={() => setSidebarOpen(true)} isDashboard={isDashboard} />
         
-        <main className={`flex-1 relative z-0 overflow-y-auto focus:outline-none custom-scrollbar ${isDashboard ? 'p-0 overflow-x-hidden' : 'pb-8'}`}>
+        <main className={`flex-1 relative z-0 focus:outline-none custom-scrollbar ${isDashboard ? 'p-0 overflow-x-hidden' : 'pb-8'}`}>
           {children}
           
           {/* Footer for non-dashboard pages */}
           {!isDashboard && (
-            <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 mt-8 border-t border-[#123B78]/10 text-center relative z-10">
+            <footer className="w-full px-4 sm:px-6 lg:px-8 py-6 mt-8 border-t border-[#123B78]/10 text-center relative z-10">
               <div className="flex flex-col items-center justify-center space-y-2">
                 <h3 className="font-bold text-[#123B78] uppercase drop-shadow-sm">Trường THPT Sơn Lương</h3>
                 <p className="text-sm font-medium text-[#123B78] flex items-center justify-center gap-2">

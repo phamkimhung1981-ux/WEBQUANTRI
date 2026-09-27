@@ -68,7 +68,7 @@ export default function EvaluationDetailModal({
   const formattedDate = safeFormatLocale(session.date, 'toLocaleDateString', 'Chưa cập nhật');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+    <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-[2000] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
       <div className="bg-white/95 backdrop-blur-2xl rounded-[24px] shadow-2xl border border-white/50 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 print:shadow-none print:max-w-none print:h-auto print:max-h-none print:rounded-none">
         
         {/* Header - Ẩn khi in */}
@@ -85,7 +85,7 @@ export default function EvaluationDetailModal({
                   onClose();
                   onEdit();
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
               >
                 <Edit className="w-3.5 h-3.5" />
                 Chỉnh sửa
@@ -97,10 +97,10 @@ export default function EvaluationDetailModal({
                 onClick={() => {
                   onDelete();
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Xóa
+                Xóa phiếu
               </button>
             )}
             <button

@@ -106,6 +106,9 @@ export interface TaskEvaluation {
 
 export type ExecutionResult = 'Hoàn thành tốt' | 'Quá hạn (Chậm muộn)';
 
+export type WorkAssignmentStatus = 'Chưa thực hiện' | 'Đang thực hiện' | 'Hoàn thành' | 'Hoàn thành tốt' | 'Chậm tiến độ' | 'Quá hạn' | 'Đã hoàn thành' | 'Đã đánh giá';
+export type WorkAssignmentPriority = 'Thấp' | 'Trung bình' | 'Cao' | 'Khẩn cấp';
+
 export interface WorkAssignment {
   id: string;
   departmentId: string;
@@ -118,7 +121,17 @@ export interface WorkAssignment {
   evaluatorId: string;
   note?: string;
   scope?: 'school' | 'department';
-  status: 'Chưa thực hiện' | 'Đang thực hiện' | 'Đã hoàn thành' | 'Quá hạn' | 'Đã đánh giá';
+  academic_year?: string;
+  academicYear?: string;
+  week_number?: number;
+  weekNumber?: number;
+  status: WorkAssignmentStatus;
+  priority?: WorkAssignmentPriority;
+  requirements?: string;
+  progress?: number;
+  evidenceUrl?: string;
+  evidenceName?: string;
+  resultSummary?: string;
   completionDate?: string;
   evaluationResult?: 'Hoàn thành tốt' | 'Hoàn thành' | 'Chưa hoàn thành';
   evaluationComment?: string;

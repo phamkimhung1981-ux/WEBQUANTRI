@@ -258,7 +258,7 @@ export default function KpiVcCriteriaManagerModal({
             </div>
             <div>
               <h2 className="text-base font-extrabold text-white">
-                QUẢN LÝ TIÊU CHÍ KPI GIÁO VIÊN – NHÂN VIÊN
+                QUẢN LÝ TIÊU CHÍ KPI GIÁO VIÊN
               </h2>
               <p className="text-xs text-blue-200">
                 Thêm, chỉnh sửa, cấu hình thang điểm và quản lý danh mục tiêu chí chuẩn

@@ -17,17 +17,17 @@ export function removeVietnameseAccents(str: string): string {
 }
 
 /**
- * Cấu trúc tên file theo yêu cầu: PHIEU_DANH_GIA_KPI_[HO_TEN]_[NAM_HOC].doc
- * Ví dụ: PHIEU_DANH_GIA_KPI_NGUYEN_VAN_A_2026-2027.doc
+ * Cấu trúc tên file theo yêu cầu: PHIEU_DANH_GIA_VIEN_CHUC_[HO_TEN]_[NAM_HOC].docx
+ * Ví dụ: PHIEU_DANH_GIA_VIEN_CHUC_NGUYEN_VAN_A_2026-2027.docx
  */
 export function generateWordFileName(name: string, academicYear: string): string {
   const cleanName = removeVietnameseAccents(name || 'CAN_BO').toUpperCase();
   const cleanYear = (academicYear || '2026-2027').replace(/[^a-zA-Z0-9-]/g, '');
-  return `PHIEU_DANH_GIA_KPI_${cleanName}_${cleanYear}.doc`;
+  return `PHIEU_DANH_GIA_VIEN_CHUC_${cleanName}_${cleanYear}.docx`;
 }
 
 /**
- * Xuất Phiếu đánh giá KPI Viên chức (GVNV) ra file Word (.doc)
+ * Xuất Phiếu đánh giá KPI Giáo viên ra file Word (.docx)
  */
 export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
   if (!form || !form.id) {
@@ -40,6 +40,10 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
     const groupII = form.groupScores?.group_II ?? 0;
     const groupIII = form.groupScores?.group_III ?? 0;
 
+    const ttcmGroupI = form.ttcmGroupScores?.group_I ?? '---';
+    const ttcmGroupII = form.ttcmGroupScores?.group_II ?? '---';
+    const ttcmGroupIII = form.ttcmGroupScores?.group_III ?? '---';
+
     const mgrGroupI = form.managerGroupScores?.group_I ?? '---';
     const mgrGroupII = form.managerGroupScores?.group_II ?? '---';
     const mgrGroupIII = form.managerGroupScores?.group_III ?? '---';
@@ -49,14 +53,14 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
     const groupIIItems = items.filter(it => it.groupId === 'group_II');
     const groupIIIItems = items.filter(it => it.groupId === 'group_III');
 
-    const selectLevelItem = groupIIIItems.find(i => i.scoreType === 'select_level');
-    const selLevelCode = selectLevelItem?.selectedLevelCode || '2.1';
+    const groupIIIaItems = groupIIIItems.filter(it => it.subGroup === 'A' || it.criterionCode.startsWith('III.A') || it.criterionCode === 'III.1');
+    const groupIIIbItems = groupIIIItems.filter(it => it.subGroup === 'B' || it.criterionCode.startsWith('GV') || it.criterionCode.startsWith('III.B') || it.criterionCode === 'III.2');
 
     let htmlContent = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head>
       <meta charset='utf-8'>
-      <title>Phiếu đánh giá KPI Viên chức</title>
+      <title>Phiếu đánh giá, chấm điểm viên chức</title>
       <!--[if gte mso 9]>
       <xml>
        <w:WordDocument>
@@ -69,7 +73,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
       <style>
         @page WordSection1 {
           size: 210mm 297mm;
-          margin: 20mm 20mm 20mm 20mm;
+          margin: 15mm 15mm 15mm 15mm;
           mso-header-margin: 36.0pt;
           mso-footer-margin: 36.0pt;
           mso-paper-source: 0;
@@ -79,19 +83,19 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
         }
         body {
           font-family: 'Times New Roman', serif;
-          font-size: 13pt;
-          line-height: 1.35;
+          font-size: 12pt;
+          line-height: 1.3;
           color: #000000;
         }
         p {
-          margin-top: 3pt;
-          margin-bottom: 3pt;
+          margin-top: 2pt;
+          margin-bottom: 2pt;
         }
         .header-table {
           width: 100%;
           border-collapse: collapse;
           border: none !important;
-          margin-bottom: 15pt;
+          margin-bottom: 12pt;
         }
         .header-table td {
           border: none !important;
@@ -108,8 +112,8 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
         table.data-table {
           width: 100%;
           border-collapse: collapse;
-          margin-top: 10pt;
-          margin-bottom: 12pt;
+          margin-top: 8pt;
+          margin-bottom: 10pt;
         }
         table.data-table, table.data-table th, table.data-table td {
           border: 1px solid #000000;
@@ -118,12 +122,12 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           background-color: #f2f2f2;
           font-weight: bold;
           text-align: center;
-          padding: 6pt 4pt;
-          font-size: 12pt;
+          padding: 5pt 3pt;
+          font-size: 11pt;
         }
         table.data-table td {
-          padding: 5pt 4pt;
-          font-size: 11.5pt;
+          padding: 4pt 3pt;
+          font-size: 10.5pt;
           vertical-align: top;
         }
         .signature-table {
@@ -136,6 +140,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           border: none !important;
           vertical-align: top;
           text-align: center;
+          padding: 4pt;
         }
       </style>
       </head>
@@ -146,57 +151,65 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
         <table class="header-table">
           <tr>
             <td style="width: 45%; text-align: center;">
-              <p class="font-bold uppercase" style="font-size: 11pt;">SỞ GD&ĐT TỈNH PHÚ THỌ</p>
-              <p class="font-bold uppercase" style="font-size: 12pt;">TRƯỜNG THPT SƠN LƯƠNG</p>
-              <div style="border-bottom: 1px solid black; width: 100px; margin: 2pt auto;"></div>
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">SỞ GD&ĐT PHÚ THỌ</p>
+              <p class="font-bold uppercase" style="font-size: 11.5pt;">TRƯỜNG THPT SƠN LƯƠNG</p>
+              <div style="border-bottom: 1px solid black; width: 90px; margin: 2pt auto;"></div>
             </td>
             <td style="width: 55%; text-align: center;">
-              <p class="font-bold uppercase" style="font-size: 11pt;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</p>
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</p>
               <p class="font-bold" style="font-size: 11pt; text-decoration: underline;">Độc lập – Tự do – Hạnh phúc</p>
             </td>
           </tr>
         </table>
 
         <!-- TIÊU ĐỀ PHIẾU -->
-        <div style="text-align: center; margin-top: 10pt; margin-bottom: 15pt;">
-          <p class="font-bold uppercase" style="font-size: 14pt; margin: 0;">
-            PHIẾU ĐÁNH GIÁ, CHẤM ĐIỂM NĂM HỌC ${form.academicYear || '2025-2026'}
+        <div style="text-align: center; margin-top: 8pt; margin-bottom: 12pt;">
+          <p class="font-bold uppercase" style="font-size: 13.5pt; margin: 0;">
+            PHIẾU ĐÁNH GIÁ, CHẤM ĐIỂM KPI GIÁO VIÊN NĂM HỌC ${form.academicYear || '2026–2027'}
           </p>
-          <p class="italic" style="font-size: 12pt; margin-top: 2pt;">
-            (Áp dụng đối với viên chức không giữ chức vụ lãnh đạo, quản lý)
+          <p class="italic" style="font-size: 11pt; margin-top: 2pt;">
+            (Dự thảo vận hành – đề nghị nhà trường xác nhận trước khi ban hành)
           </p>
         </div>
 
         <!-- THÔNG TIN VIÊN CHỨC -->
-        <div style="margin-bottom: 12pt; font-size: 13pt;">
+        <div style="margin-bottom: 10pt; font-size: 11.5pt; line-height: 1.4;">
           <p><span class="font-bold">Họ và tên:</span> ${form.employeeName || ''}</p>
-          <p><span class="font-bold">Chức vụ:</span> ${form.position || ''}</p>
-          <p><span class="font-bold">Đơn vị công tác:</span> ${form.department || 'Trường THPT Sơn Lương'}</p>
-          <p><span class="font-bold">Kỳ đánh giá:</span> ${form.periodName || ''}</p>
+          <p><span class="font-bold">Chức vụ / môn:</span> ${form.position || 'Giáo viên'} ${form.subject ? `• Môn ${form.subject}` : ''}</p>
+          <p><span class="font-bold">Tổ chuyên môn:</span> ${form.department || 'Trường THPT Sơn Lương'}</p>
         </div>
 
-        <p class="font-bold uppercase" style="font-size: 13pt; margin-bottom: 4pt;">A. NỘI DUNG CHẤM ĐIỂM</p>
+        <!-- CĂN CỨ MẪU PHIẾU -->
+        <p style="font-size: 10.5pt; text-align: justify; margin-bottom: 10pt; font-style: italic; line-height: 1.35;">
+          Căn cứ mẫu Phiếu đánh giá, chấm điểm năm học 2025–2026 của Trường THPT Sơn Lương, phiếu này giữ cấu trúc 100 điểm gồm: (I) Chính trị tư tưởng, đạo đức lối sống 15 điểm; (II) Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật 15 điểm; (III) Kết quả thực hiện nhiệm vụ 70 điểm. Các nhiệm vụ ở phần III được chi tiết hóa để thuận lợi cho tự đánh giá, đánh giá của tổ chuyên môn và BGH. Các mức điểm KPI chi tiết dưới đây là đề xuất quản trị nội bộ, cần được nhà trường xác nhận trước khi áp dụng chính thức.
+        </p>
 
-        <!-- BẢNG ĐÁNH GIÁ TIÊU CHÍ KPI -->
+        <p class="font-bold uppercase" style="font-size: 11.5pt; margin-bottom: 4pt;">A. NỘI DUNG CHẤM ĐIỂM</p>
+
+        <!-- BẢNG ĐÁNH GIÁ TIÊU CHÍ KPI (7 CỘT) -->
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 35pt;">Stt</th>
-              <th style="text-align: left;">Nội dung đánh giá</th>
-              <th style="width: 50pt;">Điểm tối đa</th>
-              <th style="width: 65pt;">Điểm cá nhân tự chấm</th>
-              <th style="width: 70pt;">Đánh giá của CBQL</th>
+              <th style="width: 25pt;">STT</th>
+              <th style="text-align: left;">NỘI DUNG ĐÁNH GIÁ</th>
+              <th style="width: 40pt;">ĐIỂM TỐI ĐA</th>
+              <th style="width: 55pt;">GIÁO VIÊN TỰ CHẤM</th>
+              <th style="width: 55pt;">TTCM ĐÁNH GIÁ</th>
+              <th style="width: 55pt;">CBQL ĐÁNH GIÁ</th>
+              <th style="width: 65pt;">NHẬN XÉT</th>
             </tr>
           </thead>
           <tbody>
             
             <!-- NHÓM I -->
-            <tr>
+            <tr style="background-color: #f0f0f0; font-weight: bold;">
               <td class="text-center font-bold">I</td>
-              <td class="font-bold">Chính trị tư tưởng, đạo đức lối sống</td>
+              <td class="font-bold uppercase">CHÍNH TRỊ TƯ TƯỞNG, ĐẠO ĐỨC LỐI SỐNG</td>
               <td class="text-center font-bold">15</td>
               <td class="text-center font-bold">${groupI}</td>
+              <td class="text-center font-bold">${ttcmGroupI}</td>
               <td class="text-center font-bold">${mgrGroupI}</td>
+              <td></td>
             </tr>
             ${groupIItems.map((item, idx) => `
               <tr>
@@ -204,17 +217,21 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
                 <td>${item.content || ''}</td>
                 <td class="text-center">${item.maxScore}</td>
                 <td class="text-center font-bold">${item.selfScore}</td>
+                <td class="text-center font-bold">${item.ttcmScore !== undefined && item.ttcmScore !== null ? item.ttcmScore : ''}</td>
                 <td class="text-center font-bold">${item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                <td style="font-size: 10pt;">${item.note || ''}</td>
               </tr>
             `).join('')}
 
             <!-- NHÓM II -->
-            <tr>
+            <tr style="background-color: #f0f0f0; font-weight: bold;">
               <td class="text-center font-bold">II</td>
-              <td class="font-bold">Tác phong, lề lối làm việc, ý thức tổ chức kỷ luật</td>
+              <td class="font-bold uppercase">TÁC PHONG, LỀ LỐI LÀM VIỆC, Ý THỨC TỔ CHỨC KỶ LUẬT</td>
               <td class="text-center font-bold">15</td>
               <td class="text-center font-bold">${groupII}</td>
+              <td class="text-center font-bold">${ttcmGroupII}</td>
               <td class="text-center font-bold">${mgrGroupII}</td>
+              <td></td>
             </tr>
             ${groupIIItems.map((item, idx) => `
               <tr>
@@ -222,131 +239,176 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
                 <td>${item.content || ''}</td>
                 <td class="text-center">${item.maxScore}</td>
                 <td class="text-center font-bold">${item.selfScore}</td>
+                <td class="text-center font-bold">${item.ttcmScore !== undefined && item.ttcmScore !== null ? item.ttcmScore : ''}</td>
                 <td class="text-center font-bold">${item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                <td style="font-size: 10pt;">${item.note || ''}</td>
               </tr>
             `).join('')}
 
             <!-- NHÓM III -->
-            <tr>
+            <tr style="background-color: #f0f0f0; font-weight: bold;">
               <td class="text-center font-bold">III</td>
               <td class="font-bold uppercase">KẾT QUẢ THỰC HIỆN NHIỆM VỤ</td>
               <td class="text-center font-bold">70</td>
               <td class="text-center font-bold">${groupIII}</td>
+              <td class="text-center font-bold">${ttcmGroupIII}</td>
               <td class="text-center font-bold">${mgrGroupIII}</td>
+              <td></td>
             </tr>
 
-            <!-- III.1 -->
-            ${groupIIIItems.filter(i => i.scoreType !== 'select_level').map(item => `
+            <!-- III.A -->
+            <tr style="background-color: #fafafa; font-weight: bold;">
+              <td class="text-center">A</td>
+              <td class="font-bold">A. NĂNG LỰC VÀ KỸ NĂNG LÀM VIỆC</td>
+              <td class="text-center font-bold">10</td>
+              <td class="text-center font-bold">${groupIIIaItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
+              <td class="text-center font-bold">${groupIIIaItems.some(i => i.ttcmScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
+              <td class="text-center font-bold">${groupIIIaItems.some(i => i.managerScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.managerScore || 0), 0) : ''}</td>
+              <td></td>
+            </tr>
+            ${groupIIIaItems.map((item, idx) => `
               <tr>
-                <td class="text-center font-bold">1</td>
-                <td style="white-space: pre-line;">${item.content || ''}</td>
-                <td class="text-center font-bold">${item.maxScore}</td>
+                <td class="text-center">${idx + 1}</td>
+                <td>${item.content || ''}</td>
+                <td class="text-center">${item.maxScore}</td>
                 <td class="text-center font-bold">${item.selfScore}</td>
+                <td class="text-center font-bold">${item.ttcmScore !== undefined && item.ttcmScore !== null ? item.ttcmScore : ''}</td>
                 <td class="text-center font-bold">${item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                <td style="font-size: 10pt;">${item.note || ''}</td>
               </tr>
             `).join('')}
 
-            <!-- III.2 -->
-            <tr>
-              <td class="text-center font-bold">2</td>
-              <td class="font-bold">Kết quả thực hiện nhiệm vụ được giao</td>
+            <!-- III.B -->
+            <tr style="background-color: #fafafa; font-weight: bold;">
+              <td class="text-center">B</td>
+              <td class="font-bold">B. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO</td>
               <td class="text-center font-bold">60</td>
-              <td class="text-center font-bold">${selectLevelItem?.selfScore || 60}</td>
-              <td class="text-center font-bold">${selectLevelItem?.managerScore ?? ''}</td>
+              <td class="text-center font-bold">${groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
+              <td class="text-center font-bold">${groupIIIbItems.some(i => i.ttcmScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
+              <td class="text-center font-bold">${groupIIIbItems.some(i => i.managerScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0) : ''}</td>
+              <td></td>
             </tr>
-
-            <!-- 5 MỨC CỦA III.2 -->
-            <tr>
-              <td class="text-center">2.1</td>
-              <td><p class="font-bold">MỨC 1</p><p>Hoàn thành 100% công việc theo kế hoạch, lịch công tác, đúng tiến độ, bảo đảm chất lượng, hiệu quả cao, trong đó có ít nhất 50% tiêu chí, nhiệm vụ hoàn thành vượt mức: tối đa 60 điểm.</p></td>
-              <td class="text-center">60</td>
-              <td class="text-center font-bold">${selLevelCode === '2.1' ? (selectLevelItem?.selfScore || 60) : ''}</td>
-              <td class="text-center font-bold">${selLevelCode === '2.1' && selectLevelItem?.managerScore != null ? selectLevelItem.managerScore : ''}</td>
-            </tr>
-            <tr>
-              <td class="text-center">2.2</td>
-              <td><p class="font-bold">MỨC 2</p><p>Hoàn thành 100% công việc theo kế hoạch, lịch công tác, đúng tiến độ, bảo đảm chất lượng, hiệu quả: tối đa 50 điểm.</p></td>
-              <td class="text-center">50</td>
-              <td class="text-center font-bold">${selLevelCode === '2.2' ? (selectLevelItem?.selfScore || 50) : ''}</td>
-              <td class="text-center font-bold">${selLevelCode === '2.2' && selectLevelItem?.managerScore != null ? selectLevelItem.managerScore : ''}</td>
-            </tr>
-            <tr>
-              <td class="text-center">2.3</td>
-              <td><p class="font-bold">MỨC 3</p><p>Hoàn thành 100% công việc theo kế hoạch, lịch công tác, trong đó có không quá 20% nhiệm vụ chưa bảo đảm chất lượng, tiến độ hoặc hiệu quả thấp: tối đa 30 điểm.</p></td>
-              <td class="text-center">30</td>
-              <td class="text-center font-bold">${selLevelCode === '2.3' ? (selectLevelItem?.selfScore || 30) : ''}</td>
-              <td class="text-center font-bold">${selLevelCode === '2.3' && selectLevelItem?.managerScore != null ? selectLevelItem.managerScore : ''}</td>
-            </tr>
-            <tr>
-              <td class="text-center">2.4</td>
-              <td><p class="font-bold">MỨC 4</p><p>Hoàn thành từ 50% đến dưới 100% công việc theo kế hoạch, lịch công tác: tối đa 20 điểm.</p></td>
-              <td class="text-center">20</td>
-              <td class="text-center font-bold">${selLevelCode === '2.4' ? (selectLevelItem?.selfScore || 20) : ''}</td>
-              <td class="text-center font-bold">${selLevelCode === '2.4' && selectLevelItem?.managerScore != null ? selectLevelItem.managerScore : ''}</td>
-            </tr>
-            <tr>
-              <td class="text-center">2.5</td>
-              <td><p class="font-bold">MỨC 5</p><p>Hoàn thành dưới 50% công việc theo kế hoạch, lịch công tác: tối đa 10 điểm.</p></td>
-              <td class="text-center">10</td>
-              <td class="text-center font-bold">${selLevelCode === '2.5' ? (selectLevelItem?.selfScore || 10) : ''}</td>
-              <td class="text-center font-bold">${selLevelCode === '2.5' && selectLevelItem?.managerScore != null ? selectLevelItem.managerScore : ''}</td>
-            </tr>
+            ${groupIIIbItems.map((item, idx) => `
+              <tr>
+                <td class="text-center">${idx + 1}</td>
+                <td>${item.content || ''}</td>
+                <td class="text-center">${item.maxScore}</td>
+                <td class="text-center font-bold">${item.selfScore}</td>
+                <td class="text-center font-bold">${item.ttcmScore !== undefined && item.ttcmScore !== null ? item.ttcmScore : ''}</td>
+                <td class="text-center font-bold">${item.managerScore !== undefined && item.managerScore !== null ? item.managerScore : ''}</td>
+                <td style="font-size: 10pt;">${item.note || ''}</td>
+              </tr>
+            `).join('')}
 
             <!-- TỔNG ĐIỂM -->
-            <tr style="font-weight: bold; background-color: #f9f9f9;">
-              <td colspan="2" class="text-center uppercase font-bold">TỔNG ĐIỂM</td>
-              <td class="text-center font-bold">100</td>
-              <td class="text-center font-bold">${form.totalScore}</td>
-              <td class="text-center font-bold">${form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : '---'}</td>
+            <tr style="font-weight: bold; background-color: #e6e6e6;">
+              <td colspan="2" class="font-bold uppercase">TỔNG ĐIỂM TỐI ĐA</td>
+              <td class="text-center font-bold">100/100</td>
+              <td class="text-center font-bold">100/100</td>
+              <td class="text-center font-bold">100/100</td>
+              <td class="text-center font-bold">100/100</td>
+              <td></td>
+            </tr>
+            <tr style="font-weight: bold;">
+              <td colspan="3" class="font-bold uppercase">TỔNG GIÁO VIÊN TỰ CHẤM</td>
+              <td colspan="3" class="text-center font-bold">${form.totalScore}/100</td>
+              <td></td>
+            </tr>
+            <tr style="font-weight: bold;">
+              <td colspan="3" class="font-bold uppercase">TỔNG TTCM ĐÁNH GIÁ</td>
+              <td colspan="3" class="text-center font-bold">${form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? `${form.ttcmTotalScore}/100` : '___/100'}</td>
+              <td></td>
+            </tr>
+            <tr style="font-weight: bold;">
+              <td colspan="3" class="font-bold uppercase">TỔNG CBQL ĐÁNH GIÁ</td>
+              <td colspan="3" class="text-center font-bold">${form.managerTotalScore !== null && form.managerTotalScore !== undefined ? `${form.managerTotalScore}/100` : '___/100'}</td>
+              <td></td>
+            </tr>
+            <tr style="font-weight: bold; background-color: #d9edf7;">
+              <td colspan="3" class="font-bold uppercase">ĐIỂM ĐÁNH GIÁ CUỐI CÙNG</td>
+              <td colspan="3" class="text-center font-bold">${form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : (form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? form.ttcmTotalScore : form.totalScore)}/100</td>
+              <td></td>
             </tr>
           </tbody>
         </table>
 
-        <!-- NHẬN XÉT CỦA CBQL -->
-        ${form.managerGeneralComment ? `
-          <div style="margin-bottom: 10pt; border: 1px solid #cccccc; padding: 6pt; background-color: #fafafa;">
-            <p class="font-bold">Nhận xét chung của CBQL:</p>
-            <p class="italic">${form.managerGeneralComment}</p>
-          </div>
-        ` : ''}
+        <!-- QUY TẮC CHẤM ĐIỂM ĐỀ XUẤT -->
+        <div style="margin-top: 12pt; margin-bottom: 10pt; font-size: 10.5pt;">
+          <p class="font-bold uppercase" style="font-size: 11pt; margin-bottom: 4pt;">QUY TẮC CHẤM ĐIỂM ĐỀ XUẤT</p>
+          <ol style="margin-top: 2pt; margin-bottom: 4pt; padding-left: 18pt; line-height: 1.35;">
+            <li>Giáo viên tự chấm dựa trên kết quả thực hiện thực tế và minh chứng; không tự chấm chỉ dựa vào cảm nhận.</li>
+            <li>Mỗi nhiệm vụ được chấm trong phạm vi điểm tối đa của dòng đó; không cộng vượt 100 điểm.</li>
+            <li>Nhiệm vụ không được giao hoặc không phát sinh theo vị trí việc làm được đánh dấu “N/A – Không áp dụng”, không quy về 0 điểm; tổng điểm được chuẩn hóa theo các nhiệm vụ áp dụng.</li>
+            <li>Kết quả học tập của học sinh chỉ là một nguồn minh chứng cho chất lượng và sự tiến bộ, không sử dụng điểm thi/điểm trung bình của học sinh làm tiêu chí duy nhất để quy trách nhiệm cho giáo viên.</li>
+            <li>Nhiệm vụ chủ nhiệm/kiêm nhiệm chỉ áp dụng đối với giáo viên được phân công.</li>
+            <li>Khi có vi phạm nghiêm trọng, việc xử lý điểm phải căn cứ quy định của nhà trường và quy định hiện hành; không tự động suy diễn từ một chỉ số đơn lẻ.</li>
+          </ol>
+        </div>
 
-        <!-- XẾP LOẠI CÁ NHÂN & KÝ TÊN -->
-        <div style="margin-top: 10pt;">
-          <p><span class="font-bold">Cá nhân tự xếp loại:</span> ${form.selfClassification || '................................................'}</p>
-
-          <table class="signature-table">
-            <tr>
-              <td style="width: 50%;"></td>
-              <td style="width: 50%;">
-                <p class="italic">Sơn Lương, ngày ${form.selfDate ? form.selfDate.split('/')[0] : '...'} tháng ${form.selfDate ? form.selfDate.split('/')[1] : '...'} năm ${form.selfDate ? form.selfDate.split('/')[2] : '...'}</p>
-                <p class="font-bold uppercase">NGƯỜI ĐÁNH GIÁ</p>
-                <p class="italic" style="font-size: 10pt;">(Ký và ghi rõ họ tên)</p>
-                <br/><br/><br/>
-                <p class="font-bold">${form.employeeName}</p>
-              </td>
-            </tr>
+        <!-- GỢI Ý XẾP LOẠI KPI NỘI BỘ -->
+        <div style="margin-top: 10pt; margin-bottom: 12pt; font-size: 10.5pt;">
+          <p class="font-bold uppercase" style="font-size: 11pt; margin-bottom: 4pt;">Gợi ý xếp loại KPI nội bộ (CẦN NHÀ TRƯỜNG XÁC NHẬN)</p>
+          <table style="width: 70%; border-collapse: collapse; border: 1px solid black; margin-bottom: 8pt;">
+            <thead>
+              <tr style="background-color: #f2f2f2; font-weight: bold;">
+                <td style="border: 1px solid black; padding: 4pt; text-align: left; width: 50%;">Tổng điểm KPI</td>
+                <td style="border: 1px solid black; padding: 4pt; text-align: left;">Mức xếp loại đề xuất</td>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="border: 1px solid black; padding: 4pt;">Dưới 70</td>
+                <td style="border: 1px solid black; padding: 4pt;">Chưa hoàn thành</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid black; padding: 4pt;">70 đến dưới 85</td>
+                <td style="border: 1px solid black; padding: 4pt;">Hoàn thành</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid black; padding: 4pt;">85 đến dưới 95</td>
+                <td style="border: 1px solid black; padding: 4pt;">Hoàn thành tốt</td>
+              </tr>
+              <tr style="font-weight: bold;">
+                <td style="border: 1px solid black; padding: 4pt;">95 đến 100</td>
+                <td style="border: 1px solid black; padding: 4pt;">Hoàn thành xuất sắc</td>
+              </tr>
+            </tbody>
           </table>
         </div>
 
-        <!-- PHẦN B. ĐÁNH GIÁ CỦA THỦ TRƯỞNG -->
-        <div style="margin-top: 20pt; border-top: 1px solid #000000; padding-top: 10pt;">
-          <p class="font-bold uppercase">B. Ý KIẾN NHẬN XÉT, ĐÁNH GIÁ <span class="italic font-bold" style="text-transform: none;">(Phần dành cho người đứng đầu đơn vị)</span></p>
-          <p><span class="font-bold">Mức xếp loại:</span> ${form.leaderClassification || '................................................................................'}</p>
-          ${form.leaderComment ? `<p><span class="font-bold">Ý kiến nhận xét:</span> ${form.leaderComment}</p>` : ''}
-
-          <table class="signature-table">
-            <tr>
-              <td style="width: 50%;"></td>
-              <td style="width: 50%;">
-                <p class="italic">Sơn Lương, ngày ${form.leaderDate ? form.leaderDate.split('/')[0] : '...'} tháng ${form.leaderDate ? form.leaderDate.split('/')[1] : '...'} năm ${form.leaderDate ? form.leaderDate.split('/')[2] : '...'}</p>
-                <p class="font-bold uppercase">NGƯỜI NHẬN XÉT, ĐÁNH GIÁ</p>
-                <p class="italic" style="font-size: 10pt;">(Ký, ghi rõ họ tên; đóng dấu)</p>
-                <br/><br/><br/>
-                <p class="font-bold">${form.leaderSignName || 'Hiệu trưởng'}</p>
-              </td>
-            </tr>
-          </table>
+        <div style="margin-top: 8pt; margin-bottom: 12pt; font-size: 11pt;">
+          <p><span class="font-bold">Cá nhân tự xếp loại:</span> ${form.selfClassification || '....................................................'}</p>
+          <p style="text-align: right; font-style: italic; margin-top: 10pt;">
+            ............, ngày ...... tháng ...... năm 2026
+          </p>
         </div>
+
+        <!-- BẢNG 3 CHỮ KÝ XÁC NHẬN Ở CUỐI PHIẾU (NGƯỜI TỰ ĐÁNH GIÁ, TỔ CHUYÊN MÔN, NGƯỜI CÓ THẨM QUYỀN PHÊ DUYỆT) -->
+        <table class="signature-table" style="margin-top: 15pt;">
+          <tr>
+            <td style="width: 33.3%;">
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">NGƯỜI TỰ ĐÁNH GIÁ</p>
+              <p class="italic" style="font-size: 9.5pt;">(Ký, ghi rõ họ tên)</p>
+              <br/><br/><br/><br/>
+              <p class="font-bold" style="font-size: 11pt;">${form.employeeName}</p>
+            </td>
+
+            <td style="width: 33.3%;">
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">TỔ CHUYÊN MÔN ĐÁNH GIÁ</p>
+              <p class="italic" style="font-size: 9.5pt;">(Ký, ghi rõ họ tên)</p>
+              <br/><br/><br/><br/>
+              <p class="font-bold" style="font-size: 11pt;">${form.ttcmEvaluatorName || '...............................'}</p>
+            </td>
+
+            <td style="width: 33.3%;">
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">NGƯỜI CÓ THẨM QUYỀN PHÊ DUYỆT</p>
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">DUYỆT</p>
+              <p class="italic" style="font-size: 9.5pt;">(Ký, ghi rõ họ tên)</p>
+              <br/><br/><br/>
+              <p class="font-bold" style="font-size: 11pt;">${form.evaluatorName || '...............................'}</p>
+            </td>
+          </tr>
+        </table>
 
       </div>
       </body>

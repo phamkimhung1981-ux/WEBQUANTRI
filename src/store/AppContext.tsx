@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Department, DisciplineRecord, DisciplineCriterion, Notification, Report, Task, Teacher, CalendarEvent, LeaveRecord, AttendanceRecord, KpiItem, KpiRecord, KpiGroup, KpiCategory, KpiMonthlySetting, GeneralKpi, WorkAssignment, EvaluationCategory, EvaluationCriterion, SchoolStats, KpiEvaluationForm, KpiEvaluationItem } from '../types';
+import { KpiStaffForm, KpiStaffPeriod, KpiStaffCriterion } from '../types/kpiStaff';
+import { DEFAULT_STAFF_PERIODS, DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffData';
+import { subscribeStaffForms, saveStaffFormsToCache, saveStaffFormToFirestore, loadStaffFormsFromCache } from '../services/kpiStaffService';
 import { DEFAULT_TASK_KPIS } from '../lib/kpiTargetAudienceUtils';
+import { OFFICIAL_SCHOOL_TASKS_2026_2027 } from '../utils/sampleSchoolTasks';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs } from 'firebase/firestore';
 
@@ -26,11 +30,17 @@ interface AppState {
   leaveRecords: LeaveRecord[];
   attendanceRecords: AttendanceRecord[];
   schoolStats: SchoolStats;
+  kpiStaffForms: KpiStaffForm[];
+  kpiStaffPeriods: KpiStaffPeriod[];
+  kpiStaffCriteria: KpiStaffCriterion[];
   loading: boolean;
   error: string | null;
 }
 
 interface AppContextType extends AppState {
+  setKpiStaffForms: (forms: KpiStaffForm[]) => void;
+  setKpiStaffPeriods: (periods: KpiStaffPeriod[]) => void;
+  setKpiStaffCriteria: (criteria: KpiStaffCriterion[]) => void;
   updateTaskStatus: (taskId: string, status: Task['status'], progress?: number) => void;
   markNotificationRead: (id: string) => void;
   deleteTeacher: (id: string) => void;
@@ -73,6 +83,8 @@ interface AppContextType extends AppState {
   addWorkAssignment: (assignment: WorkAssignment) => Promise<void>;
   updateWorkAssignment: (id: string, data: Partial<WorkAssignment>) => Promise<void>;
   deleteWorkAssignment: (id: string) => Promise<void>;
+  importWorkAssignments: (assignments: WorkAssignment[]) => Promise<void>;
+  seedOrResetSchoolTasks: () => Promise<void>;
   addCalendarEvent: (event: CalendarEvent) => void;
   updateCalendarEvent: (id: string, data: Partial<CalendarEvent>) => void;
   deleteCalendarEvent: (id: string) => void;
@@ -90,13 +102,32 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 
 const sanitize = <T extends Record<string, any>>(data: T): T => {
-  const result = { ...data };
-  for (const key in result) {
-    if (result[key] === undefined) {
-      delete result[key];
+  const cleanDeep = (obj: any): any => {
+    if (obj === undefined) return undefined;
+    if (obj === null) return null;
+    if (typeof obj === 'number') {
+      return Number.isNaN(obj) ? 0 : obj;
     }
-  }
-  return result;
+    if (Array.isArray(obj)) {
+      return obj
+        .map(cleanDeep)
+        .filter(item => item !== undefined);
+    }
+    if (typeof obj === 'object' && !(obj instanceof Date)) {
+      const cleaned: Record<string, any> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+          const cv = cleanDeep(value);
+          if (cv !== undefined) {
+            cleaned[key] = cv;
+          }
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  };
+  return (cleanDeep(data) || {}) as T;
 };
 
 const handleDbError = (e: any) => {
@@ -184,9 +215,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       motto: 'Nơi chắp cánh những ước mơ',
       welcomeMessage: 'Chào mừng bạn!'
     },
+    kpiStaffForms: loadStaffFormsFromCache(),
+    kpiStaffPeriods: DEFAULT_STAFF_PERIODS,
+    kpiStaffCriteria: DEFAULT_STAFF_CRITERIA,
     loading: true,
     error: null,
   });
+
+  // Staff KPI subscription
+  useEffect(() => {
+    const unsub = subscribeStaffForms((forms) => {
+      setState(prev => ({ ...prev, kpiStaffForms: forms }));
+    });
+    return () => unsub();
+  }, []);
+
+  const setKpiStaffForms = (forms: KpiStaffForm[]) => {
+    setState(prev => ({ ...prev, kpiStaffForms: forms }));
+    saveStaffFormsToCache(forms);
+    forms.forEach(f => saveStaffFormToFirestore(f));
+  };
+
+  const setKpiStaffPeriods = (periods: KpiStaffPeriod[]) => {
+    setState(prev => ({ ...prev, kpiStaffPeriods: periods }));
+  };
+
+  const setKpiStaffCriteria = (criteria: KpiStaffCriterion[]) => {
+    setState(prev => ({ ...prev, kpiStaffCriteria: criteria }));
+  };
 
   useEffect(() => {
     let unsubscribes: (() => void)[] = [];
@@ -780,73 +836,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const waCol = collection(db, 'workAssignments');
         const snap = await getDocs(waCol);
         if (snap.empty) {
-          // get some users to act as assignee and evaluator
-          const teachersSnap = await getDocs(collection(db, 'teachers'));
-          const deptsSnap = await getDocs(collection(db, 'departments'));
-          
-          if (!teachersSnap.empty && !deptsSnap.empty) {
-             const tData = teachersSnap.docs.map(d => d.id);
-             const dData = deptsSnap.docs.map(d => d.id);
-
-             const assigneeId = tData[0];
-             const evaluatorId = tData.length > 1 ? tData[1] : tData[0];
-             const departmentId = dData[0];
-
-             const sampleWA: WorkAssignment[] = [
-               {
-                 id: 'wa_sample_1',
-                 departmentId,
-                 weekLabel: 'Tuần 1',
-                 workDate: '2026-09-01',
-                 content: 'Chuẩn bị kế hoạch chuyên môn của tổ.',
-                 assigneeId,
-                 deadline: '2026-09-20',
-                 evaluatorId,
-                 status: 'Chưa thực hiện',
-                 createdBy: 'system',
-                 createdAt: new Date().toISOString(),
-                 updatedAt: new Date().toISOString()
-               },
-               {
-                 id: 'wa_sample_2',
-                 departmentId,
-                 weekLabel: 'Tuần 1',
-                 workDate: '2026-09-05',
-                 content: 'Hoàn thiện hồ sơ chuyên môn.',
-                 assigneeId,
-                 deadline: '2026-09-22',
-                 evaluatorId,
-                 status: 'Đang thực hiện',
-                 createdBy: 'system',
-                 createdAt: new Date().toISOString(),
-                 updatedAt: new Date().toISOString()
-               },
-               {
-                 id: 'wa_sample_3',
-                 departmentId,
-                 weekLabel: 'Tuần 2',
-                 workDate: '2026-09-10',
-                 content: 'Thực hiện nhiệm vụ được phân công.',
-                 assigneeId,
-                 deadline: '2026-09-27',
-                 evaluatorId,
-                 status: 'Đã hoàn thành',
-                 completionDate: new Date().toISOString(),
-                 evaluationResult: 'Hoàn thành tốt',
-                 evaluationComment: 'Hoàn thành đúng hạn, đảm bảo chất lượng.',
-                 evaluationDate: new Date().toISOString(),
-                 createdBy: 'system',
-                 createdAt: new Date().toISOString(),
-                 updatedAt: new Date().toISOString()
-               }
-             ];
-
-             const batch = writeBatch(db);
-             sampleWA.forEach(wa => {
-               batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
-             });
-             await batch.commit();
-          }
+          const batch = writeBatch(db);
+          OFFICIAL_SCHOOL_TASKS_2026_2027.forEach(wa => {
+            batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
+          });
+          await batch.commit();
+          console.log('Seeded official school work assignments for THPT Sơn Lương successfully.');
         }
       } catch (e) {
         console.warn('Could not seed work assignments:', e);
@@ -903,6 +898,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     seedReportsIfEmpty();
 
+    const rename16MemberDepartmentToVanSuDia = async () => {
+      try {
+        const deptCol = collection(db, 'departments');
+        const teacherCol = collection(db, 'teachers');
+
+        const [deptSnap, teacherSnap] = await Promise.all([
+          getDocs(deptCol),
+          getDocs(teacherCol)
+        ]);
+
+        const teachersList = teacherSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+        const batch = writeBatch(db);
+        let neededUpdate = false;
+
+        deptSnap.docs.forEach(docSnap => {
+          const deptData = docSnap.data();
+          const deptId = docSnap.id;
+          const currentName = deptData.name || '';
+
+          // Count members belonging to this department ID
+          const membersCount = teachersList.filter(t => t.departmentId === deptId).length;
+
+          // Rule: If department name is "Tổ Văn phòng" AND member count is 16 (or > 10) OR if doc.id is 'd_van_su_dia_gdkt_pl_an'
+          // ABSOLUTELY DO NOT rename the "Tổ Văn phòng" record that has 5 members!
+          if ((currentName === 'Tổ Văn phòng' && membersCount === 16) ||
+              (currentName === 'Tổ Văn phòng' && membersCount > 10) ||
+              (deptId === 'd_van_su_dia_gdkt_pl_an' && currentName !== 'Tổ Văn-Sử-Địa-GDKT&PL-AN')) {
+            batch.update(docSnap.ref, {
+              name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN',
+              updatedAt: new Date().toISOString()
+            });
+            neededUpdate = true;
+          }
+        });
+
+        if (neededUpdate) {
+          await batch.commit();
+        }
+      } catch (e) {
+        console.warn('Could not execute department rename migration:', e);
+      }
+    };
+    rename16MemberDepartmentToVanSuDia();
+
     const seedDepartmentsIfEmpty = async () => {
       try {
         const deptCol = collection(db, 'departments');
@@ -918,31 +958,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const batch = writeBatch(db);
         let neededToSeed = false;
 
-        // Check and sync departments
+        // Sync missing default departments without overwriting existing ones
         for (const d of requestedDepts) {
-          const existingDoc = snap.docs.find(doc => {
-            const data = doc.data();
-            const dName = (data.name || '').toLowerCase();
-            const searchSlug = d.id.replace('d_', '');
-            return doc.id === d.id || 
-              (searchSlug.includes('toan') && (dName.includes('toán') || doc.id.includes('toan'))) ||
-              (searchSlug.includes('hoa') && (dName.includes('hóa') || doc.id.includes('hoa'))) ||
-              (searchSlug.includes('van_su') && (dName.includes('văn') || doc.id.includes('van'))) ||
-              (searchSlug.includes('van_phong') && (dName.includes('văn phòng') || doc.id.includes('van_phong')));
-          });
-
+          const existingDoc = snap.docs.find(docSnap => docSnap.id === d.id);
           if (!existingDoc) {
             batch.set(doc(db, 'departments', d.id), d);
             neededToSeed = true;
-          } else if (existingDoc.data().name !== d.name || !existingDoc.data().headId) {
-            batch.update(doc(db, 'departments', existingDoc.id), {
-              name: d.name,
-              headId: existingDoc.data().headId || d.headId,
-              updatedAt: new Date().toISOString()
-            });
-            neededToSeed = true;
           }
         }
+
         if (neededToSeed) {
           await batch.commit();
         }
@@ -958,6 +982,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (snap.empty) {
           const defaultTeachers: Teacher[] = [
+            {
+              id: 't_ht',
+              username: 'hieutruong',
+              code: 'BGH001',
+              name: 'Nguyễn Quang Sáng',
+              role: 'BGH',
+              position: 'Hiệu trưởng',
+              departmentId: 'd_bgh',
+              departmentName: 'Ban Giám hiệu',
+              status: 'Đang công tác',
+              email: 'nguyenquangsang@sonluong.edu.vn',
+              phone: '0988888888',
+              subject: 'Quản lý giáo dục',
+              joinDate: '2015-09-01',
+              degree: 'Thạc sĩ'
+            },
+            {
+              id: 't_pht1',
+              username: 'phohieutruong1',
+              code: 'BGH002',
+              name: 'Phạm Kim Hùng',
+              role: 'BGH',
+              position: 'Phó Hiệu trưởng',
+              departmentId: 'd_bgh',
+              departmentName: 'Ban Giám hiệu',
+              status: 'Đang công tác',
+              email: 'phamkimhung@sonluong.edu.vn',
+              phone: '0977777777',
+              subject: 'Quản lý chuyên môn',
+              joinDate: '2017-09-01',
+              degree: 'Thạc sĩ'
+            },
+            {
+              id: 't_pht2',
+              username: 'phohieutruong2',
+              code: 'BGH003',
+              name: 'Nguyễn Anh Hòa',
+              role: 'BGH',
+              position: 'Phó Hiệu trưởng',
+              departmentId: 'd_bgh',
+              departmentName: 'Ban Giám hiệu',
+              status: 'Đang công tác',
+              email: 'nguyenanhhoa@sonluong.edu.vn',
+              phone: '0966666666',
+              subject: 'Quản lý cơ sở vật chất',
+              joinDate: '2018-09-01',
+              degree: 'Thạc sĩ'
+            },
             {
               id: 't1',
               username: 'gv001',
@@ -1035,11 +1107,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
             batch.set(doc(db, 'teachers', t.id), sanitize(t));
           });
           await batch.commit();
-          console.log('Seeded default teachers successfully.');
+          console.log('Seeded default teachers successfully with correct BGH.');
         } else {
-          // Repair existing teachers with corrupted code or name
+          // Repair existing teachers and ensure correct BGH names
           let hasCorrupted = false;
           const batch = writeBatch(db);
+
+          const bghList: Teacher[] = [
+            {
+              id: 't_ht',
+              username: 'hieutruong',
+              code: 'BGH001',
+              name: 'Nguyễn Quang Sáng',
+              role: 'BGH',
+              position: 'Hiệu trưởng',
+              departmentId: 'd_bgh',
+              departmentName: 'Ban Giám hiệu',
+              status: 'Đang công tác',
+              email: 'nguyenquangsang@sonluong.edu.vn',
+              phone: '0988888888',
+              subject: 'Quản lý giáo dục',
+              joinDate: '2015-09-01',
+              degree: 'Thạc sĩ'
+            },
+            {
+              id: 't_pht1',
+              username: 'phohieutruong1',
+              code: 'BGH002',
+              name: 'Phạm Kim Hùng',
+              role: 'BGH',
+              position: 'Phó Hiệu trưởng',
+              departmentId: 'd_bgh',
+              departmentName: 'Ban Giám hiệu',
+              status: 'Đang công tác',
+              email: 'phamkimhung@sonluong.edu.vn',
+              phone: '0977777777',
+              subject: 'Quản lý chuyên môn',
+              joinDate: '2017-09-01',
+              degree: 'Thạc sĩ'
+            },
+            {
+              id: 't_pht2',
+              username: 'phohieutruong2',
+              code: 'BGH003',
+              name: 'Nguyễn Anh Hòa',
+              role: 'BGH',
+              position: 'Phó Hiệu trưởng',
+              departmentId: 'd_bgh',
+              departmentName: 'Ban Giám hiệu',
+              status: 'Đang công tác',
+              email: 'nguyenanhhoa@sonluong.edu.vn',
+              phone: '0966666666',
+              subject: 'Quản lý cơ sở vật chất',
+              joinDate: '2018-09-01',
+              degree: 'Thạc sĩ'
+            }
+          ];
+
+          bghList.forEach(b => {
+            batch.set(doc(db, 'teachers', b.id), sanitize(b), { merge: true });
+          });
+          hasCorrupted = true;
           const replacementNames = [
             'Nguyễn Văn An', 'Trần Thị Bình', 'Lê Văn Cường', 'Phạm Thị Dung', 'Hoàng Văn Em',
             'Vũ Thị Hồng', 'Phan Văn Giang', 'Bùi Thị Hà', 'Đỗ Minh Khang', 'Nguyễn Thị Lan',
@@ -1332,7 +1460,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await deleteDoc(doc(db, 'disciplineRecords', id));
     } catch (e) {
       handleDbError(e);
-      throw e;
     }
   };
 
@@ -1344,14 +1471,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         disciplineRecords: prev.disciplineRecords.filter(r => !idSet.has(r.id))
       }));
-      const batch = writeBatch(db);
-      ids.forEach(id => {
-        batch.delete(doc(db, 'disciplineRecords', id));
-      });
-      await batch.commit();
+
+      const chunkSize = 400;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(id => {
+          batch.delete(doc(db, 'disciplineRecords', id));
+        });
+        await batch.commit();
+      }
     } catch (e) {
       handleDbError(e);
-      throw e;
     }
   };
 
@@ -1810,6 +1941,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { await deleteDoc(doc(db, 'workAssignments', id)); } catch (e) { handleDbError(e); }
   };
 
+  const importWorkAssignments = async (assignments: WorkAssignment[]) => {
+    try {
+      const batch = writeBatch(db);
+      assignments.forEach(wa => {
+        if (!wa.id) wa.id = `wa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
+      });
+      await batch.commit();
+      setState(prev => ({
+        ...prev,
+        workAssignments: [...assignments, ...prev.workAssignments.filter(w => !assignments.some(a => a.id === w.id))]
+      }));
+    } catch (e) {
+      handleDbError(e);
+      throw e;
+    }
+  };
+
+  const seedOrResetSchoolTasks = async () => {
+    try {
+      const batch = writeBatch(db);
+      OFFICIAL_SCHOOL_TASKS_2026_2027.forEach(wa => {
+        batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
+      });
+      await batch.commit();
+      setState(prev => ({
+        ...prev,
+        workAssignments: [...OFFICIAL_SCHOOL_TASKS_2026_2027, ...prev.workAssignments.filter(w => !OFFICIAL_SCHOOL_TASKS_2026_2027.some(o => o.id === w.id))]
+      }));
+    } catch (e) {
+      handleDbError(e);
+      throw e;
+    }
+  };
+
   const addCalendarEvent = async (event: CalendarEvent) => {
     try {
       if (!event.id) event.id = `ev${Date.now()}_${Math.random()}`;
@@ -1964,9 +2130,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addAttendanceRecord, updateAttendanceRecord, deleteAttendanceRecord, addLeaveRecord,
         updateLeaveRecord,
         deleteLeaveRecord, addTask, updateTask, deleteTask, addWorkAssignment, updateWorkAssignment, deleteWorkAssignment,
-        
+        importWorkAssignments, seedOrResetSchoolTasks,
          addCalendarEvent, updateCalendarEvent, deleteCalendarEvent, addNotification, updateNotification, deleteNotification,
-        addReport, updateReport, deleteReport, checkAndRepairKpiData, updateSchoolStats }}>
+        addReport, updateReport, deleteReport, checkAndRepairKpiData, updateSchoolStats,
+        setKpiStaffForms, setKpiStaffPeriods, setKpiStaffCriteria }}>
       {state.error && (
         <div className="fixed top-0 left-0 right-0 bg-rose-500 text-white text-center py-2 z-50 shadow-md">
           {state.error}
