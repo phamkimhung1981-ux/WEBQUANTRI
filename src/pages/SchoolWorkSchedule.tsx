@@ -36,6 +36,7 @@ import {
 import { exportSchoolWorkScheduleToWord } from '../utils/schoolWorkScheduleExportWord';
 import { getWeekInfoByNumber, getAllWeeksInYear, ACADEMIC_YEARS } from '../utils/schoolWeekUtils';
 import SchoolScheduleWordImportModal from '../components/schoolSchedule/SchoolScheduleWordImportModal';
+import AutoResizeTextarea from '../components/ui/AutoResizeTextarea';
 import * as XLSX from 'xlsx';
 
 export default function SchoolWorkSchedulePage() {
@@ -512,7 +513,7 @@ export default function SchoolWorkSchedulePage() {
                                 className="group relative p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50/80 border border-slate-300 transition-all text-xs space-y-1"
                               >
                                 <div className="flex items-start justify-between gap-1.5">
-                                  <p className="font-bold text-slate-900 leading-snug">
+                                  <p className="font-bold text-slate-900 leading-relaxed whitespace-pre-wrap break-words">
                                     • {task.content}
                                   </p>
 
@@ -573,7 +574,7 @@ export default function SchoolWorkSchedulePage() {
                                 className="group relative p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50/80 border border-slate-300 transition-all text-xs space-y-1"
                               >
                                 <div className="flex items-start justify-between gap-1.5">
-                                  <p className="font-bold text-slate-900 leading-snug">
+                                  <p className="font-bold text-slate-900 leading-relaxed whitespace-pre-wrap break-words">
                                     • {task.content}
                                   </p>
 
@@ -641,12 +642,12 @@ export default function SchoolWorkSchedulePage() {
                       <td className="py-3 px-3.5 border border-slate-700 align-top bg-amber-50/20">
                         {canEdit ? (
                           <div className="space-y-2">
-                            <textarea
-                              rows={3}
+                            <AutoResizeTextarea
+                              minHeight={64}
                               value={day.duty_evaluator || ''}
                               onChange={e => handleUpdateDayField(day.id, 'duty_evaluator', e.target.value)}
                               placeholder="Nhập nhận xét đánh giá của lãnh đạo..."
-                              className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 hover:border-amber-400 focus:border-amber-600 focus:ring-2 focus:ring-amber-200 rounded-xl p-2.5 transition-all outline-none resize-none leading-relaxed"
+                              className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 hover:border-amber-400 focus:border-amber-600 focus:ring-2 focus:ring-amber-200 rounded-xl p-2.5 transition-all outline-none leading-relaxed"
                             />
 
                             {/* Gợi ý đánh giá nhanh */}
@@ -674,7 +675,7 @@ export default function SchoolWorkSchedulePage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="text-xs font-semibold text-slate-800 italic leading-relaxed">
+                          <div className="text-xs font-semibold text-slate-800 italic leading-relaxed whitespace-pre-wrap break-words">
                             {day.duty_evaluator ? (
                               <span className="text-amber-950 font-bold">"{day.duty_evaluator}"</span>
                             ) : (

@@ -1519,7 +1519,7 @@ export default function Tasks() {
                               }
                               return (
                                 <div className="space-y-1 text-xs">
-                                  <div className="text-slate-800 font-medium line-clamp-3">
+                                  <div className="text-slate-800 font-medium whitespace-pre-wrap break-words leading-relaxed">
                                     {resultText}
                                   </div>
                                 </div>

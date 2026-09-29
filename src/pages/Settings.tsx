@@ -197,6 +197,23 @@ export default function Settings() {
                   <Calendar size={14} className="text-slate-400" /> 2025 - 2026
                 </span>
               </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-500">Website Production</span>
+                <a 
+                  href="https://webquanlythptsonluong.vercel.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-xs sm:text-sm"
+                >
+                  webquanlythptsonluong.vercel.app
+                </a>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-500">Phiên bản hệ thống</span>
+                <span className="font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200 text-xs">
+                  v1.2.1 (2026-09-29)
+                </span>
+              </div>
               <div className="flex justify-between py-2">
                 <span className="text-slate-500">Cơ sở dữ liệu đám mây</span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">

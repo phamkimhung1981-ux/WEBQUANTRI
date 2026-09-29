@@ -188,7 +188,7 @@ export default function TaskWeeklyCalendarView({
                             </div>
                           </div>
 
-                          <p className="font-bold text-slate-800 leading-snug line-clamp-3">
+                          <p className="font-bold text-slate-800 leading-relaxed whitespace-pre-wrap break-words">
                             {t.content}
                           </p>
 

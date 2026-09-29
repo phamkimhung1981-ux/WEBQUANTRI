@@ -42,6 +42,7 @@ import DepartmentScheduleWordUploadModal from '../components/departmentSchedule/
 import DepartmentSchedulePrintModal from '../components/departmentSchedule/DepartmentSchedulePrintModal';
 import { PRESET_DEPARTMENTS } from './Tasks';
 import { getWeekInfoByNumber, getAllWeeksInYear } from '../utils/schoolWeekUtils';
+import AutoResizeTextarea from '../components/ui/AutoResizeTextarea';
 
 export default function DepartmentSchedule() {
   const navigate = useNavigate();
@@ -173,11 +174,16 @@ export default function DepartmentSchedule() {
       [field]: value
     };
 
-    setSchedule({
+    const updatedSchedule = {
       ...schedule,
       days: newDays,
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    setSchedule(updatedSchedule);
+
+    // Auto-save immediately to localStorage and Firestore
+    departmentScheduleService.saveSchedule(updatedSchedule).catch(console.error);
   };
 
   // Manual save
@@ -536,64 +542,64 @@ export default function DepartmentSchedule() {
                     </td>
 
                     {/* Col 2: Sáng - Nội dung công việc */}
-                    <td className="p-2 border-r border-slate-300 align-top group relative">
+                    <td className="p-2.5 border-r border-slate-300 align-top group relative">
                       <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           type="button"
                           onClick={() => handleAddBullet(idx, 'morningTasks')}
-                          className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1"
+                          className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Plus size={11} /> Thêm dòng việc
                         </button>
                       </div>
-                      <textarea
-                        rows={3}
+                      <AutoResizeTextarea
+                        minHeight={64}
                         value={day.morningTasks || ''}
                         onChange={(e) => handleUpdateDay(idx, 'morningTasks', e.target.value)}
                         placeholder="Nội dung công việc buổi sáng..."
-                        className="w-full text-xs text-slate-800 bg-transparent resize-y rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none leading-relaxed"
+                        className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none leading-relaxed"
                       />
                     </td>
 
                     {/* Col 3: Chiều - Nội dung công việc */}
-                    <td className="p-2 border-r border-slate-300 align-top group relative">
+                    <td className="p-2.5 border-r border-slate-300 align-top group relative">
                       <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           type="button"
                           onClick={() => handleAddBullet(idx, 'afternoonTasks')}
-                          className="text-[10px] text-amber-700 font-bold hover:underline flex items-center gap-1"
+                          className="text-[10px] text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Plus size={11} /> Thêm dòng việc
                         </button>
                       </div>
-                      <textarea
-                        rows={3}
+                      <AutoResizeTextarea
+                        minHeight={64}
                         value={day.afternoonTasks || ''}
                         onChange={(e) => handleUpdateDay(idx, 'afternoonTasks', e.target.value)}
                         placeholder="Nội dung công việc buổi chiều..."
-                        className="w-full text-xs text-slate-800 bg-transparent resize-y rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none leading-relaxed"
+                        className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none leading-relaxed"
                       />
                     </td>
 
                     {/* Col 4: Lãnh đạo trực/đánh giá */}
-                    <td className="p-2 border-r border-slate-300 align-top w-44">
-                      <textarea
-                        rows={3}
+                    <td className="p-2.5 border-r border-slate-300 align-top w-44">
+                      <AutoResizeTextarea
+                        minHeight={64}
                         value={day.dutyLeaderOrEvaluation || ''}
                         onChange={(e) => handleUpdateDay(idx, 'dutyLeaderOrEvaluation', e.target.value)}
                         placeholder="Lãnh đạo trực / đánh giá kết quả..."
-                        className="w-full text-xs text-slate-700 bg-transparent resize-y rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 outline-none text-center"
+                        className="w-full text-xs text-slate-700 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 outline-none text-center leading-relaxed"
                       />
                     </td>
 
                     {/* Col 5: Ghi chú */}
-                    <td className="p-2 align-top w-32">
-                      <textarea
-                        rows={3}
+                    <td className="p-2.5 align-top w-32">
+                      <AutoResizeTextarea
+                        minHeight={64}
                         value={day.notes || ''}
                         onChange={(e) => handleUpdateDay(idx, 'notes', e.target.value)}
                         placeholder="Ghi chú thêm..."
-                        className="w-full text-xs text-slate-600 bg-transparent resize-y rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-slate-400 outline-none text-center"
+                        className="w-full text-xs text-slate-600 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-slate-400 outline-none text-center leading-relaxed"
                       />
                     </td>
 
