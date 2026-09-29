@@ -144,10 +144,26 @@ export interface KpiVcForm {
   ttcmEvaluatorId?: string;
   ttcmEvaluatorName?: string;
   ttcmEvaluatorRole?: string;
+  ttcmEvaluatorDepartment?: string;
   ttcmEvaluatedAt?: string | null;
   ttcmClassification?: string;
   ttcmComment?: string;
   ttcmDate?: string;
+  ttcmStatus?: 'pending' | 'evaluated';
+
+  // BGH Assessor Info (Cấp 2 - Ban Giám hiệu)
+  bghEvaluatorId?: string;
+  bghEvaluatorName?: string;
+  bghEvaluatorRole?: string;
+  bghEvaluatorDepartment?: string;
+  bghEvaluatedAt?: string | null;
+  bghClassification?: string;
+  bghComment?: string;
+  bghDate?: string;
+  bghStatus?: 'pending' | 'evaluated';
+  bghTotalScore?: number | null;
+  hasTtcmEval?: boolean;
+  hasBghEval?: boolean;
 
   // Self Assessment
   selfClassification: string; // 'Hoàn thành xuất sắc nhiệm vụ' | ...

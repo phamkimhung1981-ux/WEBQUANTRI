@@ -177,7 +177,8 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           <p><span class="font-bold">Họ và tên:</span> ${form.employeeName || ''}</p>
           <p><span class="font-bold">Chức vụ / môn:</span> ${form.position || 'Giáo viên'} ${form.subject ? `• Môn ${form.subject}` : ''}</p>
           <p><span class="font-bold">Tổ chuyên môn:</span> ${form.department || 'Trường THPT Sơn Lương'}</p>
-          <p><span class="font-bold">Người đánh giá:</span> ${form.evaluatorName || '....................'} &nbsp;&nbsp;&nbsp;&nbsp; <span class="font-bold">Vai trò:</span> ${form.evaluatorRole || (form.evaluatorName ? 'Tổ trưởng chuyên môn' : '....................')} &nbsp;&nbsp;&nbsp;&nbsp; <span class="font-bold">Tổ chuyên môn:</span> ${form.department || '....................'}</p>
+          <p><span class="font-bold">Tổ trưởng chuyên môn đánh giá:</span> ${form.ttcmEvaluatorName || '....................'} &nbsp;&nbsp;&nbsp;&nbsp; <span class="font-bold">Tổ:</span> ${form.ttcmEvaluatorDepartment || form.department || '....................'}</p>
+          <p><span class="font-bold">Ban Giám hiệu đánh giá:</span> ${form.bghEvaluatorName || form.evaluatorName || '....................'} &nbsp;&nbsp;&nbsp;&nbsp; <span class="font-bold">Chức vụ:</span> ${form.bghEvaluatorRole || form.evaluatorRole || 'Ban Giám hiệu'}</p>
         </div>
 
         <!-- CĂN CỨ MẪU PHIẾU -->
@@ -395,18 +396,18 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
             </td>
 
             <td style="width: 33.3%;">
-              <p class="font-bold uppercase" style="font-size: 10.5pt;">TỔ CHUYÊN MÔN ĐÁNH GIÁ</p>
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">TỔ TRƯỞNG CHUYÊN MÔN</p>
               <p class="italic" style="font-size: 9.5pt;">(Ký, ghi rõ họ tên)</p>
               <br/><br/><br/><br/>
               <p class="font-bold" style="font-size: 11pt;">${form.ttcmEvaluatorName || '...............................'}</p>
             </td>
 
             <td style="width: 33.3%;">
-              <p class="font-bold uppercase" style="font-size: 10.5pt;">NGƯỜI CÓ THẨM QUYỀN PHÊ DUYỆT</p>
+              <p class="font-bold uppercase" style="font-size: 10.5pt;">BAN GIÁM HIỆU PHÊ DUYỆT</p>
               <p class="font-bold uppercase" style="font-size: 10.5pt;">DUYỆT</p>
               <p class="italic" style="font-size: 9.5pt;">(Ký, ghi rõ họ tên)</p>
               <br/><br/><br/>
-              <p class="font-bold" style="font-size: 11pt;">${form.evaluatorName || '...............................'}</p>
+              <p class="font-bold" style="font-size: 11pt;">${form.bghEvaluatorName || form.evaluatorName || '...............................'}</p>
             </td>
           </tr>
         </table>

@@ -137,11 +137,16 @@ export default function KpiVcPrintModal({
               <p>
                 <span className="font-semibold">Tổ chuyên môn:</span> {form.department}
               </p>
-              <p>
-                <span className="font-semibold">Người đánh giá:</span> {form.evaluatorName || '....................'}
-                <span className="ml-3"><span className="font-semibold">Vai trò:</span> {form.evaluatorRole || (form.evaluatorName ? 'Tổ trưởng chuyên môn' : '....................')}</span>
-                <span className="ml-3"><span className="font-semibold">Tổ chuyên môn:</span> {form.department}</span>
-              </p>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-300">
+                <p>
+                  <span className="font-semibold">Tổ trưởng chuyên môn đánh giá:</span> {form.ttcmEvaluatorName || '....................'}
+                  <span className="ml-1 text-slate-600 font-normal">({form.ttcmEvaluatorDepartment || form.department})</span>
+                </p>
+                <p>
+                  <span className="font-semibold">Ban Giám hiệu đánh giá:</span> {form.bghEvaluatorName || form.evaluatorName || '....................'}
+                  <span className="ml-1 text-slate-600 font-normal">({form.bghEvaluatorRole || form.evaluatorRole || 'Ban Giám hiệu'})</span>
+                </p>
+              </div>
             </div>
 
             {/* CĂN CỨ MẪU PHIẾU */}
@@ -345,7 +350,7 @@ export default function KpiVcPrintModal({
               </div>
 
               <div>
-                <p className="font-bold uppercase">TỔ CHUYÊN MÔN ĐÁNH GIÁ</p>
+                <p className="font-bold uppercase">TỔ TRƯỞNG CHUYÊN MÔN</p>
                 <p className="text-[10px] italic">(Ký, ghi rõ họ tên)</p>
                 <div className="h-16 flex items-end justify-center font-bold">
                   {form.ttcmEvaluatorName || '....................'}
@@ -353,11 +358,11 @@ export default function KpiVcPrintModal({
               </div>
 
               <div>
-                <p className="font-bold uppercase">NGƯỜI CÓ THẨM QUYỀN PHÊ DUYỆT</p>
+                <p className="font-bold uppercase">BAN GIÁM HIỆU PHÊ DUYỆT</p>
                 <p className="font-bold uppercase">DUYỆT</p>
                 <p className="text-[10px] italic">(Ký, ghi rõ họ tên)</p>
                 <div className="h-14 flex items-end justify-center font-bold">
-                  {form.evaluatorName || '....................'}
+                  {form.bghEvaluatorName || form.evaluatorName || '....................'}
                 </div>
               </div>
             </div>

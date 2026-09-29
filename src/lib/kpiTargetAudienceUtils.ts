@@ -2031,7 +2031,7 @@ export function getBghEvaluatorList(teachers: Teacher[]): BghEvaluatorOption[] {
 /**
  * Tìm Tổ trưởng chuyên môn cho một tổ cụ thể
  * Hỗ trợ tìm kiếm thông minh đa cấp:
- * 1. headId trong cấu hình departments
+ * 1. headId trong cấu hình departments (Ưu tiên ID chính xác)
  * 2. Nhân sự có role/position TTCM trong cùng departmentId
  * 3. Khớp tên tổ / từ khóa tổ (Toán - Tin, Hóa - Sinh, Văn - Sử, Ngoại ngữ, Văn phòng...)
  */
@@ -2045,13 +2045,13 @@ export function findTtcmForDepartment(
   // 1. Tìm department object
   const dept = departments.find(d => d.id === deptId || d.name === deptId);
 
-  // 1.1 Kiểm tra headId của department
+  // 1.1 Kiểm tra headId của department (Ưu tiên số 1 theo ID người dùng)
   if (dept && dept.headId) {
     const head = teachers.find(t => t.id === dept.headId && !isExcludedCbqlEvaluator(t));
     if (head) return head;
   }
 
-  // 2. Tìm nhân sự là TTCM trong cùng departmentId
+  // 2. Tìm nhân sự là TTCM trong cùng departmentId (Khớp ID phòng ban và vai trò TTCM)
   const ttcmInDept = teachers.find(t => {
     if (isExcludedCbqlEvaluator(t)) return false;
     const isSameDeptId = t.departmentId === deptId || (dept && t.departmentId === dept.id);
@@ -2096,6 +2096,82 @@ export function findTtcmForDepartment(
   }
 
   return null;
+}
+
+/**
+ * Lấy danh sách chọn Tổ trưởng chuyên môn cho từng tổ chuyên môn cụ thể
+ * Chỉ hiển thị cán bộ đang có vai trò / chức vụ Tổ trưởng chuyên môn thuộc tổ
+ */
+export function getDepartmentTtcmDropdownOptions(
+  deptId: string,
+  teachers: Teacher[],
+  departments: Department[] = []
+): TtcmEvaluatorOption[] {
+  const activeTeachers = teachers.filter(t => {
+    const rawStatus = (t.status as string) || '';
+    const isInactive = rawStatus === 'Đã nghỉ việc' || rawStatus === 'inactive' || rawStatus === 'Nghỉ việc';
+    return !isInactive && !isExcludedCbqlEvaluator(t);
+  });
+
+  const dept = departments.find(d => d.id === deptId || d.name === deptId);
+  const deptName = dept?.name || deptId || 'Tổ chuyên môn';
+  const cleanDeptName = deptName.startsWith('Tổ ') ? deptName : `Tổ ${deptName}`;
+
+  // 1. Tổ trưởng được xác định của tổ này
+  const deptHead = findTtcmForDepartment(deptId, teachers, departments);
+
+  const options: TtcmEvaluatorOption[] = [];
+
+  if (deptHead) {
+    options.push({
+      id: deptHead.id,
+      name: deptHead.name,
+      code: deptHead.code,
+      departmentId: deptHead.departmentId,
+      departmentName: deptName,
+      position: deptHead.position || `Tổ trưởng ${cleanDeptName}`,
+      displayLabel: `${deptHead.name} — Tổ trưởng ${cleanDeptName}`,
+      teacher: deptHead
+    });
+  }
+
+  // 2. Các nhân sự khác trong tổ nếu có vai trò TTCM
+  activeTeachers.forEach(t => {
+    const inSameDept = (dept && t.departmentId === dept.id) || t.departmentId === deptId;
+    if (inSameDept && isTeacherTtcm(t, departments) && (!deptHead || t.id !== deptHead.id)) {
+      options.push({
+        id: t.id,
+        name: t.name,
+        code: t.code,
+        departmentId: t.departmentId,
+        departmentName: deptName,
+        position: t.position || `Tổ trưởng ${cleanDeptName}`,
+        displayLabel: `${t.name} — Tổ trưởng ${cleanDeptName}`,
+        teacher: t
+      });
+    }
+  });
+
+  // 3. Nếu tổ chưa xác định được TTCM, liệt kê các CBGVNV trong tổ để người quản lý lựa chọn
+  if (options.length === 0) {
+    activeTeachers.forEach(t => {
+      const inSameDept = (dept && t.departmentId === dept.id) || t.departmentId === deptId;
+      if (inSameDept && !isTeacherBgh(t)) {
+        options.push({
+          id: t.id,
+          name: t.name,
+          code: t.code,
+          departmentId: t.departmentId,
+          departmentName: deptName,
+          position: t.position || t.role || 'Giáo viên',
+          displayLabel: `${t.name} (${t.position || t.role || 'Giáo viên'})`,
+          teacher: t
+        });
+      }
+    });
+  }
+
+  return options;
 }
 
 /**

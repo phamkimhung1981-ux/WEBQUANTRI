@@ -896,12 +896,28 @@ export default function KpiTeacherStaff() {
                                   <p className="text-[11px] text-slate-500">
                                     {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
                                   </p>
-                                  {form.evaluatorName && (
-                                    <p className="text-[10px] text-slate-500 mt-0.5">
-                                      <span className="text-slate-400">Đánh giá bởi:</span> <strong className="text-slate-700">{form.evaluatorName}</strong>
-                                      {form.evaluatorRole && <span className="ml-1 text-[9px] px-1 rounded bg-slate-100 text-slate-600 font-medium">({form.evaluatorRole})</span>}
-                                    </p>
-                                  )}
+                                  <div className="text-[10px] space-y-0.5 mt-1">
+                                    {form.ttcmEvaluatorName && (
+                                      <div className="text-slate-600">
+                                        <span className="font-bold text-purple-700">Tổ:</span> {form.ttcmEvaluatorName}
+                                        {typeof form.ttcmTotalScore === 'number' && form.ttcmTotalScore !== null ? (
+                                          <span className="ml-1 font-mono text-purple-900 font-bold">({form.ttcmTotalScore}đ)</span>
+                                        ) : (
+                                          <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {(form.bghEvaluatorName || form.evaluatorName) && (
+                                      <div className="text-slate-600">
+                                        <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
+                                        {typeof form.managerTotalScore === 'number' && form.managerTotalScore !== null ? (
+                                          <span className="ml-1 font-mono text-blue-900 font-bold">({form.managerTotalScore}đ)</span>
+                                        ) : (
+                                          <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </td>
@@ -1066,12 +1082,28 @@ export default function KpiTeacherStaff() {
                             <p className="text-[11px] text-slate-500">
                               {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
                             </p>
-                            {form.evaluatorName && (
-                              <p className="text-[10px] text-slate-500 mt-0.5">
-                                <span className="text-slate-400">Đánh giá bởi:</span> <strong className="text-slate-700">{form.evaluatorName}</strong>
-                                {form.evaluatorRole && <span className="ml-1 text-[9px] px-1 rounded bg-slate-100 text-slate-600 font-medium">({form.evaluatorRole})</span>}
-                              </p>
-                            )}
+                            <div className="text-[10px] space-y-0.5 mt-1">
+                              {form.ttcmEvaluatorName && (
+                                <div className="text-slate-600">
+                                  <span className="font-bold text-purple-700">Tổ:</span> {form.ttcmEvaluatorName}
+                                  {typeof form.ttcmTotalScore === 'number' && form.ttcmTotalScore !== null ? (
+                                    <span className="ml-1 font-mono text-purple-900 font-bold">({form.ttcmTotalScore}đ)</span>
+                                  ) : (
+                                    <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
+                                  )}
+                                </div>
+                              )}
+                              {(form.bghEvaluatorName || form.evaluatorName) && (
+                                <div className="text-slate-600">
+                                  <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
+                                  {typeof form.managerTotalScore === 'number' && form.managerTotalScore !== null ? (
+                                    <span className="ml-1 font-mono text-blue-900 font-bold">({form.managerTotalScore}đ)</span>
+                                  ) : (
+                                    <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
