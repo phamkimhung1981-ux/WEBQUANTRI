@@ -211,7 +211,7 @@ export default function Settings() {
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-500">Phiên bản hệ thống</span>
                 <span className="font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200 text-xs">
-                  v1.2.1 (2026-09-29)
+                  v1.2.3 (2026-09-29)
                 </span>
               </div>
               <div className="flex justify-between py-2">

@@ -186,7 +186,14 @@ export const homeroomService = {
     const q = collection(db, 'students');
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-      callback(data.sort((a, b) => a.name.localeCompare(b.name)));
+      callback(data.sort((a, b) => {
+        if (a.stt !== undefined && b.stt !== undefined && a.stt !== null && b.stt !== null) {
+          const numA = Number(a.stt);
+          const numB = Number(b.stt);
+          if (!isNaN(numA) && !isNaN(numB) && numA !== numB) return numA - numB;
+        }
+        return (a.name || '').localeCompare(b.name || '', 'vi-VN');
+      }));
     }, (err) => handleFirestoreError(err, OperationType.GET, 'students'));
   },
 
@@ -592,6 +599,64 @@ export const homeroomService = {
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students_bulk');
+      throw err;
+    }
+  },
+
+  /**
+   * Save permanent A-B-C ranking and sorted STT order for a class into Firestore
+   */
+  async saveClassAbcRanking(
+    classId: string,
+    rankedStudents: Array<{
+      id: string;
+      stt: number;
+      xepLoaiABC?: string;
+      xep_loai_abc?: string;
+      sortOrder?: number;
+    }>,
+    sortMode: string = 'name_asc'
+  ): Promise<{ success: boolean; count: number }> {
+    try {
+      if (!rankedStudents || rankedStudents.length === 0) {
+        return { success: true, count: 0 };
+      }
+
+      const now = new Date().toISOString();
+      // Batch write up to 400 items per batch
+      for (let i = 0; i < rankedStudents.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = rankedStudents.slice(i, i + 400);
+        chunk.forEach(st => {
+          const studentRef = doc(db, 'students', st.id);
+          const updates: Partial<Student> = {
+            stt: st.stt,
+            sortOrder: st.sortOrder !== undefined ? st.sortOrder : st.stt,
+            xepLoaiABC: st.xepLoaiABC,
+            xep_loai_abc: st.xep_loai_abc || st.xepLoaiABC,
+            updatedAt: now
+          };
+          batch.set(studentRef, sanitize(updates), { merge: true });
+        });
+        await batch.commit();
+      }
+
+      // Also persist the sort configuration and last timestamp on the class document if classId exists
+      if (classId) {
+        try {
+          const classRef = doc(db, 'classes', classId);
+          await setDoc(classRef, {
+            preferredSortMode: sortMode,
+            lastAbcRankedAt: now
+          }, { merge: true });
+        } catch (e) {
+          // Non-critical if class doc doesn't exist
+        }
+      }
+
+      return { success: true, count: rankedStudents.length };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'students_save_abc_ranking');
       throw err;
     }
   },

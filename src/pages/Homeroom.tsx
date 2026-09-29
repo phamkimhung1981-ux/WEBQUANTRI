@@ -190,6 +190,8 @@ export default function Homeroom() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [isSavingAbc, setIsSavingAbc] = useState<boolean>(false);
+  const [abcSaveStatusText, setAbcSaveStatusText] = useState<string>('');
 
   useEffect(() => {
     setSelectedStudentIds([]);
@@ -289,12 +291,64 @@ export default function Homeroom() {
 
   const classStudents = sortStudentsByVietnameseName(rawClassStudents, studentSortMode);
 
-  const handleToggleAbcSort = () => {
-    setStudentSortMode(prev => {
-      // Khi bấm lần đầu: → A–B–C. Khi bấm lần tiếp theo: → Z–A
-      if (prev === 'name_asc') return 'name_desc';
-      return 'name_asc';
-    });
+  const handleToggleAbcSort = async () => {
+    if (isSavingAbc) return;
+    if (!selectedClass) {
+      alert('Vui lòng chọn lớp học trước khi xếp A–B–C.');
+      return;
+    }
+
+    const nextMode: StudentSortMode = studentSortMode === 'name_asc' ? 'name_desc' : 'name_asc';
+    
+    // 1. Get all raw students of the selected class
+    const allClassStudents = students.filter(s => isStudentOfClass(s, selectedClass));
+    if (allClassStudents.length === 0) {
+      setAssessmentToast('Không có học sinh nào trong lớp để xếp A–B–C.');
+      setTimeout(() => setAssessmentToast(''), 3000);
+      return;
+    }
+
+    try {
+      setIsSavingAbc(true);
+      setAbcSaveStatusText('Đang lưu...');
+      
+      // 2. Perform Vietnamese Alphabetical sort
+      const sorted = sortStudentsByVietnameseName(allClassStudents, nextMode);
+
+      // 3. Compute ranked student items with persistent STT and classification
+      const rankedPayload = sorted.map((st, idx) => {
+        const scoreInfo = classStudentScores.get(st.id);
+        const classification = scoreInfo ? scoreInfo.classification : (st.xepLoaiABC || 'Tốt');
+        return {
+          id: st.id,
+          stt: idx + 1,
+          sortOrder: idx + 1,
+          xepLoaiABC: classification,
+          xep_loai_abc: classification
+        };
+      });
+
+      // 4. Save directly to Firestore Database
+      await homeroomService.saveClassAbcRanking(selectedClass.id, rankedPayload, nextMode);
+
+      // 5. Update local state
+      setStudentSortMode(nextMode);
+      setAbcSaveStatusText('Đã lưu');
+      setAssessmentToast(`Đã xếp và lưu kết quả A–B–C thành công.`);
+      
+      setTimeout(() => {
+        setAbcSaveStatusText('');
+      }, 3000);
+    } catch (err: any) {
+      console.error('Error saving ABC ranking to Firestore:', err);
+      setAbcSaveStatusText('');
+      setAssessmentToast('Không thể lưu kết quả A–B–C. Vui lòng thử lại.');
+    } finally {
+      setIsSavingAbc(false);
+      setTimeout(() => {
+        setAssessmentToast('');
+      }, 4500);
+    }
   };
 
   // Derived records for selected class and school year
@@ -1309,20 +1363,25 @@ export default function Homeroom() {
               <button
                 type="button"
                 onClick={handleToggleAbcSort}
+                disabled={isSavingAbc}
                 className={`px-3.5 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer border ${
-                  studentSortMode === 'name_asc'
+                  isSavingAbc
+                    ? 'opacity-60 cursor-not-allowed bg-purple-100 text-purple-800 border-purple-300'
+                    : abcSaveStatusText === 'Đã lưu'
+                    ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-200 shadow-sm'
+                    : studentSortMode === 'name_asc'
                     ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-700 ring-2 ring-purple-200 shadow-sm'
                     : studentSortMode === 'name_desc'
                     ? 'bg-purple-700 hover:bg-purple-800 text-white border-purple-800 ring-2 ring-purple-200 shadow-sm'
                     : 'bg-white hover:bg-purple-50 text-purple-700 border-purple-300 hover:border-purple-400'
                 }`}
-                title="Bấm lần đầu: Sắp xếp theo Tên A–B–C (A–Z). Bấm lần tiếp theo: Đảo thứ tự (Z–A)"
+                title="Bấm lần đầu: Sắp xếp theo Tên A–B–C (A–Z) & Lưu vào database. Bấm lần tiếp theo: Đảo thứ tự (Z–A) & Lưu"
               >
-                <span>🔤 XẾP A–B–C</span>
-                {studentSortMode === 'name_asc' && (
+                <span>🔤 {isSavingAbc ? 'Đang lưu...' : abcSaveStatusText ? 'Đã lưu ✓' : 'XẾP A–B–C'}</span>
+                {!isSavingAbc && !abcSaveStatusText && studentSortMode === 'name_asc' && (
                   <span className="text-[10px] bg-white/25 px-1.5 py-0.5 rounded font-black tracking-wide">A→Z</span>
                 )}
-                {studentSortMode === 'name_desc' && (
+                {!isSavingAbc && !abcSaveStatusText && studentSortMode === 'name_desc' && (
                   <span className="text-[10px] bg-white/25 px-1.5 py-0.5 rounded font-black tracking-wide">Z→A</span>
                 )}
               </button>

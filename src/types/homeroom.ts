@@ -25,6 +25,9 @@ export interface Student {
   parentName?: string;
   address?: string;
   avatar?: string;
+  xepLoaiABC?: string;
+  xep_loai_abc?: string;
+  sortOrder?: number;
   status?: 'active' | 'inactive' | 'left' | 'transferred';
   createdAt?: string;
   updatedAt?: string;

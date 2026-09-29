@@ -6,10 +6,31 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.2.1';
+export const CURRENT_SYSTEM_VERSION = 'v1.2.3';
 export const LAST_UPDATED = '2026-09-29';
 
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.2.3',
+    releaseDate: '2026-09-29',
+    title: 'Sửa triệt để chức năng XẾP A–B–C và Lưu kết quả bền vững vào Database',
+    modulesModified: ['Quản lý học sinh & GVCN', 'Dữ liệu học sinh', 'Sắp xếp danh sách'],
+    changes: [
+      'Nút "XẾP A–B–C" thực hiện đồng thời: Xếp A–B–C theo tên tiếng Việt -> Cập nhật STT và Xếp loại -> Lưu trực tiếp vào Firestore Database.',
+      'Lưu kết quả theo từng học sinh duy nhất (dựa trên ID) và theo đúng lớp.',
+      'Tự động khôi phục kết quả đã lưu khi reload trang, đổi lớp, đóng mở module hoặc đăng nhập lại.',
+      'Bổ sung trạng thái Đang lưu / Đã lưu ✓ trên nút bấm để chống bấm liên tục.'
+    ]
+  },
+  {
+    version: 'v1.2.2',
+    releaseDate: '2026-09-29',
+    title: 'Tự động lưu dữ liệu (Auto-save) ngay khi chỉnh sửa trên web',
+    modulesModified: ['Lịch giao việc tổ CM', 'Lịch công việc trường'],
+    changes: [
+      'Kích hoạt auto-save tức thì khi nhập liệu lịch công việc trường và tổ chuyên môn.'
+    ]
+  },
   {
     version: 'v1.2.1',
     releaseDate: '2026-09-29',
