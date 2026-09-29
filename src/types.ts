@@ -1,4 +1,24 @@
-export type Role = 'BGH' | 'TTCM' | 'GIAO_VU' | 'NHAN_SU' | 'GIAO_VIEN';
+export type Role = 'admin' | 'ADMIN' | 'BGH' | 'TTCM' | 'GIAO_VU' | 'NHAN_SU' | 'GIAO_VIEN';
+
+export interface SystemModule {
+  id: string;
+  title: string;
+  desc: string;
+  icon: string;
+  route: string;
+  gradient: string;
+  shadowColor: string;
+  order: number;
+  enabled: boolean;
+  allowedRoles: Role[];
+  showOnHome: boolean;
+  showOnSidebar: boolean;
+  showOnHeader?: boolean;
+  isSystem?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
 
 export interface User {
   id: string;

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Department, DisciplineRecord, DisciplineCriterion, Notification, Report, Task, Teacher, CalendarEvent, LeaveRecord, AttendanceRecord, KpiItem, KpiRecord, KpiGroup, KpiCategory, KpiMonthlySetting, GeneralKpi, WorkAssignment, EvaluationCategory, EvaluationCriterion, SchoolStats, KpiEvaluationForm, KpiEvaluationItem } from '../types';
+import { Department, DisciplineRecord, DisciplineCriterion, Notification, Report, Task, Teacher, CalendarEvent, LeaveRecord, AttendanceRecord, KpiItem, KpiRecord, KpiGroup, KpiCategory, KpiMonthlySetting, GeneralKpi, WorkAssignment, EvaluationCategory, EvaluationCriterion, SchoolStats, KpiEvaluationForm, KpiEvaluationItem, SystemModule, User } from '../types';
+import { DEFAULT_SYSTEM_MODULES, isAdminUser } from '../lib/moduleData';
 import { KpiStaffForm, KpiStaffPeriod, KpiStaffCriterion } from '../types/kpiStaff';
 import { DEFAULT_STAFF_PERIODS, DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffData';
 import { subscribeStaffForms, saveStaffFormsToCache, saveStaffFormToFirestore, loadStaffFormsFromCache } from '../services/kpiStaffService';
@@ -30,6 +31,7 @@ interface AppState {
   leaveRecords: LeaveRecord[];
   attendanceRecords: AttendanceRecord[];
   schoolStats: SchoolStats;
+  modules: SystemModule[];
   kpiStaffForms: KpiStaffForm[];
   kpiStaffPeriods: KpiStaffPeriod[];
   kpiStaffCriteria: KpiStaffCriterion[];
@@ -41,6 +43,12 @@ interface AppContextType extends AppState {
   setKpiStaffForms: (forms: KpiStaffForm[]) => void;
   setKpiStaffPeriods: (periods: KpiStaffPeriod[]) => void;
   setKpiStaffCriteria: (criteria: KpiStaffCriterion[]) => void;
+  addModule: (module: SystemModule, currentUser?: User | null) => Promise<void>;
+  updateModule: (id: string, data: Partial<SystemModule>, currentUser?: User | null) => Promise<void>;
+  deleteModule: (id: string, currentUser?: User | null) => Promise<void>;
+  toggleModule: (id: string, currentUser?: User | null) => Promise<void>;
+  reorderModules: (newModules: SystemModule[], currentUser?: User | null) => Promise<void>;
+  resetModulesToDefault: (currentUser?: User | null) => Promise<void>;
   updateTaskStatus: (taskId: string, status: Task['status'], progress?: number) => void;
   markNotificationRead: (id: string) => void;
   deleteTeacher: (id: string) => void;
@@ -215,6 +223,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       motto: 'Nơi chắp cánh những ước mơ',
       welcomeMessage: 'Chào mừng bạn!'
     },
+    modules: (() => {
+      try {
+        const stored = localStorage.getItem('app_system_modules');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+      return DEFAULT_SYSTEM_MODULES;
+    })(),
     kpiStaffForms: loadStaffFormsFromCache(),
     kpiStaffPeriods: DEFAULT_STAFF_PERIODS,
     kpiStaffCriteria: DEFAULT_STAFF_CRITERIA,
@@ -279,6 +297,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     handleSnapshot('calendarEvents', 'calendarEvents');
     handleSnapshot('leaveRecords', 'leaveRecords');
     handleSnapshot('attendance', 'attendanceRecords');
+
+    // Quản lý System Modules từ Firestore
+    const modulesColRef = collection(db, 'system_modules');
+    const unsubModules = onSnapshot(modulesColRef, (snap) => {
+      if (!snap.empty) {
+        const loadedModules = snap.docs.map(d => ({ id: d.id, ...d.data() })) as SystemModule[];
+        loadedModules.sort((a, b) => (a.order || 0) - (b.order || 0));
+        setState(prev => ({ ...prev, modules: loadedModules }));
+        try {
+          localStorage.setItem('app_system_modules', JSON.stringify(loadedModules));
+        } catch (e) {}
+      } else {
+        // Khởi tạo từ default modules nếu chưa có document nào
+        setState(prev => {
+          if (!prev.modules || prev.modules.length === 0) {
+            return { ...prev, modules: DEFAULT_SYSTEM_MODULES };
+          }
+          return prev;
+        });
+      }
+    }, (err) => {
+      console.warn('Error fetching system_modules from firestore:', err);
+    });
+    unsubscribes.push(unsubModules);
 
     // Thống kê trường học THPT Sơn Lương từ Database
     const statsDocRef = doc(db, 'systemSettings', 'schoolStats');

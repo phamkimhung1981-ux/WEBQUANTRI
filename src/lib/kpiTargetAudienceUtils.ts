@@ -1868,17 +1868,30 @@ export function isTeacherBgh(teacher?: Partial<Teacher> | null): boolean {
  */
 export function isTeacherTtcm(teacher?: Partial<Teacher> | null, departments: Department[] = []): boolean {
   if (!teacher) return false;
-  const role = teacher.role;
-  const pos = (teacher.position || '').toLowerCase().trim();
+  if (isExcludedCbqlEvaluator(teacher)) return false;
+  if (isTeacherBgh(teacher)) return false;
+
+  const role = String(teacher.role || '').toUpperCase().trim();
+  const pos = String(teacher.position || '').toLowerCase().trim();
+  const title = String((teacher as any).title || '').toLowerCase().trim();
   const isDeptHead = departments.some(d => d.headId === teacher.id);
   
   return (
     role === 'TTCM' ||
-    pos.includes('tổ trưởng chuyên môn') ||
-    pos.includes('tổ trưởng cm') ||
+    role === 'TO_TRUONG' ||
+    role === 'TO_TRUONG_CHUYEN_MON' ||
+    role === 'TOTRUONG' ||
+    role === 'TT' ||
+    isDeptHead ||
     pos.includes('tổ trưởng') ||
+    pos.includes('to truong') ||
     pos.includes('ttcm') ||
-    isDeptHead
+    pos.includes('trưởng bộ môn') ||
+    pos.includes('truong bo mon') ||
+    pos.includes('trưởng tổ') ||
+    pos.includes('truong to') ||
+    title.includes('tổ trưởng') ||
+    Boolean((teacher as any).isTtcm)
   );
 }
 
@@ -1890,6 +1903,225 @@ export interface EligibleEvaluatorsResult {
   ruleType: 'GV' | 'TTCM_TPCM' | 'DOAN' | 'CBQL' | 'NV';
 }
 
+export interface TtcmEvaluatorOption {
+  id: string;
+  name: string;
+  code?: string;
+  departmentId?: string;
+  departmentName: string;
+  position: string;
+  displayLabel: string;
+  teacher: Teacher;
+}
+
+export interface BghEvaluatorOption {
+  id: string;
+  name: string;
+  code?: string;
+  position: string;
+  displayLabel: string;
+  teacher: Teacher;
+}
+
+/**
+ * Chuẩn hóa chuỗi tìm kiếm tổ bộ môn
+ */
+function normalizeDeptKeyword(str: string): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Lấy danh sách Tổ trưởng chuyên môn trong hệ thống
+ * Chỉ lấy cán bộ có vai trò TTCM / Trưởng bộ môn / headId của Tổ
+ * Tuyệt đối không lấy giáo viên bình thường
+ */
+export function getTtcmEvaluatorList(teachers: Teacher[], departments: Department[] = []): TtcmEvaluatorOption[] {
+  const activeTeachers = teachers.filter(t => {
+    const rawStatus = (t.status as string) || '';
+    const isInactive = rawStatus === 'Đã nghỉ việc' || rawStatus === 'inactive' || rawStatus === 'Nghỉ việc';
+    return !isInactive && !isExcludedCbqlEvaluator(t);
+  });
+
+  const ttcmList: TtcmEvaluatorOption[] = [];
+
+  activeTeachers.forEach(t => {
+    const isTtcm = isTeacherTtcm(t, departments);
+
+    if (isTtcm) {
+      let deptName = t.departmentName || '';
+      if (!deptName && t.departmentId) {
+        const foundDept = departments.find(d => d.id === t.departmentId);
+        if (foundDept) deptName = foundDept.name;
+      }
+      if (!deptName) {
+        const headDept = departments.find(d => d.headId === t.id);
+        if (headDept) deptName = headDept.name;
+      }
+      if (!deptName && (t as any).department) {
+        deptName = (t as any).department;
+      }
+      if (!deptName) {
+        // Trích xuất từ position nếu có dạng "Tổ trưởng Tổ X"
+        const pos = t.position || '';
+        if (pos.toLowerCase().includes('tổ')) {
+          const match = pos.match(/tổ\s+[^,-]+/i);
+          if (match) deptName = match[0];
+        }
+      }
+      if (!deptName) deptName = 'Tổ chuyên môn';
+
+      const cleanDeptName = deptName.startsWith('Tổ ') ? deptName : `Tổ ${deptName}`;
+      const displayLabel = `${t.name} — Tổ trưởng ${cleanDeptName}`;
+
+      if (!ttcmList.some(item => item.id === t.id)) {
+        ttcmList.push({
+          id: t.id,
+          name: t.name,
+          code: t.code,
+          departmentId: t.departmentId,
+          departmentName: deptName,
+          position: t.position || `Tổ trưởng ${cleanDeptName}`,
+          displayLabel,
+          teacher: t
+        });
+      }
+    }
+  });
+
+  return ttcmList;
+}
+
+/**
+ * Lấy danh sách Ban Giám hiệu trong hệ thống
+ */
+export function getBghEvaluatorList(teachers: Teacher[]): BghEvaluatorOption[] {
+  const activeTeachers = teachers.filter(t => {
+    const rawStatus = (t.status as string) || '';
+    const isInactive = rawStatus === 'Đã nghỉ việc' || rawStatus === 'inactive' || rawStatus === 'Nghỉ việc';
+    return !isInactive && !isExcludedCbqlEvaluator(t);
+  });
+
+  const bghList: BghEvaluatorOption[] = [];
+
+  activeTeachers.forEach(t => {
+    if (isTeacherBgh(t)) {
+      const pos = t.position || 'Ban Giám hiệu';
+      const displayLabel = `${t.name} — ${pos}`;
+      if (!bghList.some(item => item.id === t.id)) {
+        bghList.push({
+          id: t.id,
+          name: t.name,
+          code: t.code,
+          position: pos,
+          displayLabel,
+          teacher: t
+        });
+      }
+    }
+  });
+
+  return bghList;
+}
+
+/**
+ * Tìm Tổ trưởng chuyên môn cho một tổ cụ thể
+ * Hỗ trợ tìm kiếm thông minh đa cấp:
+ * 1. headId trong cấu hình departments
+ * 2. Nhân sự có role/position TTCM trong cùng departmentId
+ * 3. Khớp tên tổ / từ khóa tổ (Toán - Tin, Hóa - Sinh, Văn - Sử, Ngoại ngữ, Văn phòng...)
+ */
+export function findTtcmForDepartment(
+  deptId: string,
+  teachers: Teacher[],
+  departments: Department[] = []
+): Teacher | null {
+  if (!deptId) return null;
+
+  // 1. Tìm department object
+  const dept = departments.find(d => d.id === deptId || d.name === deptId);
+
+  // 1.1 Kiểm tra headId của department
+  if (dept && dept.headId) {
+    const head = teachers.find(t => t.id === dept.headId && !isExcludedCbqlEvaluator(t));
+    if (head) return head;
+  }
+
+  // 2. Tìm nhân sự là TTCM trong cùng departmentId
+  const ttcmInDept = teachers.find(t => {
+    if (isExcludedCbqlEvaluator(t)) return false;
+    const isSameDeptId = t.departmentId === deptId || (dept && t.departmentId === dept.id);
+    return isSameDeptId && isTeacherTtcm(t, departments);
+  });
+  if (ttcmInDept) return ttcmInDept;
+
+  // 3. Khớp theo departmentName hoặc department string
+  const targetDeptName = dept?.name || deptId;
+  const normTarget = normalizeDeptKeyword(targetDeptName);
+
+  if (normTarget) {
+    const ttcmByName = teachers.find(t => {
+      if (isExcludedCbqlEvaluator(t)) return false;
+      const tDeptName = t.departmentName || (t as any).department || '';
+      const normTDept = normalizeDeptKeyword(tDeptName);
+      const isMatch = normTDept && (normTDept.includes(normTarget) || normTarget.includes(normTDept));
+      return isMatch && isTeacherTtcm(t, departments);
+    });
+    if (ttcmByName) return ttcmByName;
+
+    // 4. Khớp theo từ khóa đặc trưng (Toán, Tin, Hóa, Lý, Sinh, Văn, Sử, Địa, Ngoại ngữ, Văn phòng)
+    const keywords = [
+      { key: 'toan', match: ['toan', 'tin', 'cn', 'congnghe'] },
+      { key: 'hoa', match: ['hoa', 'ly', 'sinh', 'gdqpan', 'qpan', 'nn', 'tienganh'] },
+      { key: 'van', match: ['van', 'su', 'dia', 'gdkt', 'pl', 'an', 'nguvan', 'lichsu', 'diali'] },
+      { key: 'vanphong', match: ['vanphong', 'hanhchinh', 'ketoan', 'yte', 'thuvien'] }
+    ];
+
+    for (const group of keywords) {
+      const targetHasKeyword = group.match.some(m => normTarget.includes(m));
+      if (targetHasKeyword) {
+        const found = teachers.find(t => {
+          if (isExcludedCbqlEvaluator(t)) return false;
+          if (!isTeacherTtcm(t, departments)) return false;
+          const tDept = normalizeDeptKeyword(t.departmentName || (t as any).department || t.position || '');
+          return group.match.some(m => tDept.includes(m));
+        });
+        if (found) return found;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Kiểm tra xem một nhân sự có thuộc danh sách LOẠI TRỪ khỏi vai trò Cán bộ quản lý đánh giá / Cán bộ quản lý đề xuất hay không:
+ * 1. Nguyễn Trung Kiên
+ * 2. Trần Thị Thu Hiền
+ */
+export function isExcludedCbqlEvaluator(teacher?: Partial<Teacher> | null): boolean {
+  if (!teacher) return false;
+  const id = String(teacher.id || '').trim();
+  if (id === 'xcnp8xx83' || id === 'd8sotdwua') return true;
+
+  const rawName = String(teacher.name || '').trim().toLowerCase();
+  const normalizedName = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  if (
+    rawName.includes('nguyễn trung kiên') || 
+    normalizedName.includes('nguyen trung kien') ||
+    rawName.includes('trần thị thu hiền') || 
+    normalizedName.includes('tran thi thu hien')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Lọc danh sách Người đánh giá hợp lệ theo đúng quy định chức vụ và phân quyền:
  * 1. GIÁO VIÊN: Chỉ được chọn Tổ trưởng chuyên môn (TTCM). Ưu tiên TTCM của tổ mình.
@@ -1898,6 +2130,7 @@ export interface EligibleEvaluatorsResult {
  * 4. CBQL (Hiệu trưởng, Phó Hiệu trưởng): Chọn BGH / Hội đồng quản lý.
  * 5. NHÂN VIÊN: Chọn Tổ trưởng Văn phòng hoặc BGH phụ trách.
  * - Chỉ lấy CBGVNV đang hoạt động (không lấy người đã nghỉ việc).
+ * - Loại bỏ các nhân sự bị loại trừ khỏi danh sách CBQL đánh giá (Nguyễn Trung Kiên, Trần Thị Thu Hiền).
  * - Không cho phép chọn học sinh, giáo viên bình thường hoặc nhập tự do.
  */
 export function getEligibleEvaluators(
@@ -1905,10 +2138,11 @@ export function getEligibleEvaluators(
   teachers: Teacher[],
   departments: Department[] = []
 ): EligibleEvaluatorsResult {
-  // Chỉ lấy CBGVNV đang hoạt động (không lấy người đã nghỉ việc/khóa)
+  // Chỉ lấy CBGVNV đang hoạt động (không lấy người đã nghỉ việc/khóa) và KHÔNG thuộc danh sách bị loại trừ
   const activeTeachers = teachers.filter(t => {
     const rawStatus = (t.status as string) || '';
-    return rawStatus !== 'Đã nghỉ việc' && rawStatus !== 'inactive' && rawStatus !== 'Nghỉ việc';
+    const isInactive = rawStatus === 'Đã nghỉ việc' || rawStatus === 'inactive' || rawStatus === 'Nghỉ việc';
+    return !isInactive && !isExcludedCbqlEvaluator(t);
   });
 
   if (!evaluatee) {

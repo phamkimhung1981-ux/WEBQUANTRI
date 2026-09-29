@@ -177,6 +177,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           <p><span class="font-bold">Họ và tên:</span> ${form.employeeName || ''}</p>
           <p><span class="font-bold">Chức vụ / môn:</span> ${form.position || 'Giáo viên'} ${form.subject ? `• Môn ${form.subject}` : ''}</p>
           <p><span class="font-bold">Tổ chuyên môn:</span> ${form.department || 'Trường THPT Sơn Lương'}</p>
+          <p><span class="font-bold">Người đánh giá:</span> ${form.evaluatorName || '....................'} &nbsp;&nbsp;&nbsp;&nbsp; <span class="font-bold">Vai trò:</span> ${form.evaluatorRole || (form.evaluatorName ? 'Tổ trưởng chuyên môn' : '....................')} &nbsp;&nbsp;&nbsp;&nbsp; <span class="font-bold">Tổ chuyên môn:</span> ${form.department || '....................'}</p>
         </div>
 
         <!-- CĂN CỨ MẪU PHIẾU -->

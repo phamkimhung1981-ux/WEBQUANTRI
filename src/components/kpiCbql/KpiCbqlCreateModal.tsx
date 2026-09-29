@@ -24,6 +24,7 @@ import {
   resolveCbqlTeacherPosition,
   resolveCbqlTeacherDepartmentName
 } from '../../lib/kpiCbqlData';
+import { isExcludedCbqlEvaluator } from '../../lib/kpiTargetAudienceUtils';
 import { createCbqlForm } from '../../services/kpiCbqlService';
 import { useAuth } from '../../store/AuthContext';
 
@@ -128,16 +129,18 @@ export default function KpiCbqlCreateModal({
 
   // Eligible evaluators for the selected teacher
   const eligibleEvaluators = useMemo(() => {
-    const list = getEligibleCbqlEvaluators(selectedTeacher, allSelectableTeachers, departments);
+    const list = getEligibleCbqlEvaluators(selectedTeacher, allSelectableTeachers, departments).filter(t => !isExcludedCbqlEvaluator(t));
     if (list.length > 0) return list;
     // Fallback if no evaluators found
-    return allSelectableTeachers.filter(t => !selectedTeacher || t.id !== selectedTeacher.id);
+    return allSelectableTeachers.filter(t => (!selectedTeacher || t.id !== selectedTeacher.id) && !isExcludedCbqlEvaluator(t));
   }, [selectedTeacher, allSelectableTeachers, departments]);
 
   // Auto-select first eligible evaluator
   useEffect(() => {
-    if (isOpen && (!selectedEvaluatorId || !allSelectableTeachers.some(t => t.id === selectedEvaluatorId))) {
-      if (eligibleEvaluators.length > 0) {
+    if (isOpen) {
+      const currentEval = allSelectableTeachers.find(t => t.id === selectedEvaluatorId);
+      const isInvalid = !selectedEvaluatorId || !currentEval || isExcludedCbqlEvaluator(currentEval);
+      if (isInvalid && eligibleEvaluators.length > 0) {
         setSelectedEvaluatorId(eligibleEvaluators[0].id);
       }
     }

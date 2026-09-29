@@ -6,6 +6,7 @@ import {
   KpiCbqlScoreItem 
 } from '../types/kpiCbql';
 import { Teacher, Department } from '../types';
+import { isExcludedCbqlEvaluator } from './kpiTargetAudienceUtils';
 
 /**
  * 3 NHÓM TIÊU CHÍ CHUẨN (TỔNG 100 ĐIỂM)
@@ -924,10 +925,12 @@ export function getEligibleCbqlEvaluators(evaluatee: Teacher | null, teachers: T
   if (!teachers || teachers.length === 0) return [];
   
   // Những người có quyền đánh giá CBQL:
-  // - Hiệu trưởng, BGH, Cấp trên
+  // - Hiệu trưởng, BGH, Cấp trên (loại trừ người trong danh sách loại trừ CBQL đánh giá)
   const eligible = teachers.filter(t => {
     // Không tự đánh giá chính mình
     if (evaluatee && t.id === evaluatee.id) return false;
+    // Không bao gồm người bị loại trừ khỏi danh sách CBQL đánh giá
+    if (isExcludedCbqlEvaluator(t)) return false;
     
     const pos = (t.position || '').toLowerCase();
     const role = ((t.role as string) || '').toUpperCase();
@@ -950,7 +953,7 @@ export function getEligibleCbqlEvaluators(evaluatee: Teacher | null, teachers: T
   });
 
   if (eligible.length > 0) return eligible;
-  return teachers.filter(t => !evaluatee || t.id !== evaluatee.id);
+  return teachers.filter(t => (!evaluatee || t.id !== evaluatee.id) && !isExcludedCbqlEvaluator(t));
 }
 
 /**

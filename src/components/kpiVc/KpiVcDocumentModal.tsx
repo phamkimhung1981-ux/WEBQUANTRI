@@ -51,7 +51,15 @@ import {
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
 } from '../../lib/kpiVcData';
-import { getEligibleEvaluators } from '../../lib/kpiTargetAudienceUtils';
+import { 
+  getEligibleEvaluators, 
+  isExcludedCbqlEvaluator,
+  getTtcmEvaluatorList,
+  getBghEvaluatorList,
+  findTtcmForDepartment,
+  TtcmEvaluatorOption,
+  BghEvaluatorOption
+} from '../../lib/kpiTargetAudienceUtils';
 import { 
   createVcForm, 
   updateVcForm, 
@@ -98,10 +106,20 @@ export default function KpiVcDocumentModal({
     return getEligibleVcTeachers(teachers);
   }, [teachers]);
 
+  // TTCM & BGH Evaluators List
+  const ttcmEvaluators = useMemo(() => {
+    return getTtcmEvaluatorList(teachers, departments);
+  }, [teachers, departments]);
+
+  const bghEvaluators = useMemo(() => {
+    return getBghEvaluatorList(teachers);
+  }, [teachers]);
+
   // --- SINGLE FORM STATE (FOR EDIT / VIEW / EVAL MODES) ---
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>('');
+  const [selectedEvaluatorRole, setSelectedEvaluatorRole] = useState<string>('Tổ trưởng chuyên môn');
   
   // Evaluation Date & Sign
   const [selfDate, setSelfDate] = useState<string>('');
@@ -130,6 +148,13 @@ export default function KpiVcDocumentModal({
   const [teacherSearch, setTeacherSearch] = useState<string>('');
   const [teacherFilter, setTeacherFilter] = useState<'all' | 'selected' | 'unselected'>('all');
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
+
+  // Evaluator Type & Selection State for Create Mode
+  // 2 options: 'TTCM' (Tổ trưởng chuyên môn) | 'BGH' (Ban Giám hiệu)
+  const [evaluatorType, setEvaluatorType] = useState<'TTCM' | 'BGH'>('TTCM');
+  const [selectedTtcmId, setSelectedTtcmId] = useState<string>('auto'); // 'auto' = auto assign TTCM by department
+  const [selectedBghId, setSelectedBghId] = useState<string>('');
+  const [deptEvaluatorMap, setDeptEvaluatorMap] = useState<Record<string, string>>({});
 
   // Evaluation Settings State (Create Mode)
   const [allowSelfEval, setAllowSelfEval] = useState<boolean>(true);
@@ -161,12 +186,13 @@ export default function KpiVcDocumentModal({
   }, [selectedTeacher, teachers, departments]);
 
   const recommendedEvaluators = useMemo(() => {
-    return eligibleEvaluatorsResult.evaluators || [];
+    return (eligibleEvaluatorsResult.evaluators || []).filter(t => !isExcludedCbqlEvaluator(t));
   }, [eligibleEvaluatorsResult]);
 
   const allCbqlEvaluators = useMemo(() => {
     const list = teachers.filter(t => {
       if (!t) return false;
+      if (isExcludedCbqlEvaluator(t)) return false;
       const roleStr = String(t.role || '').toUpperCase();
       const posStr = String(t.position || '').toLowerCase();
       const isHead = departments.some(d => d.headId === t.id);
@@ -188,11 +214,11 @@ export default function KpiVcDocumentModal({
 
       return isManagerRole || isManagerPos || isHead || Boolean((t as any).isManager);
     });
-    return list.length > 0 ? list : teachers;
+    return list.length > 0 ? list : teachers.filter(t => !isExcludedCbqlEvaluator(t));
   }, [teachers, departments]);
 
   const otherCbqlList = useMemo(() => {
-    return allCbqlEvaluators.filter(t => !recommendedEvaluators.some(r => r.id === t.id));
+    return allCbqlEvaluators.filter(t => !isExcludedCbqlEvaluator(t) && !recommendedEvaluators.some(r => r.id === t.id));
   }, [allCbqlEvaluators, recommendedEvaluators]);
 
   const selectedEvaluator = useMemo(() => {
@@ -281,11 +307,23 @@ export default function KpiVcDocumentModal({
       
       let matchedEvalId = form.evaluatorId || '';
       if (!matchedEvalId && form.evaluatorName) {
-        const foundObj = teachers.find(t => t.name.trim().toLowerCase() === form.evaluatorName.trim().toLowerCase());
+        const foundObj = teachers.find(t => t.name.trim().toLowerCase() === form.evaluatorName?.trim().toLowerCase());
         if (foundObj) matchedEvalId = foundObj.id;
       }
 
       setSelectedEvaluatorId(matchedEvalId);
+      
+      const evalObj = matchedEvalId ? teachers.find(t => t.id === matchedEvalId) : null;
+      const initialRole = form.evaluatorRole || (evalObj ? resolveVcTeacherPosition(evalObj, departments) : 'Tổ trưởng chuyên môn');
+      setSelectedEvaluatorRole(initialRole);
+
+      if (initialRole.includes('Tổ trưởng') || initialRole.includes('TTCM')) {
+        setEvaluatorType('TTCM');
+        setSelectedTtcmId(matchedEvalId || 'auto');
+      } else {
+        setEvaluatorType('BGH');
+        setSelectedBghId(matchedEvalId || (bghEvaluators[0]?.id || ''));
+      }
       
       const rawItems = form.items || [];
       const currentCriteria = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
@@ -346,6 +384,23 @@ export default function KpiVcDocumentModal({
       }
       setSelectedTeacherId(targetTeacherId);
 
+      // Default evaluator configuration for Create Mode
+      setEvaluatorType('TTCM');
+      setSelectedTtcmId('auto');
+      setSelectedBghId(bghEvaluators[0]?.id || '');
+
+      // Pre-map each department's TTCM
+      const initialDeptMap: Record<string, string> = {};
+      departments.forEach(d => {
+        const foundTtcm = findTtcmForDepartment(d.id, teachers, departments);
+        if (foundTtcm) {
+          initialDeptMap[d.id] = foundTtcm.id;
+        } else if (ttcmEvaluators.length > 0) {
+          initialDeptMap[d.id] = ttcmEvaluators[0].id;
+        }
+      });
+      setDeptEvaluatorMap(initialDeptMap);
+
       setSelectedEvaluatorId('');
       setLeaderSignName('');
 
@@ -362,7 +417,7 @@ export default function KpiVcDocumentModal({
       setLeaderDate(todayStr);
       setManagerGeneralComment('');
     }
-  }, [isOpen, form, mode, periods, eligibleTeachers, teachers, departments, criteria, user]);
+  }, [isOpen, form, mode, periods, eligibleTeachers, teachers, departments, criteria, user, bghEvaluators, ttcmEvaluators]);
 
   // Ensure selectedPeriodId is auto-populated if periods arrive after initial render
   useEffect(() => {
@@ -374,13 +429,108 @@ export default function KpiVcDocumentModal({
     }
   }, [periods, selectedPeriodId]);
 
+  // Departments with selected teachers
+  const selectedDepartmentsList = useMemo(() => {
+    const deptMap = new Map<string, { dept: Department; teachers: Teacher[] }>();
+    
+    selectedTeacherIds.forEach(tId => {
+      const t = eligibleTeachers.find(item => item.id === tId) || teachers.find(item => item.id === tId);
+      if (!t) return;
+      const dId = t.departmentId || 'other';
+      const deptObj = departments.find(d => d.id === dId) || { id: dId, name: t.departmentName || (t as any).department || 'Tổ chuyên môn', headId: '' };
+      
+      if (!deptMap.has(dId)) {
+        deptMap.set(dId, { dept: deptObj, teachers: [] });
+      }
+      deptMap.get(dId)!.teachers.push(t);
+    });
+
+    return Array.from(deptMap.values());
+  }, [selectedTeacherIds, eligibleTeachers, teachers, departments]);
+
+  // Xác định nếu tất cả giáo viên được chọn thuộc về 1 tổ duy nhất
+  const singleOrCommonDept = useMemo(() => {
+    if (selectedDepartmentsList.length === 1) {
+      return selectedDepartmentsList[0];
+    }
+    return null;
+  }, [selectedDepartmentsList]);
+
+  // Tổ trưởng tự động đề xuất cho tổ duy nhất được chọn
+  const autoSuggestedTtcm = useMemo(() => {
+    if (!singleOrCommonDept) return null;
+    const deptId = singleOrCommonDept.dept.id;
+    const mappedId = deptEvaluatorMap[deptId];
+    if (mappedId) {
+      const foundTeacher = teachers.find(t => t.id === mappedId);
+      if (foundTeacher) return foundTeacher;
+    }
+    return findTtcmForDepartment(deptId, teachers, departments) || (ttcmEvaluators[0]?.teacher || null);
+  }, [singleOrCommonDept, deptEvaluatorMap, teachers, departments, ttcmEvaluators]);
+
+  // Tự động đồng bộ và gán đúng Tổ trưởng chuyên môn cho từng tổ
+  useEffect(() => {
+    if (departments.length === 0 && teachers.length === 0) return;
+
+    setDeptEvaluatorMap(prev => {
+      let hasChanges = false;
+      const updated = { ...prev };
+
+      departments.forEach(d => {
+        if (!updated[d.id]) {
+          const ttcm = findTtcmForDepartment(d.id, teachers, departments);
+          if (ttcm) {
+            updated[d.id] = ttcm.id;
+            hasChanges = true;
+          } else if (ttcmEvaluators.length > 0) {
+            updated[d.id] = ttcmEvaluators[0].id;
+            hasChanges = true;
+          }
+        }
+      });
+
+      // Kiểm tra thêm các tổ xuất hiện trong danh sách giáo viên được chọn
+      selectedDepartmentsList.forEach(({ dept }) => {
+        if (!updated[dept.id]) {
+          const ttcm = findTtcmForDepartment(dept.id, teachers, departments);
+          if (ttcm) {
+            updated[dept.id] = ttcm.id;
+            hasChanges = true;
+          } else if (ttcmEvaluators.length > 0) {
+            updated[dept.id] = ttcmEvaluators[0].id;
+            hasChanges = true;
+          }
+        }
+      });
+
+      return hasChanges ? updated : prev;
+    });
+  }, [departments, teachers, selectedDepartmentsList, ttcmEvaluators]);
+
+  const handleDeptEvaluatorChange = (deptId: string, ttcmId: string) => {
+    setDeptEvaluatorMap(prev => ({
+      ...prev,
+      [deptId]: ttcmId
+    }));
+  };
+
+  // Tự động cập nhật BGH ID nếu chưa có
+  useEffect(() => {
+    if (!selectedBghId && bghEvaluators.length > 0) {
+      setSelectedBghId(bghEvaluators[0].id);
+    }
+  }, [selectedBghId, bghEvaluators]);
+
   // Tự động chọn Cán bộ quản lý phù hợp nếu chưa chọn hoặc id không còn hợp lệ
   useEffect(() => {
     if (!isOpen) return;
-    if (!selectedEvaluatorId || !teachers.some(t => t.id === selectedEvaluatorId)) {
-      const bestId = eligibleEvaluatorsResult.defaultEvaluatorId || 
-                     recommendedEvaluators[0]?.id || 
-                     allCbqlEvaluators[0]?.id || '';
+    const currentEval = teachers.find(t => t.id === selectedEvaluatorId);
+    const isInvalid = !selectedEvaluatorId || !currentEval || isExcludedCbqlEvaluator(currentEval);
+
+    if (isInvalid) {
+      const bestId = (eligibleEvaluatorsResult.defaultEvaluatorId && !isExcludedCbqlEvaluator(teachers.find(t => t.id === eligibleEvaluatorsResult.defaultEvaluatorId)) ? eligibleEvaluatorsResult.defaultEvaluatorId : '') || 
+                     recommendedEvaluators.find(t => !isExcludedCbqlEvaluator(t))?.id || 
+                     allCbqlEvaluators.find(t => !isExcludedCbqlEvaluator(t))?.id || '';
       if (bestId) {
         setSelectedEvaluatorId(bestId);
         const ev = teachers.find(t => t.id === bestId);
@@ -607,16 +757,37 @@ export default function KpiVcDocumentModal({
 
         const teacherPos = resolveVcTeacherPosition(teacherObj, departments);
         const teacherDept = resolveVcTeacherDepartment(teacherObj, departments);
+        const teacherDeptId = teacherObj.departmentId || '';
 
-        let evalId = selectedEvaluatorId || '';
+        let evalId = '';
+        let evalRole = 'Tổ trưởng chuyên môn';
+
+        if (evaluatorType === 'BGH') {
+          evalId = selectedBghId || bghEvaluators[0]?.id || '';
+          evalRole = 'Ban Giám hiệu';
+        } else {
+          // evaluatorType === 'TTCM'
+          if (selectedTtcmId && selectedTtcmId !== 'auto') {
+            evalId = selectedTtcmId;
+          } else {
+            // Auto per department
+            evalId = deptEvaluatorMap[teacherDeptId] || findTtcmForDepartment(teacherDeptId, teachers, departments)?.id || ttcmEvaluators[0]?.id || '';
+          }
+          evalRole = 'Tổ trưởng chuyên môn';
+        }
+
+        // Fallback if still empty
         if (!evalId) {
           const res = getEligibleEvaluators(teacherObj, teachers, departments);
-          evalId = res.defaultEvaluatorId || (res.evaluators && res.evaluators[0]?.id) || (allCbqlEvaluators[0]?.id) || '';
+          const validEvaluators = (res.evaluators || []).filter(t => !isExcludedCbqlEvaluator(t));
+          evalId = (res.defaultEvaluatorId && !isExcludedCbqlEvaluator(teachers.find(t => t.id === res.defaultEvaluatorId)) ? res.defaultEvaluatorId : '') || 
+                   validEvaluators[0]?.id || 
+                   allCbqlEvaluators.find(t => !isExcludedCbqlEvaluator(t))?.id || '';
         }
-        let evalObj = evalId ? (teachers.find(t => t.id === evalId) || null) : null;
 
+        const evalObj = evalId ? (teachers.find(t => t.id === evalId) || null) : null;
         const evaluatorNameResolved = evalObj?.name || '';
-        const evaluatorRoleResolved = evalObj ? resolveVcTeacherPosition(evalObj, departments) : '';
+        const evaluatorRoleResolved = evalRole || (evalObj ? resolveVcTeacherPosition(evalObj, departments) : 'Tổ trưởng chuyên môn');
 
         const newFormData: Omit<KpiVcForm, 'id' | 'createdAt' | 'updatedAt'> = {
           employeeId: teacherObj.id,
@@ -654,6 +825,7 @@ export default function KpiVcDocumentModal({
           evaluatorId: evalId || '',
           evaluatorName: evaluatorNameResolved || '',
           evaluatorRole: evaluatorRoleResolved || '',
+          ttcmEvaluatorName: evalRole === 'Tổ trưởng chuyên môn' ? evaluatorNameResolved : '',
           managerEvaluatedAt: null,
 
           status: isDraft ? 'draft' : 'self_evaluated',
@@ -1263,10 +1435,11 @@ export default function KpiVcDocumentModal({
 
                 {/* CARD 2: THIẾT LẬP ĐÁNH GIÁ */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <div className="border-b border-slate-100 pb-3">
+                  <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
                     <h2 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
                       <Settings size={16} className="text-blue-600" /> THIẾT LẬP ĐÁNH GIÁ
                     </h2>
+                    <span className="text-[11px] text-slate-500 font-semibold">Cấu hình người đánh giá & phân quyền</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -1321,61 +1494,200 @@ export default function KpiVcDocumentModal({
                     </label>
                   </div>
 
-                  {/* NGƯỜI ĐÁNH GIÁ (CBQL) */}
+                  {/* CÁN BỘ QUẢN LÝ ĐÁNH GIÁ */}
                   {allowLeaderEval && (
-                    <div className="pt-3 border-t border-slate-100 text-xs">
-                      <label className="block font-bold text-amber-950 mb-1.5">
-                        👑 Cán bộ quản lý / Lãnh đạo đánh giá *
-                      </label>
-                      <select
-                        value={selectedEvaluatorId}
-                        onChange={e => handleEvaluatorChange(e.target.value)}
-                        className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-amber-50 text-amber-950 border border-amber-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
-                      >
-                        <option value="">-- Chọn cán bộ quản lý đánh giá --</option>
-                        {recommendedEvaluators.length > 0 && (
-                          <optgroup label="⭐ Cán bộ quản lý đề xuất (Hiệu trưởng / Tổ trưởng)">
-                            {recommendedEvaluators.map(ev => {
-                              const pos = resolveVcTeacherPosition(ev, departments);
-                              const dept = resolveVcTeacherDepartment(ev, departments);
-                              return (
-                                <option key={`rec_${ev.id}`} value={ev.id}>
-                                  {ev.name} — [{pos}] ({dept})
+                    <div className="pt-4 border-t border-slate-100 space-y-4">
+                      <div>
+                        <label className="block font-black text-slate-800 mb-2 text-xs sm:text-sm flex items-center gap-2">
+                          👤 Cán bộ quản lý đánh giá <span className="text-rose-500">*</span>
+                        </label>
+                        
+                        {/* 2 LỰA CHỌN: BAN GIÁM HIỆU ĐÁNH GIÁ HOẶC TỔ TRƯỞNG CHUYÊN MÔN ĐÁNH GIÁ */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                            evaluatorType === 'BGH' 
+                              ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-500/20 shadow-xs' 
+                              : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}>
+                            <input
+                              type="radio"
+                              name="evaluatorType"
+                              value="BGH"
+                              checked={evaluatorType === 'BGH'}
+                              onChange={() => setEvaluatorType('BGH')}
+                              className="mt-0.5 w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                              <div className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                                <span>Ban Giám hiệu đánh giá</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                Hiệu trưởng hoặc Phó Hiệu trưởng trực tiếp đánh giá
+                              </p>
+                            </div>
+                          </label>
+
+                          <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                            evaluatorType === 'TTCM' 
+                              ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs' 
+                              : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}>
+                            <input
+                              type="radio"
+                              name="evaluatorType"
+                              value="TTCM"
+                              checked={evaluatorType === 'TTCM'}
+                              onChange={() => setEvaluatorType('TTCM')}
+                              className="mt-0.5 w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                            <div>
+                              <div className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                                <span>Tổ trưởng chuyên môn đánh giá</span>
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded-md">
+                                  Đề xuất
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                Tổ trưởng của tổ chuyên môn chịu trách nhiệm đánh giá
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* NẾU CHỌN BAN GIÁM HIỆU ĐÁNH GIÁ */}
+                      {evaluatorType === 'BGH' && (
+                        <div className="p-3.5 bg-blue-50/50 border border-blue-200 rounded-xl space-y-2 text-xs">
+                          <label className="block font-bold text-blue-950">
+                            Ban Giám hiệu đánh giá: <span className="text-rose-500">*</span>
+                          </label>
+                          <select
+                            value={selectedBghId}
+                            onChange={e => setSelectedBghId(e.target.value)}
+                            className="w-full px-3 py-2 text-xs sm:text-sm font-semibold bg-white border border-blue-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                          >
+                            {bghEvaluators.length > 0 ? (
+                              bghEvaluators.map(bgh => (
+                                <option key={bgh.id} value={bgh.id}>
+                                  {bgh.displayLabel}
                                 </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                        {otherCbqlList.length > 0 && (
-                          <optgroup label="👑 Cán bộ quản lý / Lãnh đạo khác">
-                            {otherCbqlList.map(ev => {
-                              const pos = resolveVcTeacherPosition(ev, departments);
-                              const dept = resolveVcTeacherDepartment(ev, departments);
-                              return (
-                                <option key={`oth_${ev.id}`} value={ev.id}>
-                                  {ev.name} — [{pos}] ({dept})
+                              ))
+                            ) : (
+                              <option value="">Ban Giám hiệu nhà trường</option>
+                            )}
+                          </select>
+                          <p className="text-[11px] text-blue-700 italic">
+                            Tất cả giáo viên được chọn sẽ có người đánh giá là Ban Giám hiệu.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* NẾU CHỌN TỔ TRƯỞNG CHUYÊN MÔN ĐÁNH GIÁ */}
+                      {evaluatorType === 'TTCM' && (
+                        <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-3.5 text-xs">
+                          {/* BANNER THÔNG BÁO TỰ ĐỘNG ĐỀ XUẤT NẾU CHỌN 1 TỔ / 1 GIÁO VIÊN */}
+                          {singleOrCommonDept && autoSuggestedTtcm && (
+                            <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                                  <Sparkles size={16} />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-emerald-950 truncate">
+                                    Tổ chuyên môn: <span className="underline">{singleOrCommonDept.dept.name}</span>
+                                  </p>
+                                  <p className="text-emerald-800 text-[11px] font-medium mt-0.5 truncate">
+                                    ⭐ Đã tự động đề xuất: <strong className="text-emerald-950 font-bold">{autoSuggestedTtcm.name}</strong> — Tổ trưởng {singleOrCommonDept.dept.name}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-extrabold text-[10.5px] shrink-0">
+                                ✓ Tự động khớp tổ
+                              </span>
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="block font-bold text-indigo-950 mb-1">
+                              Tổ trưởng chuyên môn đánh giá: <span className="text-rose-500">*</span>
+                            </label>
+                            <select
+                              value={selectedTtcmId}
+                              onChange={e => setSelectedTtcmId(e.target.value)}
+                              className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white text-indigo-950 border border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                            >
+                              <option value="auto">
+                                ⭐ Tự động đề xuất đúng Tổ trưởng của từng tổ {singleOrCommonDept && autoSuggestedTtcm ? `(${autoSuggestedTtcm.name} — Tổ trưởng ${singleOrCommonDept.dept.name})` : '(Khuyên dùng)'}
+                              </option>
+                              {ttcmEvaluators.map(ttcm => (
+                                <option key={ttcm.id} value={ttcm.id}>
+                                  {ttcm.displayLabel}
                                 </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                        {recommendedEvaluators.length === 0 && otherCbqlList.length === 0 && (
-                          <optgroup label="📋 Tất cả cán bộ giáo viên">
-                            {teachers.map(ev => {
-                              const pos = resolveVcTeacherPosition(ev, departments);
-                              const dept = resolveVcTeacherDepartment(ev, departments);
-                              return (
-                                <option key={`all_${ev.id}`} value={ev.id}>
-                                  {ev.name} — [{pos}] ({dept})
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                      </select>
-                      <p className="text-[11px] text-slate-500 italic mt-1 font-semibold text-amber-900">
-                        Giáo viên chủ động lựa chọn cán bộ quản lý/lãnh đạo thực hiện đánh giá phiếu này.
-                      </p>
+                              ))}
+                            </select>
+                            <p className="text-[11px] text-indigo-700 italic mt-1">
+                              {selectedTtcmId === 'auto'
+                                ? 'Hệ thống tự động xác định tổ chuyên môn của từng giáo viên và tự động đề xuất đúng Tổ trưởng của tổ đó.'
+                                : 'Tất cả giáo viên được chọn sẽ do Tổ trưởng này đánh giá.'}
+                            </p>
+                          </div>
+
+                          {/* HIỂN THỊ CẤU HÌNH NGƯỜI ĐÁNH GIÁ TƯƠNG ỨNG THEO TỪNG TỔ KHI CÓ NHIỀU TỔ ĐƯỢC CHỌN */}
+                          {selectedDepartmentsList.length > 0 && selectedTtcmId === 'auto' && (
+                            <div className="pt-3 border-t border-indigo-200/80 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-indigo-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                                  <Sparkles size={13} className="text-indigo-600" />
+                                  Phân công người đánh giá theo từng tổ chuyên môn ({selectedDepartmentsList.length} tổ):
+                                </span>
+                                <span className="text-[10px] text-indigo-600 italic">
+                                  (Đã tự động xác định tổ trưởng)
+                                </span>
+                              </div>
+
+                              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
+                                {selectedDepartmentsList.map(({ dept, teachers: deptTeachers }) => {
+                                  const autoTtcm = findTtcmForDepartment(dept.id, teachers, departments) || ttcmEvaluators[0]?.teacher;
+                                  const currentDeptEvalId = deptEvaluatorMap[dept.id] || autoTtcm?.id || '';
+
+                                  return (
+                                    <div key={dept.id} className="p-2.5 bg-white border border-indigo-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-slate-900 text-xs truncate flex items-center gap-1.5">
+                                          <span>{dept.name}</span>
+                                          <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] rounded font-bold">
+                                            {deptTeachers.length} GV
+                                          </span>
+                                        </p>
+                                        <p className="text-[11px] text-indigo-700 font-medium truncate">
+                                          Tổ trưởng: <strong className="text-slate-800">{autoTtcm?.name || 'Đang cập nhật'}</strong>
+                                        </p>
+                                      </div>
+
+                                      <div className="w-full sm:w-72 shrink-0">
+                                        <select
+                                          value={currentDeptEvalId}
+                                          onChange={e => handleDeptEvaluatorChange(dept.id, e.target.value)}
+                                          className="w-full px-2.5 py-1.5 text-xs font-semibold bg-indigo-50/60 border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                                        >
+                                          {ttcmEvaluators.map(ttcm => {
+                                            const isAutoMatch = ttcm.id === autoTtcm?.id;
+                                            return (
+                                              <option key={`dept_${dept.id}_${ttcm.id}`} value={ttcm.id}>
+                                                {ttcm.displayLabel} {isAutoMatch ? '⭐ (Đề xuất)' : ''}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1629,68 +1941,119 @@ export default function KpiVcDocumentModal({
                   </div>
                 </div>
 
-                <div className="col-span-1 md:col-span-2 border-t border-slate-200 pt-3 mt-1">
-                  <label className="font-bold text-amber-900 block mb-1.5 text-xs sm:text-sm">
-                    👑 Cán bộ quản lý / Người có thẩm quyền đánh giá *
-                  </label>
+                {/* THÔNG TIN NGƯỜI ĐÁNH GIÁ (HIỂN THỊ RÕ RÀNG: NGƯỜI ĐÁNH GIÁ, VAI TRÒ, TỔ CHUYÊN MÔN) */}
+                <div className="col-span-1 md:col-span-2 border-t border-slate-200 pt-3 mt-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-900 block text-xs sm:text-sm flex items-center gap-2">
+                      👤 Cán bộ quản lý / Người đánh giá
+                    </label>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {form?.evaluatorRole || selectedEvaluatorRole || 'Tổ trưởng chuyên môn'}
+                    </span>
+                  </div>
+
                   {canChangeEvaluator ? (
-                    <div className="flex flex-col gap-1.5">
-                      <select
-                        value={selectedEvaluatorId}
-                        onChange={(e) => handleEvaluatorChange(e.target.value)}
-                        className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-amber-50/80 text-amber-950 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
-                      >
-                        <option value="">-- Chọn cán bộ quản lý đánh giá --</option>
-                        {recommendedEvaluators.length > 0 && (
-                          <optgroup label="⭐ Cán bộ quản lý đề xuất (Hiệu trưởng / Phó HT / Tổ trưởng)">
-                            {recommendedEvaluators.map(ev => {
-                              const pos = resolveVcTeacherPosition(ev, departments);
-                              const dept = resolveVcTeacherDepartment(ev, departments);
-                              return (
-                                <option key={`s_rec_${ev.id}`} value={ev.id}>
-                                  {ev.name} — [{pos}] ({dept})
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                        {otherCbqlList.length > 0 && (
-                          <optgroup label="👑 Cán bộ quản lý / Lãnh đạo khác">
-                            {otherCbqlList.map(ev => {
-                              const pos = resolveVcTeacherPosition(ev, departments);
-                              const dept = resolveVcTeacherDepartment(ev, departments);
-                              return (
-                                <option key={`s_oth_${ev.id}`} value={ev.id}>
-                                  {ev.name} — [{pos}] ({dept})
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                        {recommendedEvaluators.length === 0 && otherCbqlList.length === 0 && (
-                          <optgroup label="📋 Tất cả cán bộ giáo viên">
-                            {teachers.map(ev => {
-                              const pos = resolveVcTeacherPosition(ev, departments);
-                              const dept = resolveVcTeacherDepartment(ev, departments);
-                              return (
-                                <option key={`s_all_${ev.id}`} value={ev.id}>
-                                  {ev.name} — [{pos}] ({dept})
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                      </select>
-                      <p className="text-[11px] text-slate-500 italic font-semibold text-amber-900">
-                        Giáo viên chủ động lựa chọn cán bộ quản lý/lãnh đạo thực hiện đánh giá phiếu này.
-                      </p>
+                    <div className="p-3 bg-amber-50/70 border border-amber-300 rounded-xl space-y-2.5">
+                      <div className="flex items-center gap-4 text-xs">
+                        <label className="flex items-center gap-1.5 font-bold text-amber-950 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="singleEvaluatorType"
+                            checked={evaluatorType === 'TTCM'}
+                            onChange={() => {
+                              setEvaluatorType('TTCM');
+                              setSelectedEvaluatorRole('Tổ trưởng chuyên môn');
+                              const teacherDeptId = form?.departmentId || selectedTeacher?.departmentId || '';
+                              const deptTtcm = findTtcmForDepartment(teacherDeptId, teachers, departments) || ttcmEvaluators[0]?.teacher;
+                              if (deptTtcm) {
+                                handleEvaluatorChange(deptTtcm.id);
+                              }
+                            }}
+                            className="text-amber-600 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <span>Tổ trưởng chuyên môn đánh giá</span>
+                        </label>
+
+                        <label className="flex items-center gap-1.5 font-bold text-amber-950 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="singleEvaluatorType"
+                            checked={evaluatorType === 'BGH'}
+                            onChange={() => {
+                              setEvaluatorType('BGH');
+                              setSelectedEvaluatorRole('Ban Giám hiệu');
+                              if (bghEvaluators.length > 0) {
+                                handleEvaluatorChange(bghEvaluators[0].id);
+                              }
+                            }}
+                            className="text-amber-600 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <span>Ban Giám hiệu đánh giá</span>
+                        </label>
+                      </div>
+
+                      {evaluatorType === 'TTCM' ? (
+                        <div>
+                          <select
+                            value={selectedEvaluatorId}
+                            onChange={(e) => {
+                              handleEvaluatorChange(e.target.value);
+                              setSelectedEvaluatorRole('Tổ trưởng chuyên môn');
+                            }}
+                            className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white text-amber-950 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
+                          >
+                            <option value="">-- Chọn Tổ trưởng chuyên môn --</option>
+                            {ttcmEvaluators.map(ttcm => (
+                              <option key={`s_ttcm_${ttcm.id}`} value={ttcm.id}>
+                                {ttcm.displayLabel}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-amber-900 italic mt-1">
+                            Tổ trưởng chuyên môn thuộc tổ được phân công chịu trách nhiệm đánh giá.
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <select
+                            value={selectedEvaluatorId}
+                            onChange={(e) => {
+                              handleEvaluatorChange(e.target.value);
+                              const bghObj = bghEvaluators.find(b => b.id === e.target.value);
+                              setSelectedEvaluatorRole(bghObj?.position || 'Ban Giám hiệu');
+                            }}
+                            className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white text-amber-950 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
+                          >
+                            <option value="">-- Chọn cán bộ Ban Giám hiệu --</option>
+                            {bghEvaluators.map(bgh => (
+                              <option key={`s_bgh_${bgh.id}`} value={bgh.id}>
+                                {bgh.displayLabel}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg font-bold text-amber-950 text-xs sm:text-sm flex items-center justify-between">
-                      <span>{selectedEvaluator?.name || form?.evaluatorName || leaderSignName || 'Chưa phân công CBQL'}</span>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-900">
-                        {selectedEvaluator ? resolveVcTeacherPosition(selectedEvaluator, departments) : (form?.evaluatorRole || 'CBQL')}
-                      </span>
+                    <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Người đánh giá:</span>
+                        <strong className="text-blue-950 text-xs sm:text-sm font-bold">
+                          {form?.evaluatorName || selectedEvaluator?.name || leaderSignName || 'Chưa phân công'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Vai trò:</span>
+                        <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-extrabold text-[11px]">
+                          {form?.evaluatorRole || selectedEvaluatorRole || (selectedEvaluator ? resolveVcTeacherPosition(selectedEvaluator, departments) : 'Tổ trưởng chuyên môn')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Tổ chuyên môn:</span>
+                        <strong className="text-slate-800 font-semibold">
+                          {form?.department || resolvedDepartment}
+                        </strong>
+                      </div>
                     </div>
                   )}
                 </div>

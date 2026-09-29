@@ -896,6 +896,12 @@ export default function KpiTeacherStaff() {
                                   <p className="text-[11px] text-slate-500">
                                     {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
                                   </p>
+                                  {form.evaluatorName && (
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      <span className="text-slate-400">Đánh giá bởi:</span> <strong className="text-slate-700">{form.evaluatorName}</strong>
+                                      {form.evaluatorRole && <span className="ml-1 text-[9px] px-1 rounded bg-slate-100 text-slate-600 font-medium">({form.evaluatorRole})</span>}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             </td>
@@ -1060,6 +1066,12 @@ export default function KpiTeacherStaff() {
                             <p className="text-[11px] text-slate-500">
                               {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
                             </p>
+                            {form.evaluatorName && (
+                              <p className="text-[10px] text-slate-500 mt-0.5">
+                                <span className="text-slate-400">Đánh giá bởi:</span> <strong className="text-slate-700">{form.evaluatorName}</strong>
+                                {form.evaluatorRole && <span className="ml-1 text-[9px] px-1 rounded bg-slate-100 text-slate-600 font-medium">({form.evaluatorRole})</span>}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>

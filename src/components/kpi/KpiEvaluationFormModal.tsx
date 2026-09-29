@@ -44,6 +44,7 @@ import {
   createEvaluationItemsForTarget, 
   calculateEvaluationFormTotals,
   getEligibleEvaluators,
+  isExcludedCbqlEvaluator,
   getKpiFormStatusInfo
 } from '../../lib/kpiTargetAudienceUtils';
 import { useAuth } from '../../store/AuthContext';
@@ -257,14 +258,20 @@ export default function KpiEvaluationFormModal({
     }
   }, [isOpen, formToEdit, initialTeacher, initialMonth, initialAcademicYear, user, teachers, isBghOrAdmin, kpiEvaluationForms]);
 
-  // Auto-select evaluator if empty or not found
+  // Auto-select evaluator if empty or not found or excluded
   useEffect(() => {
     if (!isOpen) return;
-    if (!selectedEvaluatorId || !teachers.some(t => t.id === selectedEvaluatorId)) {
-      if (eligibleEvaluatorsResult.defaultEvaluatorId) {
+    const currentEval = teachers.find(t => t.id === selectedEvaluatorId);
+    const isInvalid = !selectedEvaluatorId || !currentEval || isExcludedCbqlEvaluator(currentEval);
+
+    if (isInvalid) {
+      if (eligibleEvaluatorsResult.defaultEvaluatorId && !isExcludedCbqlEvaluator(teachers.find(t => t.id === eligibleEvaluatorsResult.defaultEvaluatorId))) {
         setSelectedEvaluatorId(eligibleEvaluatorsResult.defaultEvaluatorId);
-      } else if (eligibleEvaluatorsResult.evaluators.length > 0) {
-        setSelectedEvaluatorId(eligibleEvaluatorsResult.evaluators[0].id);
+      } else {
+        const firstValid = eligibleEvaluatorsResult.evaluators.find(t => !isExcludedCbqlEvaluator(t));
+        if (firstValid) {
+          setSelectedEvaluatorId(firstValid.id);
+        }
       }
     }
   }, [isOpen, selectedTeacherId, selectedEvaluatorId, eligibleEvaluatorsResult, teachers]);
@@ -907,7 +914,7 @@ export default function KpiEvaluationFormModal({
                     className="w-full px-2 py-1 bg-slate-50 border border-emerald-400/80 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="">-- Chọn người đánh giá thẩm quyền --</option>
-                    {eligibleEvaluatorsResult.evaluators.map(ev => (
+                    {eligibleEvaluatorsResult.evaluators.filter(ev => !isExcludedCbqlEvaluator(ev)).map(ev => (
                       <option key={ev.id} value={ev.id}>
                         {ev.name} ({ev.position || ev.role})
                       </option>

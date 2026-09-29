@@ -137,6 +137,11 @@ export default function KpiVcPrintModal({
               <p>
                 <span className="font-semibold">Tổ chuyên môn:</span> {form.department}
               </p>
+              <p>
+                <span className="font-semibold">Người đánh giá:</span> {form.evaluatorName || '....................'}
+                <span className="ml-3"><span className="font-semibold">Vai trò:</span> {form.evaluatorRole || (form.evaluatorName ? 'Tổ trưởng chuyên môn' : '....................')}</span>
+                <span className="ml-3"><span className="font-semibold">Tổ chuyên môn:</span> {form.department}</span>
+              </p>
             </div>
 
             {/* CĂN CỨ MẪU PHIẾU */}

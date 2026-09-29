@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { User } from '../types';
+import { User, Role } from '../types';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { isAdminUser } from '../lib/moduleData';
 
 interface AuthContextType {
   user: User | null;
+  isAdmin: boolean;
   login: (username: string) => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => Promise<void>;
+  switchRoleForDemo?: (role: Role) => void;
   error: string | null;
 }
 
@@ -27,10 +30,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Default to admin user for direct instant access
         const defaultAdmin: User = {
           id: 'admin',
-          name: 'Nguyễn Quang Sáng',
-          role: 'BGH',
+          name: 'Quản trị viên Hệ thống',
+          role: 'admin',
           username: 'admin',
-          position: 'Hiệu trưởng'
+          position: 'Quản trị viên'
         };
         setUser(defaultAdmin);
         localStorage.setItem('authUser', JSON.stringify(defaultAdmin));
@@ -51,29 +54,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(foundUser);
         localStorage.setItem('authUser', JSON.stringify(foundUser));
       } else {
-        // Since we removed mock data, if DB is empty we allow a backdoor for testing setup
-        if (username === 'admin') {
+        // Handle admin username
+        if (username.toLowerCase() === 'admin') {
           let adminAvatar = '';
+          let adminName = 'Quản trị viên Hệ thống';
           try {
             const adminDoc = await getDoc(doc(db, 'settings', 'admin_profile'));
             if (adminDoc.exists()) {
               adminAvatar = adminDoc.data().avatar || '';
+              if (adminDoc.data().name) adminName = adminDoc.data().name;
             }
           } catch (err) {
             console.warn("Could not fetch admin profile doc:", err);
           }
 
-          const adminUser = {
+          const adminUser: User = {
             id: 'admin',
-            name: 'System Admin',
-            role: 'BGH',
+            name: adminName,
+            role: 'admin',
             username: 'admin',
+            position: 'Quản trị viên',
             avatar: adminAvatar || undefined
-          } as User;
+          };
           setUser(adminUser);
           localStorage.setItem('authUser', JSON.stringify(adminUser));
         } else {
-          setError('Tài khoản không tồn tại. Vui lòng kiểm tra lại. (Mẹo: Nếu database mới tinh, hãy dùng "admin")');
+          setError('Tài khoản không tồn tại. Vui lòng kiểm tra lại. (Mẹo: Dùng "admin" để đăng nhập với quyền Quản trị viên)');
         }
       }
     } catch (e) {
@@ -115,8 +121,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('authUser');
   };
 
+  const isAdmin = isAdminUser(user);
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, updateUser, error }}>
+    <AuthContext.Provider value={{ user, isAdmin, login, logout, updateUser, error }}>
       {children}
     </AuthContext.Provider>
   );
