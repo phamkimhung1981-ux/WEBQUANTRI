@@ -195,10 +195,19 @@ export const subscribeVcPeriods = (callback: (periods: KpiVcPeriod[]) => void) =
  */
 export const subscribeVcCriteria = (callback: (criteria: KpiVcCriterion[]) => void) => {
   const q = query(collection(db, VC_COLLECTIONS.CRITERIA));
+  const defaultMap = new Map(DEFAULT_VC_CRITERIA.map(c => [c.id, c]));
+
   return onSnapshot(q, (snapshot) => {
     const list: KpiVcCriterion[] = [];
     snapshot.forEach((docSnap) => {
-      list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcCriterion);
+      const data = docSnap.data() as KpiVcCriterion;
+      const def = defaultMap.get(docSnap.id);
+      // Đồng bộ chuẩn điểm tối đa mục II (kết quả thực hiện nhiệm vụ được giao: 60 điểm)
+      const maxScore = def && def.groupId === 'group_III' && def.subGroup === 'B' 
+        ? def.maxScore 
+        : (typeof data.maxScore === 'number' ? data.maxScore : (def?.maxScore ?? 2));
+
+      list.push({ id: docSnap.id, ...data, maxScore } as KpiVcCriterion);
     });
     list.sort((a, b) => a.order - b.order);
     callback(list.length > 0 ? list : DEFAULT_VC_CRITERIA);

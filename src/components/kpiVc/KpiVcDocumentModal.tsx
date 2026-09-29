@@ -252,10 +252,19 @@ export default function KpiVcDocumentModal({
   }, [form, groups]);
 
   const activeCriteria = useMemo(() => {
+    const baseCriteria = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
+    const baseMap = new Map(baseCriteria.map(c => [c.id, c]));
+
     if (form?.criteriaSnapshot?.criteria && form.criteriaSnapshot.criteria.length > 0) {
-      return form.criteriaSnapshot.criteria;
+      return form.criteriaSnapshot.criteria.map(c => {
+        const standard = baseMap.get(c.id);
+        if (standard && standard.maxScore !== c.maxScore) {
+          return { ...c, maxScore: standard.maxScore };
+        }
+        return c;
+      });
     }
-    return criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
+    return baseCriteria;
   }, [form, criteria]);
 
   // Score Calculations
@@ -358,6 +367,26 @@ export default function KpiVcDocumentModal({
           return defItem;
         });
       }
+
+      // Đồng bộ chuẩn điểm tối đa theo cấu hình chuẩn 60 điểm cho mục II
+      const criteriaMap = new Map(currentCriteria.map(c => [c.id, c]));
+      itemsToUse = itemsToUse.map(it => {
+        const crit = criteriaMap.get(it.criterionId) || currentCriteria.find(c => c.code === it.criterionCode);
+        if (crit) {
+          const hadMaxSelf = typeof it.selfScore === 'number' && it.selfScore >= it.maxScore;
+          const hadMaxTtcm = typeof it.ttcmScore === 'number' && it.ttcmScore >= it.maxScore;
+          const hadMaxMgr = typeof it.managerScore === 'number' && it.managerScore >= it.maxScore;
+          const newMax = crit.maxScore;
+          return {
+            ...it,
+            maxScore: newMax,
+            selfScore: hadMaxSelf ? newMax : Math.min(newMax, it.selfScore ?? newMax),
+            ttcmScore: typeof it.ttcmScore === 'number' ? (hadMaxTtcm ? newMax : Math.min(newMax, it.ttcmScore)) : it.ttcmScore,
+            managerScore: typeof it.managerScore === 'number' ? (hadMaxMgr ? newMax : Math.min(newMax, it.managerScore)) : it.managerScore,
+          };
+        }
+        return it;
+      });
       
       setScoreItems(itemsToUse);
       setSelfClassification(form.selfClassification || resolveVcClassification(form.totalScore));
@@ -2186,8 +2215,47 @@ export default function KpiVcDocumentModal({
                           const currentTtcmScore = itemScore?.ttcmScore;
                           const currentManagerScore = itemScore?.managerScore;
 
-                          const isFirstIII1 = group.id === 'group_III' && (criterion.subGroup === 'A' || criterion.code.startsWith('III.1')) && cIdx === 0;
-                          const isFirstIII2 = group.id === 'group_III' && (criterion.subGroup === 'B' || !criterion.code.startsWith('III.1')) && (groupCriteria.findIndex(i => i.subGroup === 'B' || !i.code.startsWith('III.1')) === cIdx);
+                          const isSubGroupA = group.id === 'group_III' && (criterion.subGroup === 'A' || criterion.code.startsWith('III.1'));
+                          const isSubGroupB = group.id === 'group_III' && (criterion.subGroup === 'B' || !criterion.code.startsWith('III.1'));
+
+                          const isFirstIII1 = isSubGroupA && cIdx === 0;
+                          const firstIII2Idx = groupCriteria.findIndex(i => i.subGroup === 'B' || !i.code.startsWith('III.1'));
+                          const isFirstIII2 = isSubGroupB && cIdx === firstIII2Idx;
+
+                          const isLastIII1 = isSubGroupA && (firstIII2Idx !== -1 ? cIdx === firstIII2Idx - 1 : cIdx === groupCriteria.length - 1);
+                          const isLastIII2 = isSubGroupB && cIdx === groupCriteria.length - 1;
+
+                          // Tính điểm mục I (Năng lực & kỹ năng: 10đ)
+                          const aItems = groupCriteria.filter(i => i.subGroup === 'A' || i.code.startsWith('III.1'));
+                          const aMaxTotal = aItems.reduce((acc, c) => acc + (c.maxScore || 0), 0);
+                          const aSelfTotal = Math.round(aItems.reduce((acc, c) => {
+                            const it = scoreItems.find(s => s.criterionId === c.id);
+                            return acc + (it ? (it.selfScore ?? c.maxScore) : c.maxScore);
+                          }, 0) * 10) / 10;
+                          const aTtcmTotal = Math.round(aItems.reduce((acc, c) => {
+                            const it = scoreItems.find(s => s.criterionId === c.id);
+                            return acc + (it && typeof it.ttcmScore === 'number' ? it.ttcmScore : 0);
+                          }, 0) * 10) / 10;
+                          const aMgrTotal = Math.round(aItems.reduce((acc, c) => {
+                            const it = scoreItems.find(s => s.criterionId === c.id);
+                            return acc + (it && typeof it.managerScore === 'number' ? it.managerScore : 0);
+                          }, 0) * 10) / 10;
+
+                          // Tính điểm mục II (Kết quả thực hiện nhiệm vụ được giao: 60đ)
+                          const bItems = groupCriteria.filter(i => i.subGroup === 'B' || !i.code.startsWith('III.1'));
+                          const bMaxTotal = bItems.reduce((acc, c) => acc + (c.maxScore || 0), 0);
+                          const bSelfTotal = Math.round(bItems.reduce((acc, c) => {
+                            const it = scoreItems.find(s => s.criterionId === c.id);
+                            return acc + (it ? (it.selfScore ?? c.maxScore) : c.maxScore);
+                          }, 0) * 10) / 10;
+                          const bTtcmTotal = Math.round(bItems.reduce((acc, c) => {
+                            const it = scoreItems.find(s => s.criterionId === c.id);
+                            return acc + (it && typeof it.ttcmScore === 'number' ? it.ttcmScore : 0);
+                          }, 0) * 10) / 10;
+                          const bMgrTotal = Math.round(bItems.reduce((acc, c) => {
+                            const it = scoreItems.find(s => s.criterionId === c.id);
+                            return acc + (it && typeof it.managerScore === 'number' ? it.managerScore : 0);
+                          }, 0) * 10) / 10;
 
                           return (
                             <React.Fragment key={criterion.id}>
@@ -2195,7 +2263,7 @@ export default function KpiVcDocumentModal({
                                 <tr className="bg-slate-200/90 font-extrabold text-blue-950 border-y border-slate-300">
                                   <td className="p-2 text-center font-bold">1</td>
                                   <td colSpan={6} className="p-2 uppercase font-bold text-blue-950">
-                                    III.1. NĂNG LỰC VÀ KỸ NĂNG LÀM VIỆC (10 ĐIỂM)
+                                    I. NĂNG LỰC VÀ KỸ NĂNG LÀM VIỆC (10 ĐIỂM)
                                   </td>
                                 </tr>
                               )}
@@ -2204,14 +2272,16 @@ export default function KpiVcDocumentModal({
                                 <tr className="bg-slate-200/90 font-extrabold text-blue-950 border-y border-slate-300">
                                   <td className="p-2 text-center font-bold">2</td>
                                   <td colSpan={6} className="p-2 uppercase font-bold text-blue-950">
-                                    III.2. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO (60 ĐIỂM)
+                                    II. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO (60 ĐIỂM)
                                   </td>
                                 </tr>
                               )}
 
                               <tr className="hover:bg-slate-50/60 transition-colors">
                               <td className="p-2 text-center font-semibold border-r border-slate-300">
-                                {criterion.code.includes('.') ? criterion.code.split('.').slice(-1)[0] : `${cIdx + 1}`}
+                                {isSubGroupB && firstIII2Idx !== -1
+                                  ? `${cIdx - firstIII2Idx + 1}`
+                                  : (criterion.code.includes('.') ? criterion.code.split('.').slice(-1)[0] : `${cIdx + 1}`)}
                               </td>
                               <td className="p-2 border-r border-slate-300 font-medium text-slate-800">
                                 {criterion.content}
@@ -2292,6 +2362,52 @@ export default function KpiVcDocumentModal({
                                 )}
                               </td>
                             </tr>
+
+                            {/* DÒNG TỔNG MỤC I */}
+                            {isLastIII1 && (
+                              <tr className="bg-slate-100 font-bold text-slate-800 border-y border-slate-300">
+                                <td className="p-2 text-center font-bold"></td>
+                                <td className="p-2 font-bold uppercase text-slate-700">
+                                  Tổng mục I: {aSelfTotal}/{aMaxTotal} điểm
+                                </td>
+                                <td className="p-2 text-center font-bold font-mono">
+                                  {aMaxTotal}
+                                </td>
+                                <td className="p-2 text-center font-bold text-blue-900 font-mono bg-blue-50/60">
+                                  {aSelfTotal} / {aMaxTotal}
+                                </td>
+                                <td className="p-2 text-center font-bold text-purple-900 font-mono bg-purple-50/60">
+                                  {hasAnyTtcmScore || canEditTtcm ? `${aTtcmTotal} / ${aMaxTotal}` : '---'}
+                                </td>
+                                <td className="p-2 text-center font-bold text-amber-900 font-mono bg-amber-50/60">
+                                  {hasAnyManagerScore || canEditManager ? `${aMgrTotal} / ${aMaxTotal}` : '---'}
+                                </td>
+                                <td className="p-2 bg-slate-50"></td>
+                              </tr>
+                            )}
+
+                            {/* DÒNG TỔNG MỤC II (60 ĐIỂM) */}
+                            {isLastIII2 && (
+                              <tr className="bg-blue-50/90 font-extrabold text-blue-950 border-y-2 border-blue-300">
+                                <td className="p-2 text-center font-bold"></td>
+                                <td className="p-2 font-black uppercase text-blue-900 tracking-wide">
+                                  Tổng mục II: {bSelfTotal}/{bMaxTotal} điểm
+                                </td>
+                                <td className="p-2 text-center font-black text-slate-900 font-mono">
+                                  {bMaxTotal}
+                                </td>
+                                <td className="p-2 text-center font-black text-blue-900 font-mono bg-blue-100/70">
+                                  {bSelfTotal} / {bMaxTotal}
+                                </td>
+                                <td className="p-2 text-center font-black text-purple-900 font-mono bg-purple-100/70">
+                                  {hasAnyTtcmScore || canEditTtcm ? `${bTtcmTotal} / ${bMaxTotal}` : '---'}
+                                </td>
+                                <td className="p-2 text-center font-black text-amber-900 font-mono bg-amber-100/70">
+                                  {hasAnyManagerScore || canEditManager ? `${bMgrTotal} / ${bMaxTotal}` : '---'}
+                                </td>
+                                <td className="p-2 bg-blue-50/50"></td>
+                              </tr>
+                            )}
                           </React.Fragment>
                         );
                       })}

@@ -234,7 +234,7 @@ export default function KpiVcPrintModal({
                 {/* III.1 */}
                 <tr className="font-bold bg-slate-100/70">
                   <td className="border border-black p-1 text-center">1</td>
-                  <td className="border border-black p-1 font-bold uppercase">III.1. Năng lực và kỹ năng làm việc</td>
+                  <td className="border border-black p-1 font-bold uppercase">I. Năng lực và kỹ năng làm việc (10 điểm)</td>
                   <td className="border border-black p-1 text-center font-bold">10</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.some(i => i.ttcmScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
@@ -256,7 +256,7 @@ export default function KpiVcPrintModal({
                 {/* III.2 */}
                 <tr className="font-bold bg-slate-100/70">
                   <td className="border border-black p-1 text-center">2</td>
-                  <td className="border border-black p-1 font-bold uppercase">III.2. Kết quả thực hiện nhiệm vụ được giao</td>
+                  <td className="border border-black p-1 font-bold uppercase">II. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO (60 ĐIỂM)</td>
                   <td className="border border-black p-1 text-center font-bold">60</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.ttcmScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
@@ -274,6 +274,17 @@ export default function KpiVcPrintModal({
                     <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
+                <tr className="font-bold bg-slate-100/90 text-[10.5px]">
+                  <td className="border border-black p-1 text-center font-bold"></td>
+                  <td className="border border-black p-1 font-bold uppercase">
+                    Tổng mục II: {groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}/60 điểm
+                  </td>
+                  <td className="border border-black p-1 text-center font-bold">60</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}/60</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.ttcmScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0)}/60` : ''}</td>
+                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.managerScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0)}/60` : ''}</td>
+                  <td className="border border-black p-1"></td>
+                </tr>
 
                 {/* TỔNG ĐIỂM */}
                 <tr className="font-bold text-[11px] bg-slate-200">

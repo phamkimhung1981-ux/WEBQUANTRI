@@ -282,8 +282,8 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
 
             <!-- III.B -->
             <tr style="background-color: #fafafa; font-weight: bold;">
-              <td class="text-center">B</td>
-              <td class="font-bold">B. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO</td>
+              <td class="text-center">2</td>
+              <td class="font-bold">II. KẾT QUẢ THỰC HIỆN NHIỆM VỤ ĐƯỢC GIAO (60 ĐIỂM)</td>
               <td class="text-center font-bold">60</td>
               <td class="text-center font-bold">${groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
               <td class="text-center font-bold">${groupIIIbItems.some(i => i.ttcmScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
@@ -301,6 +301,15 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
                 <td style="font-size: 10pt;">${item.note || ''}</td>
               </tr>
             `).join('')}
+            <tr style="background-color: #f1f5f9; font-weight: bold;">
+              <td></td>
+              <td class="font-bold uppercase">Tổng mục II: ${groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}/60 điểm</td>
+              <td class="text-center font-bold">60</td>
+              <td class="text-center font-bold">${groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}/60</td>
+              <td class="text-center font-bold">${groupIIIbItems.some(i => i.ttcmScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0)}/60` : ''}</td>
+              <td class="text-center font-bold">${groupIIIbItems.some(i => i.managerScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0)}/60` : ''}</td>
+              <td></td>
+            </tr>
 
             <!-- TỔNG ĐIỂM -->
             <tr style="font-weight: bold; background-color: #e6e6e6;">

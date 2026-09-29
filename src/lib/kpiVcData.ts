@@ -365,7 +365,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     subGroup: 'B',
     order: 8,
     content: 'Đổi mới phương pháp, ứng dụng CNTT/AI và học liệu số phù hợp, có kiểm soát; không lạm dụng công nghệ; có sản phẩm hoặc minh chứng sử dụng.',
-    maxScore: 5,
+    maxScore: 6,
     scoreType: 'input_score',
     isActive: true
   },
@@ -401,7 +401,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     subGroup: 'B',
     order: 11,
     content: 'Chấm, chữa, nhận xét; trả bài; cập nhật điểm và hồ sơ điện tử đúng thời hạn; sửa điểm/thông tin học sinh đúng quy trình.',
-    maxScore: 5,
+    maxScore: 6,
     scoreType: 'input_score',
     isActive: true
   },
@@ -413,7 +413,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     subGroup: 'B',
     order: 12,
     content: 'Tham gia dự giờ, thao giảng, nghiên cứu bài học; tiếp thu và thực hiện điều chỉnh sau góp ý chuyên môn.',
-    maxScore: 4,
+    maxScore: 5,
     scoreType: 'input_score',
     isActive: true
   },
@@ -425,7 +425,7 @@ export const DEFAULT_VC_CRITERIA: KpiVcCriterion[] = [
     subGroup: 'B',
     order: 13,
     content: 'Tham gia sinh hoạt chuyên môn, tập huấn, bồi dưỡng; có sản phẩm chia sẻ chuyên môn, học liệu, chuyên đề, sáng kiến hoặc giải pháp cải tiến.',
-    maxScore: 4,
+    maxScore: 5,
     scoreType: 'input_score',
     isActive: true
   },
