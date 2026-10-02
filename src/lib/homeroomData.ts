@@ -265,6 +265,188 @@ export function evaluateStudentConductRules(
   };
 }
 
+export interface DatChuaDatCategoryConfig {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export const DAT_CHUA_DAT_CATEGORIES: DatChuaDatCategoryConfig[] = [
+  { id: 'cat_4', code: 'DD_UX', name: 'ĐẠO ĐỨC – ỨNG XỬ' },
+  { id: 'cat_5', code: 'HT_KT', name: 'HỌC TẬP – KIỂM TRA' },
+  { id: 'cat_6', code: 'TN_CKT', name: 'TỆ NẠN – KÍCH THÍCH – CHẤT GÂY CHÁY NỔ' },
+  { id: 'cat_8', code: 'AN_TT', name: 'AN NINH – TRẬT TỰ' },
+  { id: 'cat_10', code: 'AT_GT', name: 'AN TOÀN GIAO THÔNG' },
+  { id: 'cat_9', code: 'VH_ND', name: 'VĂN HÓA – NỘI DUNG KHÔNG PHÙ HỢP' }
+];
+
+/**
+ * Checks if a category belongs to the 6 "ĐẠT / CHƯA ĐẠT" categories:
+ * 1. ĐẠO ĐỨC – ỨNG XỬ
+ * 2. HỌC TẬP – KIỂM TRA
+ * 3. TỆ NẠN – KÍCH THÍCH – CHẤT GÂY CHÁY NỔ
+ * 4. AN NINH – TRẬT TỰ
+ * 5. AN TOÀN GIAO THÔNG
+ * 6. VĂN HÓA – NỘI DUNG KHÔNG PHÙ HỢP
+ */
+export function isDatChuaDatCategory(categoryIdOrName?: string, categoryCode?: string): boolean {
+  if (!categoryIdOrName && !categoryCode) return false;
+  
+  const idOrName = (categoryIdOrName || '').trim();
+  const code = (categoryCode || '').trim().toUpperCase();
+
+  // Known category IDs
+  if (['cat_4', 'cat_5', 'cat_6', 'cat_8', 'cat_9', 'cat_10'].includes(idOrName)) {
+    return true;
+  }
+  // Known category codes
+  if (['DD_UX', 'HT_KT', 'TN_CKT', 'AN_TT', 'AT_GT', 'VH_ND'].includes(code)) {
+    return true;
+  }
+
+  // Name matching (case-insensitive & accent-friendly)
+  const norm = idOrName.toLowerCase();
+  
+  // 1. ĐẠO ĐỨC – ỨNG XỬ
+  if (norm.includes('đạo đức') || norm.includes('ứng xử') || norm.includes('dao duc') || norm.includes('ung xu')) return true;
+  
+  // 2. HỌC TẬP – KIỂM TRA (Note: "Nền nếp học tập" has "nền nếp", make sure it doesn't match)
+  if (norm.includes('kiểm tra') || norm.includes('kiem tra') || (norm.includes('học tập') && !norm.includes('nền nếp') && !norm.includes('nen nep'))) return true;
+  
+  // 3. TỆ NẠN – KÍCH THÍCH – CHẤT GÂY CHÁY NỔ
+  if (norm.includes('tệ nạn') || norm.includes('kích thích') || norm.includes('cháy nổ') || norm.includes('te nan') || norm.includes('kich thich')) return true;
+  
+  // 4. AN NINH – TRẬT TỰ
+  if (norm.includes('an ninh') || (norm.includes('trật tự') && !norm.includes('mất trật tự')) || norm.includes('trat tu')) return true;
+  
+  // 5. AN TOÀN GIAO THÔNG
+  if (norm.includes('giao thông') || norm.includes('atgt') || norm.includes('an toàn giao thông') || norm.includes('giao thong')) return true;
+  
+  // 6. VĂN HÓA – NỘI DUNG KHÔNG PHÙ HỢP
+  if (norm.includes('văn hóa') || norm.includes('nội dung không phù hợp') || norm.includes('van hoa')) return true;
+
+  return false;
+}
+
+export interface GroupEvaluationResult {
+  hasEvaluation: boolean;
+  hasChuaDat: boolean;
+  hasDat: boolean;
+  evaluationCount: number;
+  finalRating: 'ĐẠT' | 'CHƯA ĐẠT' | null;
+  displayClassification: string;
+  badgeStyle: string;
+  evaluatedCategories: {
+    categoryId: string;
+    categoryName: string;
+    status: 'ĐẠT' | 'CHƯA ĐẠT';
+    recordCount: number;
+  }[];
+}
+
+/**
+ * Evaluates the status of the 6 "ĐẠT / CHƯA ĐẠT" categories for a student's records:
+ * 1. ĐẠO ĐỨC – ỨNG XỬ
+ * 2. HỌC TẬP – KIỂM TRA
+ * 3. TỆ NẠN – KÍCH THÍCH – CHẤT GÂY CHÁY NỔ
+ * 4. AN NINH – TRẬT TỰ
+ * 5. AN TOÀN GIAO THÔNG
+ * 6. VĂN HÓA – NỘI DUNG KHÔNG PHÙ HỢP
+ * 
+ * Logic & Priority:
+ * - If GVCN evaluated any of the 6 groups with CHƯA ĐẠT -> overall is 🔴 CHƯA ĐẠT
+ * - If ALL evaluated groups are ĐẠT -> overall is 🟢 ĐẠT
+ * - If no evaluations in these groups -> hasEvaluation = false
+ */
+export function evaluateStudent6Groups(records: ConductRecord[]): GroupEvaluationResult {
+  if (!records || records.length === 0) {
+    return {
+      hasEvaluation: false,
+      hasChuaDat: false,
+      hasDat: false,
+      evaluationCount: 0,
+      finalRating: null,
+      displayClassification: '',
+      badgeStyle: '',
+      evaluatedCategories: []
+    };
+  }
+
+  // Filter records belonging to the 6 "ĐẠT / CHƯA ĐẠT" evaluation groups
+  const evalRecords = records.filter(r => isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus));
+
+  if (evalRecords.length === 0) {
+    return {
+      hasEvaluation: false,
+      hasChuaDat: false,
+      hasDat: false,
+      evaluationCount: 0,
+      finalRating: null,
+      displayClassification: '',
+      badgeStyle: '',
+      evaluatedCategories: []
+    };
+  }
+
+  // Group records by category to evaluate each
+  const evaluatedCategories: {
+    categoryId: string;
+    categoryName: string;
+    status: 'ĐẠT' | 'CHƯA ĐẠT';
+    recordCount: number;
+  }[] = [];
+
+  evalRecords.forEach(r => {
+    const catId = r.categoryId || 'unknown';
+    const catName = r.categoryName || 'Tiêu chí';
+    let existing = evaluatedCategories.find(c => c.categoryId === catId || c.categoryName.toLowerCase() === catName.toLowerCase());
+    if (!existing) {
+      existing = {
+        categoryId: catId,
+        categoryName: catName,
+        status: 'ĐẠT',
+        recordCount: 0
+      };
+      evaluatedCategories.push(existing);
+    }
+    existing.recordCount += 1;
+    // Determine if this record represents CHƯA ĐẠT
+    const isChuaDat = r.evaluationStatus === 'chua_dat' || (!r.evaluationStatus && (r.pointType === 'minus' || (r.point || 0) < 0 || Boolean(r.level) || r.recordType === 'VI_PHAM'));
+    if (isChuaDat) {
+      existing.status = 'CHƯA ĐẠT';
+    }
+  });
+
+  // Priority rule:
+  // Only 1 item in the 6 groups with CHƯA ĐẠT -> overall is CHƯA ĐẠT
+  const hasChuaDat = evaluatedCategories.some(c => c.status === 'CHƯA ĐẠT');
+  const hasDat = evaluatedCategories.some(c => c.status === 'ĐẠT');
+
+  if (hasChuaDat) {
+    return {
+      hasEvaluation: true,
+      hasChuaDat: true,
+      hasDat,
+      evaluationCount: evalRecords.length,
+      finalRating: 'CHƯA ĐẠT',
+      displayClassification: '🔴 CHƯA ĐẠT',
+      badgeStyle: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+      evaluatedCategories
+    };
+  }
+
+  return {
+    hasEvaluation: true,
+    hasChuaDat: false,
+    hasDat: true,
+    evaluationCount: evalRecords.length,
+    finalRating: 'ĐẠT',
+    displayClassification: '🟢 ĐẠT',
+    badgeStyle: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+    evaluatedCategories
+  };
+}
+
 export const DEFAULT_CONDUCT_CATEGORIES: ConductCategory[] = [
   { id: 'cat_1', code: 'NH_HT', name: 'NỀN NẾP HỌC TẬP', sortOrder: 1, status: 'active' },
   { id: 'cat_2', code: 'DP_THS', name: 'ĐỒNG PHỤC – THẺ HỌC SINH', sortOrder: 2, status: 'active' },
@@ -753,11 +935,22 @@ export function calculateConductScore(
   totalMinus: number,
   thresholds?: any,
   hasSpecialWarning: boolean = false,
-  ratingConfig?: EvaluationRatingConfig | RatingTierItem[] | null
+  ratingConfig?: EvaluationRatingConfig | RatingTierItem[] | null,
+  recordsOrEvalResult?: ConductRecord[] | GroupEvaluationResult | null
 ): { totalScore: number; classification: ClassificationType | string; specialWarning: boolean; ratingResult: StudentRatingResult } {
   // totalMinus is positive magnitude (e.g. 8 points lost) or negative point sum (e.g. -8)
   const minusMagnitude = Math.abs(totalMinus);
   const totalScore = baseScore + totalPlus - minusMagnitude;
+
+  // Determine 6 groups evaluation result if provided
+  let evalResult: GroupEvaluationResult | null = null;
+  if (recordsOrEvalResult) {
+    if ('hasEvaluation' in recordsOrEvalResult) {
+      evalResult = recordsOrEvalResult;
+    } else if (Array.isArray(recordsOrEvalResult)) {
+      evalResult = evaluateStudent6Groups(recordsOrEvalResult);
+    }
+  }
 
   // If threshold overrides were given without full config (legacy fallback)
   let activeConfig = ratingConfig;
@@ -773,12 +966,48 @@ export function calculateConductScore(
     ];
   }
 
-  const ratingResult = calculateStudentRating(totalScore, activeConfig, hasSpecialWarning);
+  const defaultRatingResult = calculateStudentRating(totalScore, activeConfig, hasSpecialWarning);
+
+  // If the student has evaluation in the 6 groups:
+  // - If any group has CHƯA ĐẠT -> 🔴 CHƯA ĐẠT
+  // - If all evaluated groups are ĐẠT -> 🟢 ĐẠT
+  // - If no evaluations -> keep default rating from score
+  if (evalResult && evalResult.hasEvaluation) {
+    if (evalResult.hasChuaDat) {
+      return {
+        totalScore,
+        classification: '🔴 CHƯA ĐẠT',
+        specialWarning: hasSpecialWarning,
+        ratingResult: {
+          rating_name: '🔴 CHƯA ĐẠT',
+          min_score: 0,
+          max_score: 64,
+          color: 'rose',
+          badge_style: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+          tier: defaultRatingResult.tier
+        }
+      };
+    } else {
+      return {
+        totalScore,
+        classification: '🟢 ĐẠT',
+        specialWarning: hasSpecialWarning,
+        ratingResult: {
+          rating_name: '🟢 ĐẠT',
+          min_score: 65,
+          max_score: 100,
+          color: 'emerald',
+          badge_style: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+          tier: defaultRatingResult.tier
+        }
+      };
+    }
+  }
 
   return {
     totalScore,
-    classification: ratingResult.rating_name as ClassificationType,
+    classification: defaultRatingResult.rating_name as ClassificationType,
     specialWarning: hasSpecialWarning,
-    ratingResult
+    ratingResult: defaultRatingResult
   };
 }

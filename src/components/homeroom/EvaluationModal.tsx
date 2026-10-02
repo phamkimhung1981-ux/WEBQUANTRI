@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Award, CheckCircle, ShieldCheck, AlertCircle, FileText, Send } from 'lucide-react';
 import { Student, ConductEvaluation, ConductRecord, ClassificationType, ConfirmationStatus, ClassInfo } from '../../types/homeroom';
-import { calculateConductScore, evaluateStudentConductRules, checkStudentHasSpecialWarning } from '../../lib/homeroomData';
+import { calculateConductScore, evaluateStudentConductRules, checkStudentHasSpecialWarning, isDatChuaDatCategory, evaluateStudent6Groups } from '../../lib/homeroomData';
 import { useAuth } from '../../store/AuthContext';
 
 interface EvaluationModalProps {
@@ -42,15 +42,18 @@ export default function EvaluationModal({
   const studentRecords = student ? records.filter(r => r.studentId === student.id) : [];
   const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords);
 
+  const evalResult = evaluateStudent6Groups(studentRecords);
+
   if (student) {
     studentRecords.forEach(r => {
       if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+      if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
       if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
       else totalMinus += Math.abs(r.point);
     });
   }
 
-  const { totalScore, classification: calcClass } = calculateConductScore(100, totalPlus, totalMinus, undefined, hasSpecialWarning);
+  const { totalScore, classification: calcClass } = calculateConductScore(100, totalPlus, totalMinus, undefined, hasSpecialWarning, undefined, evalResult);
 
   useEffect(() => {
     if (isOpen) {

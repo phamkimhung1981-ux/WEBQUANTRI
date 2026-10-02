@@ -26,7 +26,8 @@ import {
   EvaluationRatingConfig,
   EvaluationRatingConfigHistory,
   RatingTierItem,
-  EvaluationPeriodScopeType
+  EvaluationPeriodScopeType,
+  TeacherAssessmentCompletion
 } from '../types/homeroom';
 import {
   DEFAULT_CONDUCT_CATEGORIES,
@@ -1621,6 +1622,134 @@ export const homeroomService = {
     };
 
     return this.saveRatingConfig(payload, userPerformed, previousTiers, 'Khôi phục về cấu hình xếp loại mặc định của nhà trường');
+  },
+
+  // 17. THEO DÕI VÀ BÁO CÁO HOÀN THÀNH XẾP LOẠI HỌC SINH CỦA GVCN
+  subscribeTeacherAssessmentCompletions(callback: (completions: TeacherAssessmentCompletion[]) => void) {
+    const q = collection(db, 'teacher_assessment_completions');
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TeacherAssessmentCompletion));
+      callback(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'teacher_assessment_completions'));
+  },
+
+  async reportTeacherAssessmentCompletion(data: {
+    classId: string;
+    className: string;
+    schoolYear: string;
+    month: string;
+    semester: string;
+    totalStudents: number;
+    evaluatedCount: number;
+    ratingCounts?: Record<string, number>;
+    note?: string;
+    user?: { id?: string; name?: string; role?: string };
+  }): Promise<TeacherAssessmentCompletion> {
+    try {
+      const yearSlug = (data.schoolYear || '2026–2027').replace(/[^a-zA-Z0-9]/g, '_');
+      const monthSlug = (data.month || 'Thang_09').replace(/[^a-zA-Z0-9]/g, '_');
+      const docId = `completion_${data.classId}_${yearSlug}_${monthSlug}`;
+      const now = new Date();
+      const dateStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ngày ${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+      const payload: TeacherAssessmentCompletion = {
+        id: docId,
+        classId: data.classId,
+        className: data.className,
+        schoolYear: data.schoolYear,
+        month: data.month,
+        semester: data.semester,
+        totalStudents: data.totalStudents,
+        evaluatedCount: data.evaluatedCount,
+        isCompleted: true,
+        completedAt: dateStr,
+        completedBy: data.user?.id || 'gvcn',
+        completedByName: data.user?.name || 'Giáo viên Chủ nhiệm',
+        ratingCounts: data.ratingCounts,
+        note: data.note || '',
+        approvalStatus: 'Chờ BGH duyệt',
+        updatedAt: now.toISOString()
+      };
+
+      await setDoc(doc(db, 'teacher_assessment_completions', docId), sanitize(payload), { merge: true });
+      return payload;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacher_assessment_completions');
+      throw err;
+    }
+  },
+
+  async reopenTeacherAssessmentCompletion(classId: string, schoolYear: string, month: string): Promise<void> {
+    try {
+      const yearSlug = (schoolYear || '2026–2027').replace(/[^a-zA-Z0-9]/g, '_');
+      const monthSlug = (month || 'Thang_09').replace(/[^a-zA-Z0-9]/g, '_');
+      const docId = `completion_${classId}_${yearSlug}_${monthSlug}`;
+      await setDoc(doc(db, 'teacher_assessment_completions', docId), { isCompleted: false, approvalStatus: undefined, updatedAt: new Date().toISOString() }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacher_assessment_completions');
+      throw err;
+    }
+  },
+
+  // 18. PHÊ DUYỆT XẾP LOẠI CỦA BAN GIÁM HIỆU
+  async updateTeacherAssessmentCompletionApproval(
+    docId: string,
+    status: 'Đã duyệt' | 'Yêu cầu điều chỉnh',
+    bghComment?: string,
+    user?: { id?: string; name?: string; role?: string }
+  ): Promise<void> {
+    try {
+      const now = new Date();
+      const dateStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ngày ${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+      
+      const payload: Partial<TeacherAssessmentCompletion> = {
+        approvalStatus: status,
+        approvedBy: user?.id || 'bgh',
+        approvedByName: user?.name || 'Ban Giám hiệu',
+        approvedAt: dateStr,
+        bghComment: bghComment || '',
+        updatedAt: now.toISOString()
+      };
+
+      await setDoc(doc(db, 'teacher_assessment_completions', docId), sanitize(payload), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacher_assessment_completions');
+      throw err;
+    }
+  },
+
+  async updateStudentTeacherAssessmentBghApproval(
+    assessmentId: string,
+    status: 'Đã duyệt' | 'Điều chỉnh' | 'Yêu cầu điều chỉnh',
+    adjustedRating?: 'Tốt' | 'Khá' | 'Đạt' | 'Chưa đạt',
+    bghComment?: string,
+    user?: { id?: string; name?: string; role?: string }
+  ): Promise<void> {
+    try {
+      const now = new Date();
+      const dateStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ngày ${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+      const payload: Partial<TeacherAssessment> = {
+        bghApprovalStatus: status,
+        bghApprovedBy: user?.id || 'bgh',
+        bghApprovedByName: user?.name || 'Ban Giám hiệu',
+        bghApprovedAt: dateStr,
+        bghComment: bghComment || '',
+        updatedAt: now.toISOString(),
+        updatedBy: user?.name || 'BGH'
+      };
+
+      if (adjustedRating) {
+        payload.bghAdjustedRating = adjustedRating;
+        payload.levelRating = adjustedRating;
+        payload.teacherProposedRating = adjustedRating as any;
+      }
+
+      await setDoc(doc(db, 'teacher_assessments', assessmentId), sanitize(payload), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacher_assessments');
+      throw err;
+    }
   }
 };
 

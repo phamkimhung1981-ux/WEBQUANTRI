@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { Student, ConductRecord, ConductCriterion, ClassificationType, EvaluationRatingConfig } from '../types/homeroom';
-import { calculateConductScore, checkStudentHasSpecialWarning } from '../lib/homeroomData';
+import { calculateConductScore, checkStudentHasSpecialWarning, isDatChuaDatCategory, evaluateStudent6Groups } from '../lib/homeroomData';
 
 interface ExportData {
   className: string;
@@ -81,6 +81,8 @@ export function exportHomeroomToExcel({
     });
 
     studentRecords.forEach(r => {
+      if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+      if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
       if (r.pointType === 'plus') {
         totalPlus += Math.abs(r.point);
       } else {
@@ -95,7 +97,8 @@ export function exportHomeroomToExcel({
       }
     });
 
-    const { totalScore, classification } = calculateConductScore(baseScore, totalPlus, totalMinus, undefined, hasSpecialWarning, ratingConfig);
+    const evalResult = evaluateStudent6Groups(studentRecords);
+    const { totalScore, classification } = calculateConductScore(baseScore, totalPlus, totalMinus, undefined, hasSpecialWarning, ratingConfig, evalResult);
 
     const row = [
       String(index + 1).padStart(2, '0'),

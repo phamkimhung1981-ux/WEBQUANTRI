@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, FileSpreadsheet, Printer, TrendingUp, AlertTriangle, Star, BarChart3, Users, FileText } from 'lucide-react';
 import { ClassInfo, Student, ConductRecord, ConductCriterion, ConductSettings } from '../../types/homeroom';
 import { exportHomeroomToExcel } from '../../utils/homeroomExport';
-import { calculateConductScore } from '../../lib/homeroomData';
+import { calculateConductScore, isDatChuaDatCategory, evaluateStudent6Groups } from '../../lib/homeroomData';
 
 interface HomeroomReportModalProps {
   isOpen: boolean;
@@ -42,25 +42,28 @@ export default function HomeroomReportModal({
   });
   const topViolations = Object.values(violationCounts).sort((a, b) => b.count - a.count);
 
-  // Students requiring attention (Net score < 70 or 3+ violations)
+  // Students requiring attention (Net score < 70 or 3+ violations or CHƯA ĐẠT in 6 groups)
   const studentsNeedingAttention = students.map(st => {
     const stRecords = records.filter(r => r.studentId === st.id);
     let plus = 0;
     let minus = 0;
     stRecords.forEach(r => {
       if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+      if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
       if (r.pointType === 'plus') plus += Math.abs(r.point);
       else minus += Math.abs(r.point);
     });
-    const { totalScore, classification } = calculateConductScore(settings.baseScore || 100, plus, minus, settings.thresholds);
+    const evalResult = evaluateStudent6Groups(stRecords);
+    const { totalScore, classification } = calculateConductScore(settings.baseScore || 100, plus, minus, settings.thresholds, false, undefined, evalResult);
     return {
       student: st,
       totalScore,
       classification,
       minusCount: stRecords.filter(r => r.pointType === 'minus').length,
-      severeCount: stRecords.filter(r => r.level === 'Nghiêm trọng' || r.level === 'Rất nghiêm trọng').length
+      severeCount: stRecords.filter(r => r.level === 'Nghiêm trọng' || r.level === 'Rất nghiêm trọng').length,
+      hasChuaDat: evalResult.hasChuaDat
     };
-  }).filter(item => item.totalScore < 70 || item.minusCount >= 3 || item.severeCount > 0);
+  }).filter(item => item.totalScore < 70 || item.minusCount >= 3 || item.severeCount > 0 || item.hasChuaDat);
 
   const handleExportExcel = () => {
     exportHomeroomToExcel({

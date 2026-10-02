@@ -358,6 +358,42 @@
         "after_change": { "type": "array" }
       },
       "required": ["id", "config_id", "action", "performed_by", "performed_at", "after_change"]
+    },
+    "student_training_evaluations": {
+      "title": "Student Training Evaluation",
+      "description": "Đánh giá 04 nội dung rèn luyện riêng của học sinh do GVCN thực hiện",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "school_year": { "type": "string" },
+        "class_id": { "type": "string" },
+        "homeroom_teacher_id": { "type": "string" },
+        "atgt_status": { "type": "string", "enum": ["dat", "chua_dat"] },
+        "violence_status": { "type": "string", "enum": ["dat", "chua_dat"] },
+        "cheating_status": { "type": "string", "enum": ["dat", "chua_dat"] },
+        "smoking_status": { "type": "string", "enum": ["dat", "chua_dat"] },
+        "note": { "type": "string" },
+        "atgt_note": { "type": "string" },
+        "violence_note": { "type": "string" },
+        "cheating_note": { "type": "string" },
+        "smoking_note": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "updated_by": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "student_id",
+        "school_year",
+        "class_id",
+        "homeroom_teacher_id",
+        "atgt_status",
+        "violence_status",
+        "cheating_status",
+        "smoking_status",
+        "updated_at",
+        "updated_by"
+      ]
     }
   }
 }

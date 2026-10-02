@@ -1,27 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
-  PlusCircle,
   CheckCircle2,
-  Paperclip,
   Save,
   Trash2,
   Edit3,
   AlertCircle,
   History,
-  ShieldAlert
+  Calendar,
+  MapPin,
+  Clock,
+  RotateCcw,
+  Search,
+  Tag,
+  ShieldAlert,
+  AlertTriangle,
+  Award,
+  Layers,
+  ChevronRight
 } from 'lucide-react';
-import { Student, ConductCategory, ConductCriterion, ConductRecord, ClassInfo, ViolationCategoryType, ViolationSeverity, WarningLevel } from '../../types/homeroom';
+import {
+  Student,
+  ConductCategory,
+  ConductCriterion,
+  ConductRecord,
+  ClassInfo,
+  ViolationSeverity,
+  WarningLevel
+} from '../../types/homeroom';
 import { useAuth } from '../../store/AuthContext';
 import { getDefaultDateForMonthAndWeek, getMonthNumberFromLabel } from '../../utils/schoolWeekUtils';
+import { DEFAULT_CONDUCT_CATEGORIES, DEFAULT_CONDUCT_CRITERIA, DEFAULT_SERIOUS_VIOLATION_CONFIGS, isSpecialWarningCategory, isDatChuaDatCategory } from '../../lib/homeroomData';
 
 interface RecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedClass: ClassInfo | null;
   students: Student[];
-  categories: ConductCategory[];
-  criteria: ConductCriterion[];
+  categories?: ConductCategory[];
+  criteria?: ConductCriterion[];
   records?: ConductRecord[];
   onSave: (record: Omit<ConductRecord, 'id' | 'createdAt'>) => Promise<any>;
   onUpdateRecord?: (id: string, updates: Partial<ConductRecord>) => Promise<void>;
@@ -33,6 +50,8 @@ interface RecordModalProps {
   selectedWeek?: number;
   selectedMonth?: string;
   selectedSchoolYear?: string;
+  homeroomTeacherId?: string;
+  homeroomTeacherName?: string;
 }
 
 export default function RecordModal({
@@ -40,14 +59,15 @@ export default function RecordModal({
   onClose,
   selectedClass,
   students,
-  categories,
-  criteria,
+  categories = [],
+  criteria = [],
   records = [],
   onSave,
   onUpdateRecord,
   onDeleteRecord,
   defaultStudentId,
   defaultCriterionId,
+  defaultType = 'minus',
   selectedWeek,
   selectedMonth,
   selectedSchoolYear
@@ -57,66 +77,94 @@ export default function RecordModal({
   // Active student state
   const [activeStudentId, setActiveStudentId] = useState<string>('');
 
+  // Mode: 'minus' (Vi phạm) or 'plus' (Điểm cộng / Khen thưởng)
+  const [pointType, setPointType] = useState<'plus' | 'minus'>('minus');
+
+  // Evaluation result state for the 6 Dat/ChuaDat categories: 'dat' | 'chua_dat' | null
+  const [evaluationStatus, setEvaluationStatus] = useState<'dat' | 'chua_dat' | null>(null);
+
+  // Category & Criterion selection
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+  const [selectedCriterionId, setSelectedCriterionId] = useState<string>('');
+  const [criterionSearch, setCriterionSearch] = useState<string>('');
+
+  // Form Fields
   const [recordDate, setRecordDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [categoryId, setCategoryId] = useState<string>('');
-  const [categoryType, setCategoryType] = useState<ViolationCategoryType>('NỘI QUY');
-  const [criterionId, setCriterionId] = useState<string>('');
-  
-  // Point type is STRICTLY minus / violation for conduct recording
-  const pointType = 'minus';
-  const [pointMagnitude, setPointMagnitude] = useState<number>(2); // Stored as positive input e.g. 2, 5
-  
-  const [level, setLevel] = useState<ViolationSeverity>('Nhẹ');
+  const [pointMagnitude, setPointMagnitude] = useState<number>(5);
+  const [level, setLevel] = useState<ViolationSeverity>('Vừa');
   const [location, setLocation] = useState<string>('');
   const [note, setNote] = useState<string>('');
-  const [evidenceUrl, setEvidenceUrl] = useState<string>('');
-  const [hasConductWarning, setHasConductWarning] = useState<boolean>(false);
-  const [proposedRatingState, setProposedRatingState] = useState<string>('Theo dõi');
-  
+  const [customCriterionName, setCustomCriterionName] = useState<string>('');
+
+  // Edit record state
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+
+  // Submission state
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successToast, setSuccessToast] = useState<string>('');
 
-  // Find active student object
+  // Combined categories & criteria (fallback to defaults if empty)
+  const activeCategories = useMemo(() => {
+    return categories.length > 0 ? categories : DEFAULT_CONDUCT_CATEGORIES;
+  }, [categories]);
+
+  const activeCriteria = useMemo(() => {
+    return criteria.length > 0 ? criteria : DEFAULT_CONDUCT_CRITERIA;
+  }, [criteria]);
+
+  // Active student object
   const currentStudent = students.find(s => s.id === activeStudentId) || (students.length > 0 ? students[0] : null);
 
-  // Get criteria for currently selected category
-  const filteredCriteria = criteria
-    .filter(c => !categoryId || c.categoryId === categoryId)
-    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  // History records for current student
+  const currentStudentHistory = useMemo(() => {
+    return records.filter(r => r.studentId === currentStudent?.id);
+  }, [records, currentStudent]);
 
-  // Get history records belonging ONLY to current student
-  const currentStudentHistory = records.filter(r => r.studentId === currentStudent?.id);
+  // Derived objects for category and criterion
+  const selectedCatObj = activeCategories.find(c => c.id === selectedCategoryId);
+  const currentCriterion = activeCriteria.find(c => c.id === selectedCriterionId);
+  const critCatObj = currentCriterion ? activeCategories.find(c => c.id === currentCriterion.categoryId) : null;
 
-  // Existing record for current student for currently selected criterion
-  const existingStudentCriterionRecord = records.find(
-    r => r.studentId === currentStudent?.id && r.criterionId === criterionId
-  );
-
-  // Sync inputs when active student or criterion changes
-  useEffect(() => {
-    if (!criterionId || !currentStudent) return;
-
-    const existing = existingStudentCriterionRecord;
-    if (existing) {
-      setPointMagnitude(Math.abs(existing.point || 2));
-      setLevel(existing.level || 'Nhẹ');
-      if (existing.categoryType) setCategoryType(existing.categoryType);
-      if (existing.location) setLocation(existing.location);
-      if (existing.note) setNote(existing.note);
-      if (existing.evidenceUrl) setEvidenceUrl(existing.evidenceUrl);
-      if (existing.hasConductWarning !== undefined) setHasConductWarning(existing.hasConductWarning);
-      if (existing.proposedRating) {
-        if (existing.proposedRating === 'YẾU / CHƯA ĐẠT') {
-          setProposedRatingState('Chưa đạt (Xếp Yếu)');
-        } else {
-          setProposedRatingState(existing.proposedRating);
-        }
+  // Determine if the current selection is one of the 6 "ĐẠT / CHƯA ĐẠT" categories
+  const isEvaluationGroup = useMemo(() => {
+    // If a criterion is selected, check its category first
+    if (currentCriterion) {
+      if (isDatChuaDatCategory(currentCriterion.categoryId, currentCriterion.categoryName || critCatObj?.name)) {
+        return true;
       }
     }
-  }, [criterionId, activeStudentId, records.length]);
+    // If category dropdown has a selection other than 'all'
+    if (selectedCategoryId && selectedCategoryId !== 'all') {
+      if (isDatChuaDatCategory(selectedCategoryId, selectedCatObj?.name)) {
+        return true;
+      }
+    }
+    return false;
+  }, [currentCriterion, critCatObj, selectedCategoryId, selectedCatObj]);
 
-  // Modal open initialization
+  // Filtered criteria based on pointType, category, search
+  const filteredCriteria = useMemo(() => {
+    return activeCriteria.filter(c => {
+      // Status
+      if (c.status === 'inactive') return false;
+      // Point type
+      if (c.pointType !== pointType) return false;
+      // Category
+      if (selectedCategoryId !== 'all' && c.categoryId !== selectedCategoryId) return false;
+      // Search
+      if (criterionSearch.trim()) {
+        const q = criterionSearch.trim().toLowerCase();
+        const codeMatch = (c.code || '').toLowerCase().includes(q);
+        const nameMatch = (c.name || '').toLowerCase().includes(q);
+        const descMatch = (c.description || '').toLowerCase().includes(q);
+        if (!codeMatch && !nameMatch && !descMatch) return false;
+      }
+      return true;
+    });
+  }, [activeCriteria, pointType, selectedCategoryId, criterionSearch]);
+
+  // Initialize modal state
   useEffect(() => {
     if (isOpen) {
       const mNum = getMonthNumberFromLabel(selectedMonth || 'Tháng 09');
@@ -125,109 +173,147 @@ export default function RecordModal({
 
       if (defaultStudentId) {
         setActiveStudentId(defaultStudentId);
-      } else if (students.length > 0) {
+      } else if (students.length > 0 && !activeStudentId) {
         setActiveStudentId(students[0].id);
       }
 
-      setPointMagnitude(2);
-      setCategoryType('NỘI QUY');
-      setLocation('');
-      setHasConductWarning(false);
-      setProposedRatingState('Theo dõi');
-      setSuccessToast('');
-      setNote('');
-      setEvidenceUrl('');
+      setPointType(defaultType || 'minus');
+      setSelectedCategoryId('all');
+      setCriterionSearch('');
+      setEditingRecordId(null);
+      setEvaluationStatus(null);
       setErrorMsg('');
+      setSuccessToast('');
+      setLocation('');
+      setNote('');
+      setCustomCriterionName('');
 
+      // Pick default criterion if provided
       if (defaultCriterionId) {
-        const foundCrit = criteria.find(c => c.id === defaultCriterionId);
-        if (foundCrit) {
-          setCategoryId(foundCrit.categoryId);
-          setCriterionId(foundCrit.id);
-          setPointMagnitude(Math.abs(foundCrit.defaultPoint || 2));
-          setLevel(foundCrit.severity || 'Nhẹ');
-        }
-      } else if (categories.length > 0) {
-        const firstCat = categories[0];
-        setCategoryId(firstCat.id);
-        const crits = criteria.filter(c => c.categoryId === firstCat.id);
-        if (crits.length > 0) {
-          const first = crits[0];
-          setCriterionId(first.id);
-          setPointMagnitude(Math.abs(first.defaultPoint || 2));
-          setLevel(first.severity || 'Nhẹ');
+        const found = activeCriteria.find(c => c.id === defaultCriterionId);
+        if (found) {
+          applyCriterion(found);
+          return;
         }
       }
+
+      // Pick first matching criterion
+      const firstMinus = activeCriteria.find(c => c.pointType === (defaultType || 'minus') && c.status !== 'inactive');
+      if (firstMinus) {
+        applyCriterion(firstMinus);
+      }
     }
-  }, [isOpen, defaultStudentId, defaultCriterionId, students, criteria, categories]);
+  }, [isOpen, defaultStudentId, defaultCriterionId, defaultType, students, activeCriteria]);
 
-  // Auto set warning flag & rating state based on special violation types
-  useEffect(() => {
-    if (categoryType === 'ATGT' || categoryType === 'BẠO LỰC HỌC ĐƯỜNG' || categoryType === 'GIAN LẬN THI CỬ') {
-      setHasConductWarning(true);
-      setProposedRatingState('Chưa đạt (Xếp Yếu)');
-    } else if (level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng') {
-      setHasConductWarning(true);
+  // Select criterion handler
+  const applyCriterion = (crit: ConductCriterion) => {
+    setSelectedCriterionId(crit.id);
+    const isCatDatChuaDat = isDatChuaDatCategory(crit.categoryId, crit.categoryName);
+    if (isCatDatChuaDat) {
+      setPointMagnitude(0);
+    } else {
+      setPointMagnitude(Math.abs(crit.defaultPoint || 5));
     }
-  }, [categoryType, level]);
+    setLevel(crit.severity || (crit.pointType === 'plus' ? 'Nhẹ' : 'Vừa'));
+    if (crit.categoryId) {
+      setSelectedCategoryId(crit.categoryId);
+    }
+    setCustomCriterionName('');
+  };
 
-  // Switch Category
-  const handleCategoryChange = (catId: string) => {
-    setCategoryId(catId);
-    const crits = criteria.filter(c => !catId || c.categoryId === catId);
-    if (crits.length > 0) {
-      const first = crits[0];
-      setCriterionId(first.id);
+  const handleSelectCriterion = (crit: ConductCriterion) => {
+    applyCriterion(crit);
+  };
 
-      const existing = records.find(r => r.studentId === currentStudent?.id && r.criterionId === first.id);
-      if (existing) {
-        setPointMagnitude(Math.abs(existing.point || 2));
-        setLevel(existing.level || 'Nhẹ');
-        if (existing.note) setNote(existing.note);
-      } else {
-        setPointMagnitude(Math.abs(first.defaultPoint || 2));
-        setLevel(first.severity || 'Nhẹ');
-        setNote('');
+  // Switch point type (Vi phạm vs Khen thưởng)
+  const handleTogglePointType = (type: 'plus' | 'minus') => {
+    setPointType(type);
+    setSelectedCriterionId('');
+    setCustomCriterionName('');
+    const firstMatch = activeCriteria.find(c => c.pointType === type && c.status !== 'inactive');
+    if (firstMatch) {
+      applyCriterion(firstMatch);
+    } else {
+      setPointMagnitude(type === 'plus' ? 5 : 5);
+      setLevel('Nhẹ');
+    }
+  };
+
+  // Handle Edit existing record from history
+  const handleEditHistoryRecord = (rec: ConductRecord) => {
+    setEditingRecordId(rec.id);
+    setRecordDate(rec.recordDate || new Date().toISOString().split('T')[0]);
+    setPointType(rec.pointType || 'minus');
+    const isCatDatChuaDat = isDatChuaDatCategory(rec.categoryId, rec.categoryName) || Boolean(rec.evaluationStatus);
+    setPointMagnitude(isCatDatChuaDat ? 0 : Math.abs(rec.point || 5));
+    setLevel(rec.level || 'Vừa');
+    setLocation(rec.location || '');
+    setNote(rec.note || '');
+    setEvaluationStatus(rec.evaluationStatus || null);
+
+    if (rec.criterionId) {
+      setSelectedCriterionId(rec.criterionId);
+      const crit = activeCriteria.find(c => c.id === rec.criterionId);
+      if (crit?.categoryId) {
+        setSelectedCategoryId(crit.categoryId);
+      }
+    } else {
+      setSelectedCriterionId('');
+      setCustomCriterionName(rec.criterionName || '');
+    }
+
+    setSuccessToast(`✏️ Đã tải lại bản ghi [${rec.criterionName}] để chỉnh sửa.`);
+    setTimeout(() => setSuccessToast(''), 3000);
+  };
+
+  // Cancel edit mode
+  const handleCancelEdit = () => {
+    setEditingRecordId(null);
+    setEvaluationStatus(null);
+    setLocation('');
+    setNote('');
+    setCustomCriterionName('');
+    const firstMatch = activeCriteria.find(c => c.pointType === pointType && c.status !== 'inactive');
+    if (firstMatch) applyCriterion(firstMatch);
+  };
+
+  // Delete record from history
+  const handleDeleteHistoryRecord = async (recId: string) => {
+    if (!onDeleteRecord) return;
+    if (window.confirm('Bạn có chắc chắn muốn xóa bản ghi nề nếp / vi phạm này của học sinh?')) {
+      try {
+        setSubmitting(true);
+        await onDeleteRecord(recId);
+        if (editingRecordId === recId) {
+          handleCancelEdit();
+        }
+        setSuccessToast('✅ Đã xóa bản ghi thành công.');
+        setSubmitting(false);
+        setTimeout(() => setSuccessToast(''), 3000);
+      } catch (err: any) {
+        setErrorMsg('Lỗi khi xóa bản ghi: ' + err.message);
+        setSubmitting(false);
       }
     }
   };
 
-  // Switch Criterion
-  const handleCriterionChange = (critId: string) => {
-    setCriterionId(critId);
-    const found = filteredCriteria.find(c => c.id === critId) || criteria.find(c => c.id === critId);
-    if (found) {
-      const existing = records.find(r => r.studentId === currentStudent?.id && r.criterionId === critId);
-      if (existing) {
-        setPointMagnitude(Math.abs(existing.point || 2));
-        setLevel(existing.level || 'Nhẹ');
-        if (existing.note) setNote(existing.note);
-      } else {
-        setPointMagnitude(Math.abs(found.defaultPoint || 2));
-        setLevel(found.severity || 'Nhẹ');
-        setNote('');
-      }
-    }
-  };
-
-  // Save record for current single student (STRICTLY MINUS POINT)
-  const handleSaveCurrentStudent = async () => {
+  // Save record handler
+  const handleSave = async () => {
     try {
       if (!currentStudent) {
         throw new Error('Chưa chọn học sinh để ghi nhận.');
-      }
-      if (!criterionId) {
-        throw new Error('Vui lòng chọn tiêu chí đánh giá.');
       }
 
       setSubmitting(true);
       setErrorMsg('');
       setSuccessToast('');
 
-      const selectedCriterion = filteredCriteria.find(c => c.id === criterionId) || criteria.find(c => c.id === criterionId);
-      const selectedCategory = categories.find(c => c.id === categoryId) || categories.find(c => c.id === selectedCriterion?.categoryId);
+      const selCrit = activeCriteria.find(c => c.id === selectedCriterionId);
+      const criterionName = selCrit ? selCrit.name : customCriterionName.trim();
 
-      if (!selectedCriterion) throw new Error('Tiêu chí không hợp lệ.');
+      if (!criterionName) {
+        throw new Error('Vui lòng chọn tiêu chí hoặc nhập nội dung ghi nhận.');
+      }
 
       const dateObj = new Date(recordDate);
       const parsedMonth = selectedMonth ? parseInt(selectedMonth.replace(/\D/g, ''), 10) : NaN;
@@ -235,28 +321,38 @@ export default function RecordModal({
       const weekNumber = selectedWeek !== undefined ? selectedWeek : Math.ceil(((dateObj.getTime() - new Date(dateObj.getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7);
       const schoolYear = selectedSchoolYear || selectedClass?.schoolYear || '2026–2027';
 
-      const isSpecial = categoryType === 'ATGT' || categoryType === 'BẠO LỰC HỌC ĐƯỜNG' || categoryType === 'GIAN LẬN THI CỬ';
+      // Category info
+      const catObj = activeCategories.find(c => c.id === (selCrit?.categoryId || selectedCategoryId));
+      const categoryId = catObj?.id || selCrit?.categoryId || 'cat_other';
+      const categoryName = catObj?.name || selCrit?.categoryName || 'NỘI QUY NHÀ TRƯỜNG';
 
-      let warningLabel = '';
-      if (categoryType === 'ATGT') warningLabel = '⚠ ATGT';
-      else if (categoryType === 'BẠO LỰC HỌC ĐƯỜNG') warningLabel = '🔴 BẠO LỰC HỌC ĐƯỜNG';
-      else if (categoryType === 'GIAN LẬN THI CỬ') warningLabel = '🔴 GIAN LẬN THI CỬ';
-      else if (level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng') warningLabel = '🔴 VI PHẠM NGHIÊM TRỌNG';
+      // Check if current category is one of the 6 "ĐẠT / CHƯA ĐẠT" categories
+      const isTargetEvaluationCategory = isEvaluationGroup || isDatChuaDatCategory(categoryId, categoryName);
 
-      let finalProposedRating = 'Theo dõi đánh giá';
-      if (isSpecial || proposedRatingState === 'Chưa đạt (Xếp Yếu)') {
-        finalProposedRating = 'YẾU / CHƯA ĐẠT';
-      } else if (proposedRatingState && proposedRatingState !== 'Theo dõi') {
-        finalProposedRating = proposedRatingState;
+      if (isTargetEvaluationCategory) {
+        if (!evaluationStatus) {
+          throw new Error('Vui lòng chọn kết quả đánh giá (ĐẠT hoặc CHƯA ĐẠT) trước khi ghi nhận.');
+        }
       }
 
-      const isWarningActive = isSpecial || hasConductWarning || proposedRatingState === 'Chưa đạt (Xếp Yếu)';
-      const requiresBghApproval = isWarningActive || level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng';
+      // Point calculation (+ or -)
+      const numericPoint = isTargetEvaluationCategory
+        ? 0
+        : (pointType === 'plus' ? Math.abs(Number(pointMagnitude) || 5) : -Math.abs(Number(pointMagnitude) || 5));
 
-      // Enforce strict negative point (score = -pointMagnitude)
-      const minusPointValue = -Math.abs(Number(pointMagnitude) || 2);
+      // Warning and special warning checks (ONLY for non-evaluation groups)
+      const isATGT = !isTargetEvaluationCategory && (categoryName.toUpperCase().includes('GIAO THÔNG') || criterionName.toLowerCase().includes('mũ bảo hiểm') || criterionName.toLowerCase().includes('giao thông'));
+      const isViolence = !isTargetEvaluationCategory && (categoryName.toUpperCase().includes('ĐẠO ĐỨC') || criterionName.toLowerCase().includes('đánh nhau') || criterionName.toLowerCase().includes('xúc phạm'));
+      const isCheating = !isTargetEvaluationCategory && (categoryName.toUpperCase().includes('KIỂM TRA') || criterionName.toLowerCase().includes('gian lận'));
+      const isSpecial = isATGT || isViolence || isCheating;
 
-      const recordPayload = {
+      let warningLabel = '';
+      if (isATGT) warningLabel = '⚠ ATGT';
+      else if (isViolence) warningLabel = '🔴 BẠO LỰC HỌC ĐƯỜNG';
+      else if (isCheating) warningLabel = '🔴 GIAN LẬN THI CỬ';
+      else if (!isTargetEvaluationCategory && (level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng')) warningLabel = '🔴 VI PHẠM NGHIÊM TRỌNG';
+
+      const payload = {
         studentId: currentStudent.id,
         studentName: currentStudent.name,
         classId: selectedClass?.id || currentStudent.classId,
@@ -264,38 +360,53 @@ export default function RecordModal({
         schoolYear,
         weekNumber,
         monthNumber,
-        criterionId: selectedCriterion.id,
-        criterionName: selectedCriterion.name,
-        categoryId: selectedCategory?.id || selectedCriterion.categoryId,
-        categoryName: selectedCategory?.name || selectedCriterion.categoryName,
-        categoryType,
-        location,
-        pointType: 'minus' as const,
-        point: minusPointValue,
+        criterionId: selCrit?.id || `crit_custom_${Date.now()}`,
+        criterionName,
+        categoryId,
+        categoryName,
+        categoryType: (isTargetEvaluationCategory ? 'NỘI QUY' : isATGT ? 'ATGT' : isViolence ? 'BẠO LỰC HỌC ĐƯỜNG' : isCheating ? 'GIAN LẬN THI CỬ' : 'NỘI QUY') as any,
+        location: location.trim(),
+        pointType,
+        point: numericPoint,
         level,
-        hasConductWarning: isWarningActive,
+        evaluationStatus: isTargetEvaluationCategory ? evaluationStatus : undefined,
+        hasConductWarning: !isTargetEvaluationCategory && pointType === 'minus' && (isSpecial || level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng'),
         special_warning: isSpecial,
-        special_warning_message: isSpecial ? 'Học sinh có vi phạm thuộc nhóm cảnh báo đặc biệt.' : undefined,
+        special_warning_message: isSpecial ? `Học sinh có vi phạm thuộc nhóm cảnh báo đặc biệt: ${warningLabel}.` : undefined,
         conduct_rating: isSpecial ? 'YẾU / CHƯA ĐẠT' : undefined,
-        warningLevel: (isSpecial ? 'critical' : (level === 'Rất nghiêm trọng' ? 'critical' : (isWarningActive ? 'serious' : 'mild'))) as WarningLevel,
-        warningLabel,
-        proposedRating: finalProposedRating,
-        requiresBghApproval,
-        bghApprovalStatus: (requiresBghApproval ? 'Chưa duyệt' : undefined) as ('Chưa duyệt' | undefined),
-        note,
-        evidenceUrl,
+        warningLevel: (isSpecial ? 'critical' : (level === 'Rất nghiêm trọng' ? 'critical' : 'serious')) as WarningLevel,
+        warningLabel: !isTargetEvaluationCategory && pointType === 'minus' ? warningLabel : undefined,
+        proposedRating: isSpecial ? 'YẾU / CHƯA ĐẠT' : (level === 'Vừa' ? 'Khống chế Khá' : 'Theo dõi'),
+        requiresBghApproval: isSpecial || (!isTargetEvaluationCategory && (level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng')),
+        bghApprovalStatus: (isSpecial || (!isTargetEvaluationCategory && (level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng'))) ? ('Chưa duyệt' as const) : undefined,
+        note: note.trim(),
         recordedBy: user?.id || 'gvcn',
-        recordedByName: user?.name || 'Giáo viên',
+        recordedByName: user?.name || 'Giáo viên Chủ nhiệm',
         recordDate
       };
 
-      if (existingStudentCriterionRecord && onUpdateRecord) {
-        await onUpdateRecord(existingStudentCriterionRecord.id, recordPayload);
-        setSuccessToast(`✅ Đã cập nhật vi phạm [${selectedCriterion.code}] (-${Math.abs(minusPointValue)}đ) cho ${currentStudent.name}!`);
+      if (editingRecordId && onUpdateRecord) {
+        await onUpdateRecord(editingRecordId, payload);
+        if (isTargetEvaluationCategory) {
+          setSuccessToast(`✅ Đã cập nhật bản ghi [${criterionName}] • Kết quả: ${evaluationStatus === 'dat' ? '🟢 ĐẠT' : '🔴 CHƯA ĐẠT'} (0đ) cho ${currentStudent.name}!`);
+        } else {
+          setSuccessToast(`✅ Đã cập nhật bản ghi [${criterionName}] (${numericPoint > 0 ? '+' : ''}${numericPoint}đ) cho ${currentStudent.name}!`);
+        }
+        setEditingRecordId(null);
       } else {
-        await onSave(recordPayload);
-        setSuccessToast(`✅ Đã ghi nhận vi phạm [${selectedCriterion.code}] (-${Math.abs(minusPointValue)}đ) cho ${currentStudent.name}!`);
+        await onSave(payload);
+        if (isTargetEvaluationCategory) {
+          setSuccessToast(`✅ Đã ghi nhận [${criterionName}] • Kết quả: ${evaluationStatus === 'dat' ? '🟢 ĐẠT' : '🔴 CHƯA ĐẠT'} (0đ) cho ${currentStudent.name}!`);
+        } else {
+          setSuccessToast(`✅ Đã ghi nhận [${criterionName}] (${numericPoint > 0 ? '+' : ''}${numericPoint}đ) cho ${currentStudent.name}!`);
+        }
       }
+
+      // Reset form fields
+      setEvaluationStatus(null);
+      setLocation('');
+      setNote('');
+      setCustomCriterionName('');
 
       setSubmitting(false);
       setTimeout(() => setSuccessToast(''), 4000);
@@ -303,36 +414,6 @@ export default function RecordModal({
       console.error(err);
       setErrorMsg(err.message || 'Có lỗi xảy ra khi lưu ghi nhận.');
       setSubmitting(false);
-    }
-  };
-
-  // Edit record from history
-  const handleEditHistoryRecord = (rec: ConductRecord) => {
-    setCriterionId(rec.criterionId);
-    setPointMagnitude(Math.abs(rec.point || 2));
-    setLevel(rec.level || 'Nhẹ');
-    if (rec.categoryType) setCategoryType(rec.categoryType);
-    if (rec.location) setLocation(rec.location);
-    if (rec.note) setNote(rec.note);
-    if (rec.evidenceUrl) setEvidenceUrl(rec.evidenceUrl);
-    setSuccessToast(`✏️ Đã tải lại tiêu chí [${rec.criterionName}] để chỉnh sửa.`);
-    setTimeout(() => setSuccessToast(''), 3000);
-  };
-
-  // Delete record from history
-  const handleDeleteHistoryRecord = async (recId: string) => {
-    if (!onDeleteRecord) return;
-    if (window.confirm('Bạn có chắc chắn muốn xóa ghi nhận này của học sinh?')) {
-      try {
-        setSubmitting(true);
-        await onDeleteRecord(recId);
-        setSuccessToast('✅ Đã xóa ghi nhận vi phạm thành công.');
-        setSubmitting(false);
-        setTimeout(() => setSuccessToast(''), 3000);
-      } catch (err: any) {
-        setErrorMsg('Lỗi khi xóa ghi nhận: ' + err.message);
-        setSubmitting(false);
-      }
     }
   };
 
@@ -345,11 +426,11 @@ export default function RecordModal({
         <div className="bg-gradient-to-r from-[#123B78] to-[#1457D9] text-white p-4 sm:p-5 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
-              <PlusCircle size={20} className="text-blue-200 shrink-0" />
+              <ShieldAlert size={20} className="text-amber-300 shrink-0" />
               GHI NHẬN NỀN NẾP & VI PHẠM HỌC SINH
             </h2>
             <p className="text-xs text-blue-100 mt-0.5">
-              Chỉ ghi nhận điểm trừ do vi phạm nội quy • Cập nhật trừ điểm rèn luyện trực tiếp
+              Chọn tiêu chí nền nếp • Điểm cộng / Điểm trừ • Tự động đối soát quy định rèn luyện
             </p>
           </div>
           <button
@@ -360,7 +441,7 @@ export default function RecordModal({
           </button>
         </div>
 
-        {/* 1. HỌC SINH ĐƯỢC ĐÁNH GIÁ (Fixed Info Box) */}
+        {/* Student Switcher Banner */}
         {currentStudent ? (
           <div className="bg-blue-50/90 border-b border-blue-200 p-3.5 px-6 flex flex-wrap items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-3">
@@ -369,7 +450,7 @@ export default function RecordModal({
               </div>
               <div>
                 <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider block">
-                  👤 HỌC SINH ĐƯỢC ĐÁNH GIÁ
+                  👤 HỌC SINH ĐƯỢC GHI NHẬN
                 </span>
                 <div className="font-black text-blue-950 text-base flex items-center gap-2">
                   <span>{currentStudent.name}</span>
@@ -383,13 +464,17 @@ export default function RecordModal({
               </div>
             </div>
 
-            {/* Quick student switcher */}
+            {/* Switch student dropdown */}
             {students.length > 1 && (
               <div className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-blue-200 shadow-2xs">
                 <span className="text-xs text-slate-500 font-medium">Đổi HS khác:</span>
                 <select
                   value={activeStudentId}
-                  onChange={(e) => setActiveStudentId(e.target.value)}
+                  onChange={(e) => {
+                    setActiveStudentId(e.target.value);
+                    setEditingRecordId(null);
+                    setEvaluationStatus(null);
+                  }}
                   className="bg-transparent font-bold text-xs text-blue-950 outline-none cursor-pointer"
                 >
                   {students.map(s => (
@@ -418,334 +503,511 @@ export default function RecordModal({
             </div>
           )}
 
-          {/* Form Controls Section */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3.5 shadow-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Ngày ghi nhận */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Ngày ghi nhận <span className="text-rose-500">*</span>
+          {/* Form Card */}
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs">
+            {/* Header row: Loại ghi nhận (Điểm trừ / Điểm cộng) & Ngày ghi nhận */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600">Loại ghi nhận:</span>
+                <div className="inline-flex rounded-xl p-0.5 bg-slate-100 border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePointType('minus')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      pointType === 'minus'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🔴 Vi phạm (- điểm)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePointType('plus')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      pointType === 'plus'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🟢 Điểm cộng (+ điểm)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Calendar size={16} className="text-blue-600 shrink-0" />
+                <label className="text-xs font-bold text-slate-700">
+                  Ngày ghi nhận:
                 </label>
                 <input
                   type="date"
                   value={recordDate}
                   onChange={(e) => setRecordDate(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
                   required
                 />
-              </div>
 
-              {/* Nhóm tiêu chí */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nhóm tiêu chí
+                {editingRecordId && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline font-semibold cursor-pointer flex items-center gap-1 ml-2"
+                  >
+                    <RotateCcw size={12} /> Hủy sửa
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Category Filter & Search row */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div className="sm:col-span-5">
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <Layers size={13} className="text-blue-600" />
+                  <span>Nhóm danh mục tiêu chí:</span>
                 </label>
                 <select
-                  value={categoryId}
-                  onChange={(e) => handleCategoryChange(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium"
+                  value={selectedCategoryId}
+                  onChange={(e) => {
+                    setSelectedCategoryId(e.target.value);
+                    setEvaluationStatus(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800"
                 >
-                  <option value="">-- Tất cả nhóm tiêu chí --</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Tiêu chí đánh giá */}
-              <div>
-                <label className="block text-xs font-bold text-blue-900 mb-1">
-                  Tiêu chí vi phạm <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={criterionId}
-                  onChange={(e) => handleCriterionChange(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border-2 border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-blue-50 font-bold text-blue-950"
-                  required
-                >
-                  <option value="">-- Chọn tiêu chí --</option>
-                  {filteredCriteria.map(c => {
-                    const isRec = records.some(r => r.studentId === currentStudent?.id && r.criterionId === c.id);
+                  <option value="all">-- Tất cả các nhóm danh mục ({activeCategories.length}) --</option>
+                  {activeCategories.map(cat => {
+                    const isDatCĐ = isDatChuaDatCategory(cat.id, cat.name);
                     return (
-                      <option key={c.id} value={c.id}>
-                        {isRec ? '✅ ' : '🟡 '} [{c.code}] {c.name} (-{Math.abs(c.defaultPoint)})
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name} {isDatCĐ ? '— [ĐÁNH GIÁ ĐẠT/CHƯA ĐẠT]' : ''}
                       </option>
                     );
                   })}
                 </select>
               </div>
-            </div>
 
-            {/* Criteria Badges Quick Switch */}
-            {filteredCriteria.length > 0 && (
-              <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                <span className="text-[11px] font-bold text-slate-600 block">
-                  📋 Tiêu chí vi phạm thuộc nhóm đang chọn:
-                </span>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                  {filteredCriteria.map(c => {
-                    const isRec = records.some(r => r.studentId === currentStudent?.id && r.criterionId === c.id);
-                    const isSelected = c.id === criterionId;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleCriterionChange(c.id)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border text-left transition-all flex items-center gap-1.5 cursor-pointer ${
-                          isSelected
-                            ? 'bg-blue-600 text-white border-blue-700 font-bold shadow-xs'
-                            : isRec
-                            ? 'bg-rose-50 text-rose-900 border-rose-300 font-semibold'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {isRec ? '✅' : '🟡'}
-                        <span className="font-mono text-[10px] opacity-80">{c.code}:</span>
-                        <span className="truncate max-w-[180px]">{c.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Score & Severity row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-12 gap-3 pt-2 border-t border-slate-100">
-              {/* Loại điểm STRICTLY MINUS */}
-              <div className="md:col-span-4">
-                <label className="block text-xs font-bold text-slate-700 mb-1">LOẠI ĐIỂM</label>
-                <div className="flex items-center gap-2 pt-1 font-extrabold text-xs text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg">
-                  <span>🔴 Điểm trừ (Vi phạm)</span>
-                </div>
-              </div>
-
-              {/* Số điểm trừ */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Số điểm trừ</label>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-rose-600 font-black text-xs">-</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={pointMagnitude}
-                    onChange={(e) => setPointMagnitude(Math.abs(Number(e.target.value)))}
-                    className="w-full pl-6 pr-3 py-1 text-xs font-bold border border-rose-300 text-rose-700 bg-rose-50 rounded-lg outline-none"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Mức độ vi phạm */}
-              <div className="md:col-span-6">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Mức độ vi phạm</label>
-                <div className="flex flex-wrap gap-1">
-                  {[
-                    { val: 'Nhẹ', label: '🟢 Nhẹ' },
-                    { val: 'Vừa', label: '🟡 Vừa' },
-                    { val: 'Nghiêm trọng', label: '🔴 Nghiêm trọng' },
-                    { val: 'Rất nghiêm trọng', label: '🚨 Rất nghiêm trọng' }
-                  ].map(item => (
-                    <label
-                      key={item.val}
-                      className={`px-2 py-1 rounded-lg border flex items-center gap-1 cursor-pointer text-[11px] font-bold transition-all ${
-                        level === item.val
-                          ? 'bg-rose-100 border-rose-400 text-rose-900 shadow-2xs'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="severity_level_radio"
-                        value={item.val}
-                        checked={level === item.val}
-                        onChange={() => setLevel(item.val as any)}
-                        className="accent-rose-600 shrink-0"
-                      />
-                      <span>{item.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Phân loại & Location */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Phân loại vi phạm</label>
-                <select
-                  value={categoryType}
-                  onChange={(e) => {
-                    const val = e.target.value as ViolationCategoryType;
-                    setCategoryType(val);
-                    if (val === 'ATGT' || val === 'BẠO LỰC HỌC ĐƯỜNG' || val === 'GIAN LẬN THI CỬ') {
-                      setHasConductWarning(true);
-                      setProposedRatingState('Chưa đạt (Xếp Yếu)');
-                    }
-                  }}
-                  className="w-full px-2.5 py-1.5 text-xs font-bold border border-rose-300 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none bg-white text-rose-900"
-                >
-                  <option value="NỘI QUY">Nội quy thông thường</option>
-                  <option value="ATGT">An toàn giao thông</option>
-                  <option value="BẠO LỰC HỌC ĐƯỜNG">Bạo lực học đường</option>
-                  <option value="GIAN LẬN THI CỬ">Gian lận thi cử</option>
-                  <option value="KHÁC">Vi phạm khác</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">📍 Địa điểm vi phạm</label>
+              <div className="sm:col-span-7">
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <Search size={13} className="text-blue-600" />
+                  <span>Tìm nhanh tiêu chí:</span>
+                </label>
                 <input
                   type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Ví dụ: Cổng trường, Sân trường, Phòng 202, Bãi xe..."
+                  value={criterionSearch}
+                  onChange={(e) => setCriterionSearch(e.target.value)}
+                  placeholder="Nhập tên tiêu chí, nội dung vi phạm (Ví dụ: muộn, đồng phục, đánh nhau, gian lận...)"
                   className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
             </div>
 
-            {/* Ghi chú */}
+            {/* Criteria Selection List / Grid */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Ghi chú / Mô tả chi tiết</label>
+              <label className="block text-xs font-extrabold text-blue-950 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <span>DANH SÁCH TIÊU CHÍ NỀN NẾP ({filteredCriteria.length})</span>
+                {currentCriterion && (
+                  <span className="text-[11px] font-bold text-blue-600">
+                    Đã chọn: [{currentCriterion.code}] {currentCriterion.name}
+                  </span>
+                )}
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto p-1 border border-slate-200 rounded-xl bg-slate-50/50">
+                {filteredCriteria.length === 0 ? (
+                  <div className="sm:col-span-2 p-6 text-center text-xs text-slate-400">
+                    Không tìm thấy tiêu chí nào phù hợp với bộ lọc tìm kiếm.
+                  </div>
+                ) : (
+                  filteredCriteria.map((crit) => {
+                    const isSelected = selectedCriterionId === crit.id;
+                    const isMinus = crit.pointType === 'minus';
+                    const isCritDatCĐ = isDatChuaDatCategory(crit.categoryId, crit.categoryName);
+
+                    return (
+                      <button
+                        key={crit.id}
+                        type="button"
+                        onClick={() => handleSelectCriterion(crit)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between gap-2 ${
+                          isSelected
+                            ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300 text-blue-950 shadow-xs'
+                            : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="font-mono text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                              {crit.code}
+                            </span>
+                            <span className="text-xs font-bold truncate">
+                              {crit.name}
+                            </span>
+                          </div>
+                          {crit.description && (
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {crit.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <span className={`shrink-0 text-xs font-black px-2 py-0.5 rounded-md border ${
+                          isCritDatCĐ
+                            ? 'bg-blue-50 text-blue-700 border-blue-200 text-[11px]'
+                            : isMinus
+                            ? 'bg-rose-100 text-rose-800 border-rose-300'
+                            : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        }`}>
+                          {isCritDatCĐ
+                            ? 'Đạt / CĐ (0đ)'
+                            : crit.defaultPoint > 0 ? `+${crit.defaultPoint}` : `${crit.defaultPoint}đ`}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Custom criterion input if needed */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Hoặc nhập tiêu chí / nội dung vi phạm tự do (nếu không có trong danh sách trên):
+              </label>
+              <input
+                type="text"
+                value={customCriterionName}
+                onChange={(e) => {
+                  setCustomCriterionName(e.target.value);
+                  if (e.target.value.trim()) {
+                    setSelectedCriterionId('');
+                  }
+                }}
+                placeholder="Nhập tên nội dung nền nếp / vi phạm cụ thể..."
+                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800"
+              />
+            </div>
+
+            {/* Points & Severity Level row OR Dat/ChuaDat Evaluation for 6 Groups */}
+            {isEvaluationGroup ? (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                {/* 1. Đánh giá Đạt / Chưa đạt */}
+                <div className="bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border-2 border-blue-300 rounded-2xl p-4 space-y-2.5 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
+                      <Award size={16} className="text-blue-600" />
+                      <span>KẾT QUẢ ĐÁNH GIÁ (BẮT BUỘC CHỌN)</span>
+                    </label>
+                    {evaluationStatus ? (
+                      <div className={`text-xs font-black px-3 py-1 rounded-xl flex items-center gap-1.5 shadow-xs border ${
+                        evaluationStatus === 'dat'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-rose-100 text-rose-800 border-rose-300'
+                      }`}>
+                        <span>{evaluationStatus === 'dat' ? '🟢 KẾT QUẢ: ĐẠT' : '🔴 KẾT QUẢ: CHƯA ĐẠT'}</span>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-amber-800 font-bold bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-lg animate-pulse">
+                        ⚠️ Chưa chọn kết quả
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEvaluationStatus('dat')}
+                      className={`py-3 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 border-2 transition-all cursor-pointer ${
+                        evaluationStatus === 'dat'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-300 scale-[1.01]'
+                          : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300 hover:border-emerald-500'
+                      }`}
+                    >
+                      <span className="text-base">🟢</span>
+                      <span>ĐẠT</span>
+                      {evaluationStatus === 'dat' && <CheckCircle2 size={18} className="text-white ml-1" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEvaluationStatus('chua_dat')}
+                      className={`py-3 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 border-2 transition-all cursor-pointer ${
+                        evaluationStatus === 'chua_dat'
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-md ring-2 ring-rose-300 scale-[1.01]'
+                          : 'bg-white hover:bg-rose-50 text-rose-800 border-rose-300 hover:border-rose-500'
+                      }`}
+                    >
+                      <span className="text-base">🔴</span>
+                      <span>CHƯA ĐẠT</span>
+                      {evaluationStatus === 'chua_dat' && <CheckCircle2 size={18} className="text-white ml-1" />}
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 font-medium italic">
+                    * Nhóm tiêu chí này áp dụng cơ chế đánh giá Đạt / Chưa đạt, <strong>không trừ điểm</strong> (Điểm trừ = 0) và không làm giảm điểm rèn luyện của học sinh.
+                  </p>
+                </div>
+
+                {/* 2. Điểm trừ: Không áp dụng điểm trừ (khóa cố định) & Mức độ */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-5">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Số điểm trừ:
+                    </label>
+                    <div className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-between">
+                      <span className="text-slate-500 font-semibold">Không áp dụng điểm trừ</span>
+                      <span className="font-mono font-black text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-300">0 điểm</span>
+                    </div>
+                  </div>
+
+                  {/* Mức độ vi phạm / đánh giá */}
+                  <div className="sm:col-span-7">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Mức độ đánh giá:
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {[
+                        { val: 'Nhẹ', label: '🟢 Nhẹ' },
+                        { val: 'Vừa', label: '🟡 Vừa' },
+                        { val: 'Nghiêm trọng', label: '🔴 Nghiêm trọng' },
+                        { val: 'Rất nghiêm trọng', label: '🚨 Rất nghiêm trọng' }
+                      ].map(item => (
+                        <label
+                          key={item.val}
+                          className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1.5 cursor-pointer text-xs font-bold transition-all ${
+                            level === item.val
+                              ? 'bg-blue-100 border-blue-400 text-blue-950 font-black shadow-2xs'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="severity_level_radio"
+                            value={item.val}
+                            checked={level === item.val}
+                            onChange={() => setLevel(item.val as any)}
+                            className="accent-blue-600 shrink-0"
+                          />
+                          <span>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1 border-t border-slate-100">
+                {/* Điểm */}
+                <div className="sm:col-span-4">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Điểm số {pointType === 'minus' ? 'trừ' : 'cộng'}:
+                  </label>
+                  <div className="relative">
+                    <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 font-black text-sm ${
+                      pointType === 'minus' ? 'text-rose-600' : 'text-emerald-600'
+                    }`}>
+                      {pointType === 'minus' ? '-' : '+'}
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={pointMagnitude}
+                      onChange={(e) => setPointMagnitude(Math.abs(Number(e.target.value)))}
+                      className={`w-full pl-6 pr-3 py-1.5 text-xs font-bold border rounded-lg outline-none focus:ring-2 ${
+                        pointType === 'minus'
+                          ? 'border-rose-300 text-rose-700 bg-rose-50 focus:ring-rose-400'
+                          : 'border-emerald-300 text-emerald-700 bg-emerald-50 focus:ring-emerald-400'
+                      }`}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Mức độ vi phạm */}
+                <div className="sm:col-span-8">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Mức độ vi phạm / đánh giá:
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {[
+                      { val: 'Nhẹ', label: '🟢 Nhẹ' },
+                      { val: 'Vừa', label: '🟡 Vừa' },
+                      { val: 'Nghiêm trọng', label: '🔴 Nghiêm trọng' },
+                      { val: 'Rất nghiêm trọng', label: '🚨 Rất nghiêm trọng' }
+                    ].map(item => (
+                      <label
+                        key={item.val}
+                        className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1.5 cursor-pointer text-xs font-bold transition-all ${
+                          level === item.val
+                            ? 'bg-rose-100 border-rose-400 text-rose-950 font-black shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="severity_level_radio"
+                          value={item.val}
+                          checked={level === item.val}
+                          onChange={() => setLevel(item.val as any)}
+                          className="accent-rose-600 shrink-0"
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Địa điểm vi phạm */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <MapPin size={13} className="text-blue-600" />
+                <span>Địa điểm vi phạm (nếu có):</span>
+              </label>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Ví dụ: Cổng trường, Sân trường, Phòng 204, Bãi gửi xe, Tuyến đường ngoài trường..."
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            {/* Ghi chú / mô tả */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Ghi chú / mô tả chi tiết:
+              </label>
               <textarea
                 rows={2}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Nhập diễn biến sự việc vi phạm..."
+                placeholder="Nhập chi tiết về diễn biến vụ việc hoặc lưu ý thêm..."
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none"
               />
             </div>
-
-            {/* Proposed Rating & Special Warning */}
-            <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 space-y-2">
-              <label className="block text-xs font-bold text-amber-950">
-                🎯 Đề xuất xếp loại rèn luyện do vi phạm:
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  { val: 'Theo dõi', label: '○ Theo dõi thêm' },
-                  { val: 'Khá', label: '○ Khống chế Khá' },
-                  { val: 'Đạt', label: '○ Khống chế Đạt' },
-                  { val: 'Chưa đạt (Xếp Yếu)', label: '🔴 XẾP YẾU / CHƯA ĐẠT' }
-                ].map(r => {
-                  const isSpecial = categoryType === 'ATGT' || categoryType === 'BẠO LỰC HỌC ĐƯỜNG' || categoryType === 'GIAN LẬN THI CỬ';
-                  const isChecked = proposedRatingState === r.val;
-                  const isDanger = r.val === 'Chưa đạt (Xếp Yếu)';
-
-                  return (
-                    <label
-                      key={r.val}
-                      className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-center gap-1 cursor-pointer text-xs font-bold transition-all ${
-                        isChecked
-                          ? isDanger
-                            ? 'bg-rose-600 text-white border-rose-700 shadow-xs font-black'
-                            : 'bg-amber-200 text-amber-950 border-amber-400'
-                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="proposed_rating_choice"
-                        value={r.val}
-                        checked={isChecked}
-                        disabled={isSpecial && !isDanger}
-                        onChange={() => setProposedRatingState(r.val)}
-                        className="hidden"
-                      />
-                      <span>{r.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-
-              {(categoryType === 'ATGT' || categoryType === 'BẠO LỰC HỌC ĐƯỜNG' || categoryType === 'GIAN LẬN THI CỬ') && (
-                <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-rose-950 text-xs font-bold flex items-center gap-2 mt-1">
-                  <ShieldAlert size={16} className="text-rose-600 shrink-0" />
-                  <span>⚠️ CẢNH BÁO ĐẶC BIỆT: Tự động xếp loại YẾU / CHƯA ĐẠT!</span>
-                </div>
-              )}
-            </div>
           </div>
 
-          {/* 2. LỊCH SỬ VI PHẠM CỦA HỌC SINH NÀY */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs space-y-2 p-3.5">
+          {/* Lịch sử ghi nhận của học sinh này */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs space-y-2 p-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-xs font-extrabold text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
                 <History size={16} className="text-blue-600" />
-                LỊCH SỬ VI PHẠM CỦA HỌC SINH NÀY ({currentStudent?.name})
+                LỊCH SỬ GHI NHẬN CỦA HỌC SINH NÀY ({currentStudent?.name})
               </h3>
               <span className="text-[11px] font-bold text-slate-500">
                 Tổng số lượt đã ghi nhận: <strong className="text-rose-700">{currentStudentHistory.length}</strong>
               </span>
             </div>
 
-            <div className="overflow-x-auto max-h-52 overflow-y-auto">
+            <div className="overflow-x-auto max-h-56 overflow-y-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="p-2.5 min-w-[180px]">Tiêu chí vi phạm</th>
+                    <th className="p-2.5 min-w-[130px]">Nhóm danh mục</th>
+                    <th className="p-2.5 min-w-[180px]">Tiêu chí / Nội dung</th>
                     <th className="p-2.5 w-24 text-center">Điểm trừ</th>
-                    <th className="p-2.5 w-24 text-center">Mức độ</th>
-                    <th className="p-2.5 w-28 text-center">Ngày ghi nhận</th>
-                    <th className="p-2.5 min-w-[150px]">Ghi chú</th>
-                    <th className="p-2.5 w-28 text-center">Thao tác</th>
+                    <th className="p-2.5 w-28 text-center">Kết quả</th>
+                    <th className="p-2.5 w-20 text-center">Mức độ</th>
+                    <th className="p-2.5 w-24 text-center">Ngày</th>
+                    <th className="p-2.5 min-w-[130px]">Địa điểm & Ghi chú</th>
+                    <th className="p-2.5 w-24 text-center">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {currentStudentHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-6 text-center text-slate-400">
-                        Học sinh {currentStudent?.name} chưa có lịch sử vi phạm nào.
+                      <td colSpan={8} className="p-6 text-center text-slate-400">
+                        Học sinh {currentStudent?.name} chưa có bản ghi nền nếp / vi phạm nào.
                       </td>
                     </tr>
                   ) : (
-                    currentStudentHistory.map((rec) => (
-                      <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-2.5 font-bold text-slate-900">
-                          {rec.criterionName}
-                          {rec.special_warning && (
-                            <span className="ml-1 text-[10px] bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold">
-                              Cảnh báo đặc biệt
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-center">
-                          <span className="font-bold px-2 py-0.5 rounded text-[11px] bg-rose-100 text-rose-800 border border-rose-300">
-                            -{Math.abs(rec.point)} điểm
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-center text-slate-600 font-medium">
-                          {rec.level || 'Nhẹ'}
-                        </td>
-                        <td className="p-2.5 text-center text-slate-500 font-mono text-[11px]">
-                          {rec.recordDate}
-                        </td>
-                        <td className="p-2.5 text-slate-600 truncate max-w-[180px]">
-                          {rec.note || '—'}
-                        </td>
-                        <td className="p-2.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleEditHistoryRecord(rec)}
-                              className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] rounded transition-colors flex items-center gap-0.5 cursor-pointer"
-                              title="Sửa bản ghi này"
-                            >
-                              <Edit3 size={11} /> Sửa
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteHistoryRecord(rec.id)}
-                              className="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-[11px] rounded transition-colors flex items-center gap-0.5 cursor-pointer"
-                              title="Xóa bản ghi này"
-                            >
-                              <Trash2 size={11} /> Xóa
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    currentStudentHistory.map((rec) => {
+                      const isMinus = (rec.point || 0) < 0;
+                      const isDatChuaDat = isDatChuaDatCategory(rec.categoryId, rec.categoryName) || Boolean(rec.evaluationStatus);
+
+                      return (
+                        <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-2.5 font-semibold text-slate-700 text-[11px]">
+                            {rec.categoryName || '—'}
+                          </td>
+                          <td className="p-2.5 font-bold text-slate-900">
+                            <div>
+                              <span>{rec.criterionName}</span>
+                              {rec.special_warning && (
+                                <span className="ml-1 text-[10px] bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold">
+                                  Cảnh báo
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-2.5 text-center">
+                            {isDatChuaDat ? (
+                              <span className="font-bold px-2 py-0.5 rounded text-[11px] bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap" title="Không áp dụng điểm trừ">
+                                0 (Không trừ điểm)
+                              </span>
+                            ) : (
+                              <span className={`font-bold px-2 py-0.5 rounded text-[11px] border whitespace-nowrap ${
+                                isMinus
+                                  ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              }`}>
+                                {rec.point > 0 ? `+${rec.point}` : rec.point} điểm
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            {rec.evaluationStatus === 'dat' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                                🟢 ĐẠT
+                              </span>
+                            ) : (rec.evaluationStatus === 'chua_dat' || (isDatChuaDat && (rec.pointType === 'minus' || (rec.point || 0) < 0 || Boolean(rec.level) || rec.recordType === 'VI_PHAM'))) ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300 whitespace-nowrap">
+                                🔴 CHƯA ĐẠT
+                              </span>
+                            ) : isDatChuaDat ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                                🟢 ĐẠT
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center text-slate-600 font-medium whitespace-nowrap">
+                            {rec.level || 'Nhẹ'}
+                          </td>
+                          <td className="p-2.5 text-center text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                            {rec.recordDate}
+                          </td>
+                          <td className="p-2.5 text-slate-600 text-[11px] max-w-[160px]">
+                            {rec.location && <div className="font-semibold text-slate-700">📍 {rec.location}</div>}
+                            <div className="truncate">{rec.note || '—'}</div>
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleEditHistoryRecord(rec)}
+                                className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] rounded transition-colors flex items-center gap-0.5 cursor-pointer"
+                                title="Sửa bản ghi này"
+                              >
+                                <Edit3 size={11} /> Sửa
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteHistoryRecord(rec.id)}
+                                className="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-[11px] rounded transition-colors flex items-center gap-0.5 cursor-pointer"
+                                title="Xóa bản ghi này"
+                              >
+                                <Trash2 size={11} /> Xóa
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -756,7 +1018,7 @@ export default function RecordModal({
         {/* Modal Footer */}
         <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
           <div className="text-xs text-slate-500 font-medium">
-            Ghi nhận vi phạm cho học sinh <strong className="text-slate-800">{currentStudent?.name}</strong>.
+            Ghi nhận nền nếp cho học sinh <strong className="text-slate-800">{currentStudent?.name}</strong>.
           </div>
 
           <div className="flex items-center gap-2">
@@ -771,12 +1033,16 @@ export default function RecordModal({
             {/* Save Record button */}
             <button
               type="button"
-              onClick={handleSaveCurrentStudent}
+              onClick={handleSave}
               disabled={submitting}
-              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+              className="px-5 py-2.5 bg-[#1457D9] hover:bg-[#123B78] active:bg-blue-900 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <Save size={16} />
-              {submitting ? 'Đang lưu...' : `💾 GHI NHẬN VI PHẠM CHO ${currentStudent?.name.toUpperCase()}`}
+              {submitting
+                ? 'Đang lưu...'
+                : editingRecordId
+                ? '💾 CẬP NHẬT BẢN GHI'
+                : `💾 GHI NHẬN CHO ${currentStudent?.name?.toUpperCase() || 'HỌC SINH'}`}
             </button>
           </div>
         </div>

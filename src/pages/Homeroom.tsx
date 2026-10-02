@@ -26,7 +26,11 @@ import {
   Trash2,
   Sparkles,
   CheckSquare,
-  FileText
+  FileText,
+  ShieldCheck,
+  Megaphone,
+  RotateCcw,
+  X
 } from 'lucide-react';
 import {
   ClassInfo,
@@ -42,10 +46,20 @@ import {
   EvaluationRatingConfig,
   EvaluationRatingConfigHistory,
   RatingTierItem,
-  EvaluationPeriodScopeType
+  EvaluationPeriodScopeType,
+  TeacherAssessmentCompletion
 } from '../types/homeroom';
 import { homeroomService } from '../services/homeroomService';
-import { calculateConductScore, evaluateStudentConductRules, DEFAULT_SERIOUS_VIOLATION_CONFIGS, checkStudentHasSpecialWarning, DEFAULT_RATING_TIERS, getRatingBadgeStyle } from '../lib/homeroomData';
+import {
+  calculateConductScore,
+  evaluateStudentConductRules,
+  DEFAULT_SERIOUS_VIOLATION_CONFIGS,
+  checkStudentHasSpecialWarning,
+  DEFAULT_RATING_TIERS,
+  getRatingBadgeStyle,
+  evaluateStudent6Groups,
+  isDatChuaDatCategory
+} from '../lib/homeroomData';
 import { exportHomeroomToExcel } from '../utils/homeroomExport';
 import { exportStudentListToExcel } from '../utils/studentExcel';
 import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../utils/studentSorting';
@@ -87,6 +101,10 @@ export default function Homeroom() {
   const [records, setRecords] = useState<ConductRecord[]>([]);
   const [evaluations, setEvaluations] = useState<ConductEvaluation[]>([]);
   const [teacherAssessments, setTeacherAssessments] = useState<TeacherAssessment[]>([]);
+  const [assessmentCompletions, setAssessmentCompletions] = useState<TeacherAssessmentCompletion[]>([]);
+  const [showReportCompletionModal, setShowReportCompletionModal] = useState(false);
+  const [completionNote, setCompletionNote] = useState('');
+  const [reportingCompletion, setReportingCompletion] = useState(false);
   const [violationConfigs, setViolationConfigs] = useState<SeriousViolationConfig[]>(DEFAULT_SERIOUS_VIOLATION_CONFIGS);
   const [settings, setSettings] = useState<ConductSettings>({
     id: 'default_conduct_settings',
@@ -210,6 +228,7 @@ export default function Homeroom() {
     const unsubRec = homeroomService.subscribeRecords(setRecords);
     const unsubEval = homeroomService.subscribeEvaluations(setEvaluations);
     const unsubTA = homeroomService.subscribeTeacherAssessments(setTeacherAssessments);
+    const unsubComp = homeroomService.subscribeTeacherAssessmentCompletions(setAssessmentCompletions);
     const unsubSet = homeroomService.subscribeSettings(setSettings);
     const unsubVio = homeroomService.subscribeViolationConfigs(setViolationConfigs);
     const unsubRating = homeroomService.subscribeRatingConfigs(setRatingConfigs);
@@ -224,6 +243,7 @@ export default function Homeroom() {
       unsubRec();
       unsubEval();
       unsubTA();
+      unsubComp();
       unsubSet();
       unsubVio();
       unsubRating();
@@ -440,7 +460,11 @@ export default function Homeroom() {
   const canManageAssessment = Boolean(
     isBgh ||
     isCurrentClassHomeroomTeacher ||
-    (!selectedClass?.homeroomTeacherName && (user?.role === 'GVCN' || user?.role === 'TEACHER'))
+    user?.role === 'GVCN' ||
+    user?.role === 'TEACHER' ||
+    user?.role?.toUpperCase() === 'GVCN' ||
+    user?.role?.toUpperCase() === 'TEACHER' ||
+    !selectedClass?.homeroomTeacherName
   );
 
   // 1. Rating config handlers (Requirement 3, 4, 5)
@@ -559,9 +583,14 @@ export default function Homeroom() {
       let totalMinus = 0;
       stRecords.forEach(r => {
         if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+        // Do not deduct or add points for the 6 evaluation groups
+        if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
         if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
         else totalMinus += Math.abs(r.point);
       });
+
+      // Evaluate the 6 "ĐẠT / CHƯA ĐẠT" categories
+      const evalResult = evaluateStudent6Groups(stRecords);
 
       const { totalScore, classification, ratingResult } = calculateConductScore(
         settings.baseScore || 100,
@@ -569,7 +598,8 @@ export default function Homeroom() {
         totalMinus,
         settings.thresholds,
         hasSpecialWarning,
-        activeRatingConfig
+        activeRatingConfig,
+        evalResult
       );
 
       map.set(st.id, {
@@ -595,7 +625,20 @@ export default function Homeroom() {
     classStudents.forEach(st => {
       const info = classStudentScores.get(st.id);
       if (info) {
-        counts[info.classification] = (counts[info.classification] || 0) + 1;
+        const cls = info.classification;
+        if (counts[cls] !== undefined) {
+          counts[cls] = (counts[cls] || 0) + 1;
+        } else if (cls.includes('CHƯA ĐẠT') || cls.toLowerCase().includes('chưa đạt')) {
+          const matchTier = activeRatingTiers.find(t => t.name.toLowerCase().includes('chưa đạt'));
+          if (matchTier) counts[matchTier.name] = (counts[matchTier.name] || 0) + 1;
+          else counts['Chưa đạt'] = (counts['Chưa đạt'] || 0) + 1;
+        } else if (cls.includes('ĐẠT') || cls.toLowerCase().includes('đạt')) {
+          const matchTier = activeRatingTiers.find(t => t.name.toLowerCase().trim() === 'đạt');
+          if (matchTier) counts[matchTier.name] = (counts[matchTier.name] || 0) + 1;
+          else counts['Đạt'] = (counts['Đạt'] || 0) + 1;
+        } else {
+          counts[cls] = (counts[cls] || 0) + 1;
+        }
       }
     });
 
@@ -646,14 +689,73 @@ export default function Homeroom() {
 
   const handleSaveTeacherAssessment = async (assessmentPayload: Partial<TeacherAssessment>) => {
     const result = await homeroomService.saveTeacherAssessment(assessmentPayload);
-    if (result?.isUpdate) {
-      setAssessmentToast('Đã cập nhật ghi nhận của GVCN thành công');
+    const isNowAllDone = (classUnevaluatedCount <= 1);
+    if (isNowAllDone) {
+      setAssessmentToast(`🎉 Tuyệt vời! Đã hoàn thành xếp loại đủ 100% học sinh lớp ${selectedClass?.name}! Thầy/Cô có thể bấm “Báo đã hoàn thành xếp loại”.`);
+    } else if (result?.isUpdate) {
+      setAssessmentToast('Đã cập nhật xếp loại của GVCN thành công');
     } else {
-      setAssessmentToast('Đã lưu phiếu ghi nhận của GVCN thành công');
+      setAssessmentToast('Đã lưu phiếu xếp loại của GVCN thành công');
     }
     setTimeout(() => {
       setAssessmentToast('');
-    }, 4000);
+    }, 5000);
+  };
+
+  // Completion status calculation for current class & period
+  const currentClassCompletion = useMemo(() => {
+    if (!selectedClass) return null;
+    const yearSlug = (selectedSchoolYear || '2026–2027').replace(/[^a-zA-Z0-9]/g, '_');
+    const monthSlug = (selectedMonth || 'Thang_09').replace(/[^a-zA-Z0-9]/g, '_');
+    const docId = `completion_${selectedClass.id}_${yearSlug}_${monthSlug}`;
+    return assessmentCompletions.find(c => c.id === docId && c.isCompleted) || null;
+  }, [assessmentCompletions, selectedClass, selectedSchoolYear, selectedMonth]);
+
+  // Pending BGH approvals count across all classes
+  const pendingBghClassApprovalCount = useMemo(() => {
+    return assessmentCompletions.filter(c => 
+      c.isCompleted && (!c.approvalStatus || c.approvalStatus === 'Chờ BGH duyệt')
+    ).length;
+  }, [assessmentCompletions]);
+
+  const handleReportCompletion = async () => {
+    if (!selectedClass) return;
+    try {
+      setReportingCompletion(true);
+      await homeroomService.reportTeacherAssessmentCompletion({
+        classId: selectedClass.id,
+        className: selectedClass.name,
+        schoolYear: selectedSchoolYear,
+        month: selectedMonth,
+        semester: 'Học kỳ I',
+        totalStudents: classStudents.length,
+        evaluatedCount: classEvaluatedCount,
+        ratingCounts: classRatingCounts,
+        note: completionNote.trim(),
+        user: { id: user?.id, name: user?.name, role: user?.role }
+      });
+      setShowReportCompletionModal(false);
+      setCompletionNote('');
+      setAssessmentToast(`🎉 Đã báo hoàn thành xếp loại học sinh của GVCN cho lớp ${selectedClass.name} (${selectedMonth}) thành công!`);
+      setTimeout(() => setAssessmentToast(''), 6000);
+    } catch (err: any) {
+      alert('Lỗi khi báo hoàn thành xếp loại: ' + (err.message || ''));
+    } finally {
+      setReportingCompletion(false);
+    }
+  };
+
+  const handleReopenCompletion = async () => {
+    if (!selectedClass) return;
+    if (window.confirm(`Bạn có chắc chắn muốn mở lại xếp loại cho lớp ${selectedClass.name} để tiếp tục chỉnh sửa?`)) {
+      try {
+        await homeroomService.reopenTeacherAssessmentCompletion(selectedClass.id, selectedSchoolYear, selectedMonth);
+        setAssessmentToast(`Đã mở lại trạng thái xếp loại cho lớp ${selectedClass.name}.`);
+        setTimeout(() => setAssessmentToast(''), 4000);
+      } catch (err: any) {
+        alert('Lỗi khi mở lại xếp loại: ' + err.message);
+      }
+    }
   };
 
   const handleBulkSaveTeacherAssessments = async (
@@ -703,7 +805,11 @@ export default function Homeroom() {
     });
 
     if (result.successCount > 0) {
-      setAssessmentToast(`✓ Đã ghi nhận cho ${result.successCount}/${targetStudents.length} học sinh.`);
+      if (classUnevaluatedCount - result.successCount <= 0) {
+        setAssessmentToast(`🎉 Tuyệt vời! Đã hoàn thành xếp loại đủ 100% học sinh lớp ${selectedClass.name}! Thầy/Cô có thể bấm “Báo đã hoàn thành xếp loại”.`);
+      } else {
+        setAssessmentToast(`✓ Đã ghi nhận cho ${result.successCount}/${targetStudents.length} học sinh.`);
+      }
     } else if (result.skippedDuplicatesCount > 0) {
       setAssessmentToast(`Đã bỏ qua ${result.skippedDuplicatesCount} bản ghi trùng lặp.`);
     }
@@ -1128,13 +1234,19 @@ export default function Homeroom() {
 
         <button
           onClick={() => setActiveTab('bgh_approval')}
-          className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center gap-2 ${
+          className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'bgh_approval'
-              ? 'bg-rose-800 text-white shadow-md'
-              : 'bg-white text-rose-900 hover:bg-rose-50 border border-rose-300 font-bold'
+              ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-amber-300'
+              : 'bg-white text-slate-800 hover:bg-amber-50 border border-amber-300 font-bold'
           }`}
         >
-          <ShieldAlert size={16} className="text-rose-500" /> BGH Phê Duyệt Cảnh Báo
+          <ShieldAlert size={16} className="text-amber-600" />
+          <span>BGH Phê Duyệt</span>
+          {pendingBghClassApprovalCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-black text-[10px] animate-pulse">
+              {pendingBghClassApprovalCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1143,8 +1255,98 @@ export default function Homeroom() {
       {/* TAB 1: DANH SÁCH HỌC SINH */}
       {activeTab === 'students' && (
         <div className="space-y-4">
-          {/* Prominent GHI NHẬN ĐÁNH GIÁ CỦA GVCN Action Card (Requirements 1, 8, 12) */}
+          {/* Prominent XẾP LOẠI CỦA GVCN Action Card (Requirements 1, 8, 12) */}
           <div className="bg-gradient-to-r from-emerald-50 via-teal-50/70 to-blue-50/70 p-4 border border-emerald-200/90 rounded-2xl shadow-xs space-y-3">
+            {/* Status Alert Banner */}
+            {currentClassCompletion ? (
+              <div className={`p-4 rounded-2xl text-xs font-bold flex flex-wrap items-center justify-between gap-3 shadow-2xs border ${
+                currentClassCompletion.approvalStatus === 'Đã duyệt'
+                  ? 'bg-emerald-100 border-emerald-300 text-emerald-950'
+                  : currentClassCompletion.approvalStatus === 'Yêu cầu điều chỉnh'
+                  ? 'bg-rose-100 border-rose-300 text-rose-950'
+                  : 'bg-amber-100 border-amber-300 text-amber-950'
+              }`}>
+                <div className="flex items-center gap-2.5 flex-1 min-w-[280px]">
+                  {currentClassCompletion.approvalStatus === 'Đã duyệt' ? (
+                    <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <CheckCircle2 size={18} />
+                    </div>
+                  ) : currentClassCompletion.approvalStatus === 'Yêu cầu điều chỉnh' ? (
+                    <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <AlertTriangle size={18} />
+                    </div>
+                  ) : (
+                    <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Megaphone size={18} />
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-sm uppercase">
+                        {currentClassCompletion.approvalStatus === 'Đã duyệt'
+                          ? '🟢 BAN GIÁM HIỆU ĐÃ PHÊ DUYỆT XẾP LOẠI'
+                          : currentClassCompletion.approvalStatus === 'Yêu cầu điều chỉnh'
+                          ? '🔴 BGH YÊU CẦU ĐIỀU CHỈNH XẾP LOẠI'
+                          : '🟡 ĐÃ BÁO HOÀN THÀNH — ĐANG CHỜ BGH PHÊ DUYỆT'}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] opacity-90 mt-0.5">
+                      Báo hoàn thành bởi <strong>{currentClassCompletion.completedByName}</strong> ({currentClassCompletion.completedAt})
+                      {currentClassCompletion.approvedByName && (
+                        <span> • Phê duyệt bởi: <strong>{currentClassCompletion.approvedByName}</strong> ({currentClassCompletion.approvedAt})</span>
+                      )}
+                    </p>
+
+                    {currentClassCompletion.note && (
+                      <p className="text-[11px] text-slate-700 italic mt-0.5">
+                        GVCN nhắn: "{currentClassCompletion.note}"
+                      </p>
+                    )}
+
+                    {currentClassCompletion.bghComment && (
+                      <div className="mt-1.5 p-2 rounded-xl bg-white/85 border border-current text-xs font-semibold">
+                        💬 <strong>Ý kiến của Ban Giám hiệu:</strong> {currentClassCompletion.bghComment}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {canManageAssessment && (
+                  <button
+                    type="button"
+                    onClick={handleReopenCompletion}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Mở lại trạng thái xếp loại để chỉnh sửa hoặc xếp loại thêm"
+                  >
+                    <RotateCcw size={13} /> Mở lại để chỉnh sửa
+                  </button>
+                )}
+              </div>
+            ) : classUnevaluatedCount === 0 && classStudents.length > 0 ? (
+              <div className="bg-blue-100/90 border border-blue-300 text-blue-950 px-3.5 py-2 rounded-xl text-xs font-bold flex flex-wrap items-center justify-between gap-2 shadow-2xs animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={17} className="text-blue-600 shrink-0" />
+                  <span className="font-black text-blue-900">
+                    ĐÃ XẾP LOẠI ĐỦ 100% ({classStudents.length}/{classStudents.length} HỌC SINH)
+                  </span>
+                  <span className="text-[11px] text-blue-800">
+                    • Thầy/Cô hãy bấm nút "Báo đã hoàn thành xếp loại" để gửi Ban Giám hiệu phê duyệt.
+                  </span>
+                </div>
+                {canManageAssessment && (
+                  <button
+                    type="button"
+                    onClick={() => setShowReportCompletionModal(true)}
+                    className="px-3.5 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-black rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer ring-2 ring-blue-300"
+                  >
+                    <Megaphone size={13} /> Báo đã hoàn thành ngay
+                  </button>
+                )}
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs">
@@ -1152,7 +1354,7 @@ export default function Homeroom() {
                 </div>
                 <div>
                   <h3 className="text-xs font-black text-emerald-950 uppercase tracking-wide flex items-center gap-2">
-                    <span>GHI NHẬN ĐÁNH GIÁ CỦA GVCN</span>
+                    <span>XẾP LOẠI CỦA GIÁO VIÊN CHỦ NHIỆM</span>
                     <span className="text-[10px] bg-emerald-200/90 text-emerald-900 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-300">
                       {selectedMonth} • {selectedSchoolYear}
                     </span>
@@ -1175,8 +1377,46 @@ export default function Homeroom() {
                 </div>
               </div>
 
-              {/* Action Buttons: 🟢 CHỌN TẤT CẢ HS THỰC HIỆN TỐT – XẾP LOẠI TỐT, 🟡 CHỌN HS CHƯA ĐÁNH GIÁ, Ghi nhận GVCN, Chọn tất cả học sinh */}
+              {/* Action Buttons: Báo đã hoàn thành, Chọn tất cả HS tốt, Chọn HS chưa đánh giá, Xếp loại GVCN, Chọn tất cả */}
               <div className="flex flex-wrap items-center gap-2">
+                {/* NÚT BÁO ĐÃ HOÀN THÀNH XẾP LOẠI CỦA GVCN */}
+                {currentClassCompletion ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className={`px-3.5 py-2 text-white text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 border ${
+                      currentClassCompletion.approvalStatus === 'Đã duyệt'
+                        ? 'bg-emerald-700 border-emerald-800'
+                        : currentClassCompletion.approvalStatus === 'Yêu cầu điều chỉnh'
+                        ? 'bg-rose-700 border-rose-800'
+                        : 'bg-amber-600 border-amber-700'
+                    }`}>
+                      <CheckCircle2 size={15} />
+                      <span>
+                        {currentClassCompletion.approvalStatus === 'Đã duyệt'
+                          ? '✓ BGH ĐÃ DUYỆT'
+                          : currentClassCompletion.approvalStatus === 'Yêu cầu điều chỉnh'
+                          ? '⚠ BGH YÊU CẦU SỬA'
+                          : '⏳ CHỜ BGH DUYỆT'}
+                      </span>
+                    </span>
+                  </div>
+                ) : (
+                  canManageAssessment && (
+                    <button
+                      type="button"
+                      onClick={() => setShowReportCompletionModal(true)}
+                      className={`px-3.5 py-2 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer ring-2 ${
+                        classUnevaluatedCount === 0 && classStudents.length > 0
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 ring-emerald-300 animate-pulse'
+                          : 'bg-indigo-600 hover:bg-indigo-700 ring-indigo-300'
+                      }`}
+                      title="Báo đã hoàn thành xếp loại học sinh của GVCN cho Ban Giám Hiệu"
+                    >
+                      <Megaphone size={15} />
+                      <span>📢 BÁO ĐÃ HOÀN THÀNH XẾP LOẠI</span>
+                    </button>
+                  )
+                )}
+
                 <button
                   type="button"
                   onClick={() => handleOpenBulkGoodAssessment('all')}
@@ -1202,10 +1442,10 @@ export default function Homeroom() {
                     handleOpenTeacherAssessment(null, selectedStudentIds.length > 0 ? selectedStudentIds : classStudents.map(s => s.id));
                   }}
                   className="px-3.5 py-2 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer ring-2 ring-blue-300"
-                  title="Mở phiếu ghi nhận đánh giá của GVCN (áp dụng cho cả lớp hoặc học sinh đã chọn)"
+                  title="Mở phiếu xếp loại của GVCN (áp dụng cho cả lớp hoặc học sinh đã chọn)"
                 >
                   <FileText size={14} />
-                  <span>📝 Ghi nhận GVCN</span>
+                  <span>📝 Xếp loại của GVCN</span>
                 </button>
 
                 <button
@@ -1473,10 +1713,10 @@ export default function Homeroom() {
                     handleOpenTeacherAssessment(null, selectedStudentIds);
                   }}
                   className="px-3.5 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-                  title="Ghi nhận đánh giá của GVCN cho các học sinh đã chọn"
+                  title="Xếp loại của GVCN cho các học sinh đã chọn"
                 >
                   <FileText size={13} />
-                  <span>💾 Ghi nhận GVCN ({selectedStudentIds.length})</span>
+                  <span>💾 Xếp loại của GVCN ({selectedStudentIds.length})</span>
                 </button>
                 <button
                   type="button"
@@ -1516,20 +1756,19 @@ export default function Homeroom() {
                     />
                   </th>
                   <th className="p-3.5 w-14 text-center">STT</th>
-                  <th className="p-3.5 w-32 font-bold">Mã HS</th>
+                  <th className="p-3.5 w-28 md:w-32 font-bold">Mã HS</th>
                   <th className="p-3.5 min-w-[200px] font-bold">Họ và tên</th>
                   <th className="p-3.5 w-24 text-center font-bold">Giới tính</th>
-                  <th className="p-3.5 w-28 text-center font-bold">Điểm cộng</th>
-                  <th className="p-3.5 w-28 text-center font-bold">Điểm trừ</th>
-                  <th className="p-3.5 w-32 text-center font-bold">Điểm rèn luyện</th>
-                  <th className="p-3.5 w-28 text-center font-bold">Xếp loại</th>
+                  <th className="p-3.5 w-28 md:w-32 text-center font-bold">Điểm trừ</th>
+                  <th className="p-3.5 w-32 md:w-36 text-center font-bold">Điểm rèn luyện</th>
+                  <th className="p-3.5 w-28 md:w-32 text-center font-bold">Xếp loại</th>
                   <th className="p-3.5 text-right font-bold min-w-[260px]">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {classStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-12 text-center text-slate-500">
+                    <td colSpan={9} className="p-12 text-center text-slate-500">
                       <div className="max-w-md mx-auto space-y-3">
                         <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto">
                           <Users size={24} />
@@ -1619,10 +1858,7 @@ export default function Homeroom() {
                             {st.full_name || st.name}
                           </button>
                         </td>
-                        <td className="p-3.5 text-slate-600">{st.gender}</td>
-                        <td className="p-3.5 text-center font-bold text-emerald-600">
-                          {totalPlus > 0 ? `+${totalPlus}` : '0'}
-                        </td>
+                        <td className="p-3.5 text-center text-slate-600">{st.gender}</td>
                         <td className="p-3.5 text-center font-bold text-rose-600">
                           {totalMinus > 0 ? `-${totalMinus}` : '0'}
                         </td>
@@ -1650,23 +1886,25 @@ export default function Homeroom() {
                                   ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-300 hover:border-blue-400'
                                   : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 hover:border-amber-400'
                               }`}
-                              title={stAssessment ? 'Sửa ghi nhận của GVCN' : 'Ghi nhận GVCN'}
+                              title={stAssessment ? 'Sửa xếp loại của GVCN' : 'Xếp loại của GVCN'}
                             >
-                              {stAssessment ? '✏️ Sửa ghi nhận' : '📝 Ghi nhận GVCN'}
+                              {stAssessment ? '✏️ Sửa xếp loại của GVCN' : '📝 Xếp loại của GVCN'}
                             </button>
                           ) : stAssessment ? (
                             <button
                               onClick={() => handleOpenTeacherAssessment(st)}
                               className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs border border-slate-200"
-                              title="Xem phiếu ghi nhận của GVCN"
+                              title="Xem phiếu xếp loại của GVCN"
                             >
-                              👁️ Xem ghi nhận
+                              👁️ Xem xếp loại của GVCN
                             </button>
                           ) : null}
 
                           <button
-                            onClick={() => handleOpenRecordForStudent(st.id)}
-                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg text-xs"
+                            onClick={() => {
+                              handleOpenRecordForStudent(st.id);
+                            }}
+                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg text-xs cursor-pointer"
                           >
                             + Vi phạm
                           </button>
@@ -1805,10 +2043,17 @@ export default function Homeroom() {
                 const hasSpecial = checkStudentHasSpecialWarning(stRecs);
                 stRecs.forEach(r => {
                   if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+                  if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
                   if (r.pointType === 'plus') plus += Math.abs(r.point);
                   else minus += Math.abs(r.point);
                 });
-                return calculateConductScore(settings.baseScore || 100, plus, minus, undefined, hasSpecial, activeMonthRatingConfig).classification === tier.name;
+                const evalResult = evaluateStudent6Groups(stRecs);
+                const scoreResult = calculateConductScore(settings.baseScore || 100, plus, minus, undefined, hasSpecial, activeMonthRatingConfig, evalResult);
+                const cls = scoreResult.classification;
+                if (cls === tier.name) return true;
+                if (cls.includes('CHƯA ĐẠT') && tier.name.toLowerCase().includes('chưa đạt')) return true;
+                if (cls.includes('ĐẠT') && tier.name.toLowerCase().trim() === 'đạt') return true;
+                return false;
               }).length;
 
               return (
@@ -1847,10 +2092,12 @@ export default function Homeroom() {
                   const hasSpecial = checkStudentHasSpecialWarning(stRecs);
                   stRecs.forEach(r => {
                     if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+                    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
                     if (r.pointType === 'plus') plus += Math.abs(r.point);
                     else minus += Math.abs(r.point);
                   });
-                  return { student: st, ...calculateConductScore(100, plus, minus, undefined, hasSpecial) };
+                  const evalResult = evaluateStudent6Groups(stRecs);
+                  return { student: st, ...calculateConductScore(100, plus, minus, undefined, hasSpecial, undefined, evalResult) };
                 })
                 .sort((a, b) => b.totalScore - a.totalScore)
                 .slice(0, 3)
@@ -1903,11 +2150,13 @@ export default function Homeroom() {
                   const hasSpecial = checkStudentHasSpecialWarning(stRecs);
                   stRecs.forEach(r => {
                     if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+                    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
                     if (r.pointType === 'plus') plus += Math.abs(r.point);
                     else minus += Math.abs(r.point);
                   });
-                  const { totalScore, classification } = calculateConductScore(100, plus, minus, undefined, hasSpecial);
-                  if (!hasSpecial && totalScore >= 80 && stRecs.filter(r => r.recordType !== 'TICH_CUC' && r.pointType === 'minus').length < 3) return null;
+                  const evalResult = evaluateStudent6Groups(stRecs);
+                  const { totalScore, classification } = calculateConductScore(100, plus, minus, undefined, hasSpecial, undefined, evalResult);
+                  if (!hasSpecial && !evalResult.hasChuaDat && totalScore >= 80 && stRecs.filter(r => r.recordType !== 'TICH_CUC' && r.pointType === 'minus').length < 3) return null;
 
                   return (
                     <tr key={st.id} className="hover:bg-rose-50/50">
@@ -2093,16 +2342,19 @@ export default function Homeroom() {
                   const hasSpecial = checkStudentHasSpecialWarning(stRecs);
                   stRecs.forEach(r => {
                     if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+                    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
                     if (r.pointType === 'plus') plus += Math.abs(r.point);
                     else minus += Math.abs(r.point);
                   });
+                  const evalResult = evaluateStudent6Groups(stRecs);
                   const { totalScore, classification, ratingResult } = calculateConductScore(
                     settings.baseScore || 100,
                     plus,
                     minus,
                     undefined,
                     hasSpecial,
-                    activeRatingConfig
+                    activeRatingConfig,
+                    evalResult
                   );
 
                   const evalItem = evaluations.find(e => 
@@ -2150,19 +2402,28 @@ export default function Homeroom() {
         </div>
       )}
 
-      {/* TAB 7: BGH PHÊ DUYỆT CẢNH BÁO VI PHẠM */}
+      {/* TAB 7: BGH PHÊ DUYỆT XẾP LOẠI & CẢNH BÁO VI PHẠM */}
       {activeTab === 'bgh_approval' && (
         <BghApprovalTab
-          records={records.filter(r => (!r.schoolYear || r.schoolYear === selectedSchoolYear) && ((Number(r.monthNumber) === selMonthNum) || !r.monthNumber))}
-          evaluations={evaluations.filter(e => (!e.schoolYear || e.schoolYear === selectedSchoolYear) && (e.period === selectedMonth))}
+          records={records}
+          evaluations={evaluations}
           students={students}
           classes={classes}
+          teacherAssessments={teacherAssessments}
+          assessmentCompletions={assessmentCompletions}
+          selectedMonth={selectedMonth}
+          selectedSchoolYear={selectedSchoolYear}
+          userRole={user?.role}
+          onViewStudentProfile={(st) => {
+            setSelectedStudentForProfile(st);
+            setIsProfileModalOpen(true);
+          }}
           onApproveRecord={async (recordId, status, note, newRating) => {
             await homeroomService.updateRecordBghApproval(
               recordId,
               status,
               note,
-              user?.name || 'BGH',
+              user?.name || 'Ban Giám hiệu',
               newRating
             );
           }}
@@ -2172,7 +2433,24 @@ export default function Homeroom() {
               status,
               undefined,
               comment,
-              user?.name || 'BGH'
+              user?.name || 'Ban Giám hiệu'
+            );
+          }}
+          onApproveCompletion={async (docId, status, comment) => {
+            await homeroomService.updateTeacherAssessmentCompletionApproval(
+              docId,
+              status,
+              comment,
+              { id: user?.id, name: user?.name, role: user?.role }
+            );
+          }}
+          onApproveStudentAssessment={async (assessmentId, status, adjustedRating, comment) => {
+            await homeroomService.updateStudentTeacherAssessmentBghApproval(
+              assessmentId,
+              status,
+              adjustedRating,
+              comment,
+              { id: user?.id, name: user?.name, role: user?.role }
             );
           }}
         />
@@ -2219,7 +2497,128 @@ export default function Homeroom() {
         }}
         onDeleteRecord={handleDeleteRecord}
         defaultStudentId={defaultStudentForRecord}
+        homeroomTeacherId={selectedClass?.homeroomTeacherId}
+        homeroomTeacherName={homeroomTeacherName}
       />
+
+      {/* MODAL BÁO CÁO HOÀN THÀNH XẾP LOẠI HỌC SINH CỦA GVCN */}
+      {showReportCompletionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 space-y-4">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-[#123B78] to-[#1457D9] text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-white">
+                  <Megaphone size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-tight">
+                    BÁO HOÀN THÀNH XẾP LOẠI HỌC SINH
+                  </h3>
+                  <p className="text-xs text-blue-100">
+                    Xác nhận hoàn thành xếp loại của Giáo viên Chủ nhiệm
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportCompletionModal(false)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 text-xs">
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500 font-bold">Lớp học:</span>
+                  <span className="text-slate-900 font-extrabold text-sm">{selectedClass?.name}</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500 font-bold">Thời gian / Kỳ:</span>
+                  <span className="text-slate-900 font-bold">{selectedMonth} • {selectedSchoolYear}</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500 font-bold">Giáo viên chủ nhiệm:</span>
+                  <span className="text-blue-900 font-bold">{user?.name || selectedClass?.homeroomTeacherName || 'GVCN'}</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500 font-bold">Tổng số học sinh:</span>
+                  <span className="text-slate-900 font-black">{classStudents.length} học sinh</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500 font-bold">Số lượng đã xếp loại:</span>
+                  <span className="text-emerald-700 font-black text-sm">
+                    {classEvaluatedCount} / {classStudents.length} ({classStudents.length > 0 ? Math.round((classEvaluatedCount / classStudents.length) * 100) : 0}%)
+                  </span>
+                </div>
+                <div className="pt-1">
+                  <span className="text-slate-500 font-bold block mb-1.5">Chi tiết kết quả xếp loại:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {activeRatingTiers.map(t => (
+                      <span key={t.id || t.name} className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800 font-bold text-[11px]">
+                        {t.name}: <strong className="text-blue-900">{classRatingCounts[t.name] || 0}</strong>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {classUnevaluatedCount > 0 ? (
+                <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 flex items-start gap-2">
+                  <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-[11px]">
+                    <strong>Lưu ý:</strong> Hiện tại còn <strong>{classUnevaluatedCount} học sinh chưa có phiếu xếp loại</strong>.
+                    Thầy/Cô vẫn có thể xác nhận báo hoàn thành hoặc quay lại hoàn thành nốt.
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl p-3 flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                  <span className="font-bold text-[11px]">
+                    Tuyệt vời! 100% học sinh ({classStudents.length}/{classStudents.length}) đã được hoàn thành xếp loại.
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Ghi chú / Lời nhắn gửi BGH (tùy chọn):
+                </label>
+                <textarea
+                  rows={2}
+                  value={completionNote}
+                  onChange={(e) => setCompletionNote(e.target.value)}
+                  placeholder="Ví dụ: Đã hoàn tất xếp loại nề nếp tháng 09, các em học sinh có nhiều tiến bộ..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowReportCompletionModal(false)}
+                className="px-4 py-2 bg-white hover:bg-slate-200 text-slate-700 font-bold rounded-xl border border-slate-300 text-xs transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleReportCompletion}
+                disabled={reportingCompletion}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl shadow-md transition-all flex items-center gap-2 text-xs cursor-pointer disabled:opacity-50"
+              >
+                <CheckCircle2 size={16} />
+                <span>{reportingCompletion ? 'Đang gửi báo cáo...' : '✓ XÁC NHẬN BÁO HOÀN THÀNH XẾP LOẠI'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <QuickRecordModal
         isOpen={isQuickRecordModalOpen}

@@ -530,7 +530,7 @@ export default function TeacherAssessmentModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black tracking-tight uppercase">
-                  GHI NHẬN CỦA GVCN
+                  XẾP LOẠI CỦA GVCN
                 </h2>
                 <span className="text-[11px] bg-white/20 text-white font-extrabold px-2.5 py-0.5 rounded-full border border-white/30">
                   Lớp {selectedClass?.name || '---'}
@@ -818,7 +818,7 @@ export default function TeacherAssessmentModal({
               <div className="flex items-center gap-2">
                 <Sparkles size={16} className="text-amber-500" />
                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wide">
-                  NỘI DUNG GHI NHẬN CỦA GVCN
+                  NỘI DUNG XẾP LOẠI CỦA GVCN
                 </h3>
               </div>
 
@@ -1029,8 +1029,8 @@ export default function TeacherAssessmentModal({
               <Save size={15} />
               <span>
                 {mode === 'bulk'
-                  ? `💾 GHI NHẬN CHO HỌC SINH ĐÃ CHỌN (${selectedStudentIds.length})`
-                  : '💾 LƯU PHIẾU GHI NHẬN'}
+                  ? `💾 LƯU XẾP LOẠI CHO HỌC SINH ĐÃ CHỌN (${selectedStudentIds.length})`
+                  : '💾 LƯU PHIẾU XẾP LOẠI CỦA GVCN'}
               </span>
             </button>
           </div>

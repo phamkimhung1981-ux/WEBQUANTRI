@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, Calendar, Award, AlertTriangle, User, Phone, MapPin, PlusCircle, MinusCircle, FileText, CheckCircle2, Edit2, Trash2, Sparkles, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Calendar, Award, AlertTriangle, User, Phone, MapPin, PlusCircle, MinusCircle, FileText, CheckCircle2, Edit2, Trash2, Sparkles, AlertCircle, ShieldCheck } from 'lucide-react';
 import { Student, ConductRecord, ConductSettings } from '../../types/homeroom';
-import { calculateConductScore, checkStudentHasSpecialWarning } from '../../lib/homeroomData';
+import { calculateConductScore, checkStudentHasSpecialWarning, isDatChuaDatCategory, evaluateStudent6Groups } from '../../lib/homeroomData';
+import { homeroomService } from '../../services/homeroomService';
 import BackButton from '../ui/BackButton';
 
 interface StudentProfileModalProps {
@@ -13,6 +14,15 @@ interface StudentProfileModalProps {
   onDeleteRecord?: (id: string) => void | Promise<void>;
   onUpdateRecord?: (id: string, updates: Partial<ConductRecord>) => void | Promise<void>;
 }
+
+export const EVALUATION_6_GROUPS = [
+  { id: 'cat_4', name: 'ĐẠO ĐỨC – ỨNG XỬ', matchWords: ['đạo đức', 'ứng xử', 'dao duc', 'ung xu'] },
+  { id: 'cat_5', name: 'HỌC TẬP – KIỂM TRA', matchWords: ['kiểm tra', 'kiem tra', 'học tập'] },
+  { id: 'cat_6', name: 'TỆ NẠN – KÍCH THÍCH – CHẤT GÂY CHÁY NỔ', matchWords: ['tệ nạn', 'kích thích', 'cháy nổ', 'thuốc lá', 'hút thuốc'] },
+  { id: 'cat_8', name: 'AN NINH – TRẬT TỰ', matchWords: ['an ninh', 'trật tự'] },
+  { id: 'cat_10', name: 'AN TOÀN GIAO THÔNG', matchWords: ['giao thông', 'atgt', 'mũ bảo hiểm'] },
+  { id: 'cat_9', name: 'VĂN HÓA – NỘI DUNG KHÔNG PHÙ HỢP', matchWords: ['văn hóa', 'nội dung', 'van hoa'] }
+];
 
 export default function StudentProfileModal({
   isOpen,
@@ -30,6 +40,7 @@ export default function StudentProfileModal({
   const [editContent, setEditContent] = useState<string>('');
   const [editNote, setEditNote] = useState<string>('');
   const [editDate, setEditDate] = useState<string>('');
+  const [editEvaluationStatus, setEditEvaluationStatus] = useState<'dat' | 'chua_dat' | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
 
   // Delete confirm state
@@ -66,27 +77,38 @@ export default function StudentProfileModal({
   let totalMinus = 0;
   const hasSpecialWarning = checkStudentHasSpecialWarning(allStudentRecords);
 
-  // Requirement 5: Không tính điểm từ bản ghi tích cực TICH_CUC (point = 0)
+  // Requirement: Không tính điểm trừ từ 6 nhóm ĐẠT / CHƯA ĐẠT và bản ghi tích cực TICH_CUC
   allStudentRecords.forEach(r => {
     if (r.recordType === 'TICH_CUC' || r.point === 0) return;
+    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
     if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
     else totalMinus += Math.abs(r.point);
   });
 
-  const { totalScore, classification } = calculateConductScore(
+  const evalResult = evaluateStudent6Groups(allStudentRecords);
+
+  const { totalScore, classification, ratingResult } = calculateConductScore(
     settings.baseScore || 100,
     totalPlus,
     totalMinus,
     settings.thresholds,
-    hasSpecialWarning
+    hasSpecialWarning,
+    undefined,
+    evalResult
   );
 
   const getBadgeColor = (cls: string) => {
+    if (cls.includes('CHƯA ĐẠT') || cls.toLowerCase().includes('chưa đạt')) {
+      return 'bg-rose-100 text-rose-800 border-rose-300 font-bold';
+    }
+    if (cls.includes('ĐẠT') || cls.toLowerCase().trim() === 'đạt') {
+      return 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold';
+    }
     switch (cls) {
-      case 'Tốt': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-      case 'Khá': return 'bg-blue-100 text-blue-800 border-blue-300';
-      case 'Đạt': return 'bg-amber-100 text-amber-800 border-amber-300';
-      default: return 'bg-rose-100 text-rose-800 border-rose-300';
+      case 'Tốt': return 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold';
+      case 'Khá': return 'bg-blue-100 text-blue-800 border-blue-300 font-bold';
+      case 'Đạt': return 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
+      default: return 'bg-rose-100 text-rose-800 border-rose-300 font-bold';
     }
   };
 
@@ -95,6 +117,7 @@ export default function StudentProfileModal({
     setEditContent(r.criterionName || '');
     setEditNote(r.note || '');
     setEditDate(r.recordDate || new Date().toISOString().split('T')[0]);
+    setEditEvaluationStatus(r.evaluationStatus || null);
   };
 
   const handleSaveEdit = async () => {
@@ -105,10 +128,12 @@ export default function StudentProfileModal({
     }
     try {
       setIsSavingEdit(true);
+      const isDatChuaDat = isDatChuaDatCategory(editingRecord.categoryId, editingRecord.categoryName) || Boolean(editingRecord.evaluationStatus);
       await onUpdateRecord(editingRecord.id, {
         criterionName: editContent.trim(),
         note: editNote.trim(),
-        recordDate: editDate
+        recordDate: editDate,
+        ...(isDatChuaDat && editEvaluationStatus ? { evaluationStatus: editEvaluationStatus, point: 0 } : {})
       });
       showToast('Đã cập nhật ghi nhận thành công');
       setEditingRecord(null);
@@ -117,6 +142,26 @@ export default function StudentProfileModal({
     } finally {
       setIsSavingEdit(false);
     }
+  };
+
+  const getGroupRecords = (grp: typeof EVALUATION_6_GROUPS[0]) => {
+    return allStudentRecords.filter(r => {
+      if (r.categoryId === grp.id) return true;
+      const catName = (r.categoryName || '').toLowerCase();
+      const critName = (r.criterionName || '').toLowerCase();
+      if (grp.id === 'cat_5') {
+        if (catName.includes('nền nếp') || catName.includes('nen nep')) return false;
+      }
+      return grp.matchWords.some(w => catName.includes(w) || critName.includes(w));
+    });
+  };
+
+  const getGroupStatus = (grp: typeof EVALUATION_6_GROUPS[0]) => {
+    const recs = getGroupRecords(grp);
+    if (recs.length === 0) return 'ĐẠT';
+    const hasChuaDat = recs.some(r => r.evaluationStatus === 'chua_dat');
+    if (hasChuaDat) return 'CHƯA ĐẠT';
+    return 'ĐẠT';
   };
 
   const handleConfirmDelete = async () => {
@@ -243,6 +288,65 @@ export default function StudentProfileModal({
             </div>
           )}
 
+          {/* KHU VỰC: KẾT QUẢ ĐÁNH GIÁ 6 NHÓM TIÊU CHÍ NỀN NẾP (ĐẠT / CHƯA ĐẠT) (Requirement 6) */}
+          <div className="border border-slate-200 rounded-2xl p-5 bg-white space-y-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-2.5">
+              <div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                  <Award size={18} className="text-blue-600" />
+                  KẾT QUẢ ĐÁNH GIÁ 6 NHÓM TIÊU CHÍ NỀN NẾP
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Cơ chế đánh giá Đạt / Chưa đạt • Không tính điểm trừ vào điểm rèn luyện
+                </p>
+              </div>
+              <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                Đánh giá theo từng nhóm
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {EVALUATION_6_GROUPS.map(grp => {
+                const status = getGroupStatus(grp);
+                const isDat = status === 'ĐẠT';
+                const recs = getGroupRecords(grp);
+
+                return (
+                  <div
+                    key={grp.id}
+                    className={`p-3.5 rounded-xl border-2 transition-all flex items-center justify-between gap-2 ${
+                      isDat
+                        ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                        : 'bg-rose-50/80 border-rose-300 text-rose-950 shadow-xs'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate text-slate-800" title={grp.name}>
+                        {grp.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {recs.length > 0 ? `${recs.length} lượt ghi nhận` : 'Chấp hành tốt'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-slate-400 font-bold text-xs">→</span>
+                      <span
+                        className={`px-2.5 py-1 rounded-lg text-xs font-black flex items-center gap-1 border ${
+                          isDat
+                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                            : 'bg-rose-600 text-white border-rose-700 shadow-2xs'
+                        }`}
+                      >
+                        {isDat ? '🟢 ĐẠT' : '🔴 CHƯA ĐẠT'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* KHU VỰC: LỊCH SỬ GHI NHẬN (Requirement 9 & 10) */}
           <div className="border border-slate-200 rounded-2xl p-5 bg-white space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -309,8 +413,10 @@ export default function StudentProfileModal({
                   <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold sticky top-0 z-10">
                     <tr>
                       <th className="p-3 whitespace-nowrap">Ngày</th>
-                      <th className="p-3 text-center whitespace-nowrap">Phân loại</th>
+                      <th className="p-3 whitespace-nowrap">Nhóm danh mục</th>
                       <th className="p-3">Nội dung ghi nhận</th>
+                      <th className="p-3 text-center whitespace-nowrap">Điểm trừ</th>
+                      <th className="p-3 text-center whitespace-nowrap">Kết quả</th>
                       <th className="p-3">Người ghi nhận</th>
                       <th className="p-3">Ghi chú</th>
                       <th className="p-3 text-right whitespace-nowrap">Thao tác</th>
@@ -319,7 +425,7 @@ export default function StudentProfileModal({
                   <tbody className="divide-y divide-slate-100">
                     {studentRecords.map(r => {
                       const isPositive = r.recordType === 'TICH_CUC';
-                      const isViolation = r.recordType !== 'TICH_CUC' && (r.pointType === 'minus' || r.point < 0 || Boolean(r.level));
+                      const isDatChuaDat = isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus);
 
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
@@ -328,21 +434,9 @@ export default function StudentProfileModal({
                             {r.recordDate ? new Date(r.recordDate).toLocaleDateString('vi-VN') : '—'}
                           </td>
 
-                          {/* Phân loại */}
-                          <td className="p-3 text-center whitespace-nowrap">
-                            {isPositive ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                🟢 Tích cực
-                              </span>
-                            ) : isViolation ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                                🔴 Vi phạm {r.point ? `(${r.point}đ)` : ''}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
-                                ⭐ Điểm cộng (+{r.point}đ)
-                              </span>
-                            )}
+                          {/* Nhóm danh mục */}
+                          <td className="p-3 font-semibold text-slate-700 text-[11px] whitespace-nowrap">
+                            {r.categoryName || '—'}
                           </td>
 
                           {/* Nội dung */}
@@ -366,6 +460,44 @@ export default function StudentProfileModal({
                               <span className="ml-1 text-[10px] text-slate-500 font-normal">
                                 (Mức: {r.level})
                               </span>
+                            )}
+                          </td>
+
+                          {/* Điểm trừ */}
+                          <td className="p-3 text-center whitespace-nowrap">
+                            {isDatChuaDat ? (
+                              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="Không áp dụng điểm trừ">
+                                0 (Không trừ điểm)
+                              </span>
+                            ) : isPositive ? (
+                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                +{r.point || 5}đ
+                              </span>
+                            ) : r.point ? (
+                              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                {r.point}đ
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">0</span>
+                            )}
+                          </td>
+
+                          {/* Kết quả */}
+                          <td className="p-3 text-center whitespace-nowrap">
+                            {r.evaluationStatus === 'dat' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                🟢 ĐẠT
+                              </span>
+                            ) : (r.evaluationStatus === 'chua_dat' || (isDatChuaDat && (r.pointType === 'minus' || (r.point || 0) < 0 || Boolean(r.level) || r.recordType === 'VI_PHAM'))) ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300">
+                                🔴 CHƯA ĐẠT
+                              </span>
+                            ) : isDatChuaDat ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                🟢 ĐẠT
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
                             )}
                           </td>
 
@@ -436,8 +568,42 @@ export default function StudentProfileModal({
               <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 text-slate-700 space-y-1">
                 <div>Học sinh: <strong className="text-blue-900">{student.name}</strong> ({student.code})</div>
                 <div>Lớp: <strong className="text-slate-800">{student.className}</strong></div>
+                <div>Nhóm: <strong className="text-slate-800">{editingRecord.categoryName || '—'}</strong></div>
                 <div>Người tạo ban đầu: <strong>{editingRecord.recordedByName || editingRecord.recordedBy}</strong></div>
               </div>
+
+              {/* Đánh giá Đạt / Chưa đạt nếu thuộc 6 nhóm */}
+              {(isDatChuaDatCategory(editingRecord.categoryId, editingRecord.categoryName) || Boolean(editingRecord.evaluationStatus)) && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Kết quả đánh giá:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditEvaluationStatus('dat')}
+                      className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border-2 transition-all cursor-pointer ${
+                        editEvaluationStatus === 'dat'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-300'
+                          : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300'
+                      }`}
+                    >
+                      <span>🟢 ĐẠT</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditEvaluationStatus('chua_dat')}
+                      className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border-2 transition-all cursor-pointer ${
+                        editEvaluationStatus === 'chua_dat'
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-2 ring-rose-300'
+                          : 'bg-white hover:bg-rose-50 text-rose-800 border-rose-300'
+                      }`}
+                    >
+                      <span>🔴 CHƯA ĐẠT</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Nội dung ghi nhận */}
               <div>

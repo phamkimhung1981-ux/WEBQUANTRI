@@ -110,6 +110,9 @@ export interface ConductRecord {
 
   // Custom violation attributes & warnings
   categoryType?: ViolationCategoryType;
+  violationGroup?: 'ATGT' | 'BẠO LỰC HỌC ĐƯỜNG' | 'GIAN LẬN KIỂM TRA' | 'HÚT THUỐC' | 'VI PHẠM KHÁC';
+  specificBehavior?: string;
+  evaluationStatus?: 'dat' | 'chua_dat';
   location?: string;
   recordedBy: string;
   recordedByName: string;
@@ -218,6 +221,15 @@ export interface TeacherAssessment {
   needsMonitoring: boolean; // Mức độ cần theo dõi: Có / Không
   teacherProposedRating: 'Tốt' | 'Khá' | 'Đạt' | 'Yếu / Chưa đạt'; // Đề xuất xếp loại rèn luyện
   specialWarning?: boolean;
+  
+  // BGH Approval Status for student's teacher assessment
+  bghApprovalStatus?: 'Chờ BGH duyệt' | 'Đã duyệt' | 'Yêu cầu điều chỉnh' | 'Điều chỉnh';
+  bghApprovedBy?: string;
+  bghApprovedByName?: string;
+  bghApprovedAt?: string;
+  bghComment?: string;
+  bghAdjustedRating?: 'Tốt' | 'Khá' | 'Đạt' | 'Chưa đạt';
+
   recordedBy: string;
   createdAt: string;
   updatedAt?: string;
@@ -273,4 +285,33 @@ export interface StudentRatingResult {
   badge_style: string;
   tier?: RatingTierItem;
 }
+
+// 04 Nội dung đánh giá rèn luyện riêng của GVCN
+export type EvaluationStatusType = 'dat' | 'chua_dat';
+
+export interface TeacherAssessmentCompletion {
+  id: string; // `${classId}_${schoolYear}_${month}`
+  classId: string;
+  className: string;
+  schoolYear: string;
+  month: string;
+  semester: string;
+  totalStudents: number;
+  evaluatedCount: number;
+  isCompleted: boolean;
+  completedAt?: string;
+  completedBy?: string;
+  completedByName?: string;
+  ratingCounts?: Record<string, number>;
+  note?: string;
+  updatedAt?: string;
+
+  // BGH Approval fields
+  approvalStatus?: 'Chờ BGH duyệt' | 'Đã duyệt' | 'Yêu cầu điều chỉnh';
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  bghComment?: string;
+}
+
 
