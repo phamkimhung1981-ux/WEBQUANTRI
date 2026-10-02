@@ -17,12 +17,16 @@ import {
   KpiVcPeriod, 
   KpiVcCriterion, 
   KpiVcCriteriaGroup, 
-  KpiVcAuditLog 
+  KpiVcAuditLog,
+  KpiVcRatingConfig,
+  KpiVcRatingTier,
+  KpiVcRatingConfigHistory
 } from '../types/kpiVc';
 import { 
   DEFAULT_VC_GROUPS, 
   DEFAULT_VC_CRITERIA, 
-  DEFAULT_VC_PERIODS 
+  DEFAULT_VC_PERIODS,
+  DEFAULT_VC_RATING_TIERS
 } from '../lib/kpiVcData';
 
 /**
@@ -64,7 +68,9 @@ export const VC_COLLECTIONS = {
   PERIODS: 'kpi_vc_periods',
   CRITERIA: 'kpi_vc_criteria',
   GROUPS: 'kpi_vc_groups',
-  AUDIT_LOGS: 'kpi_vc_audit_logs'
+  AUDIT_LOGS: 'kpi_vc_audit_logs',
+  RATING_CONFIGS: 'kpi_vc_rating_configs',
+  RATING_CONFIG_HISTORY: 'kpi_vc_rating_config_history'
 };
 
 /**
@@ -630,4 +636,253 @@ export const updateVcGroup = async (
   const docRef = doc(db, VC_COLLECTIONS.GROUPS, groupId);
   await updateDoc(docRef, cleanFirestoreData(updateData));
 };
+
+// ==========================================
+// QUẢN LÝ CẤU HÌNH ĐIỂM XẾP LOẠI (RATING CONFIGS)
+// ==========================================
+
+const VC_RATING_CONFIGS_CACHE_KEY = 'kpi_vc_rating_configs_cache';
+
+const getVcRatingConfigsCache = (): KpiVcRatingConfig[] => {
+  try {
+    const raw = localStorage.getItem(VC_RATING_CONFIGS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    console.warn('Error reading VC rating configs cache:', err);
+    return [];
+  }
+};
+
+const saveVcRatingConfigsCache = (configs: KpiVcRatingConfig[]) => {
+  try {
+    localStorage.setItem(VC_RATING_CONFIGS_CACHE_KEY, JSON.stringify(configs));
+  } catch (err) {
+    console.warn('Error saving VC rating configs cache:', err);
+  }
+};
+
+/**
+ * Lắng nghe danh sách Cấu hình xếp loại (kpi_vc_rating_configs)
+ */
+export const subscribeVcRatingConfigs = (callback: (configs: KpiVcRatingConfig[]) => void) => {
+  const cached = getVcRatingConfigsCache();
+  if (cached.length > 0) {
+    callback(cached);
+  }
+
+  const q = query(collection(db, VC_COLLECTIONS.RATING_CONFIGS));
+  return onSnapshot(q, (snapshot) => {
+    const list: KpiVcRatingConfig[] = [];
+    snapshot.forEach((docSnap) => {
+      list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcRatingConfig);
+    });
+
+    // Nếu chưa có cấu hình nào trong Firestore, tạo cấu hình mặc định toàn trường
+    if (list.length === 0) {
+      const defaultGlobalConfig: KpiVcRatingConfig = {
+        id: 'vc_rating_default',
+        periodId: 'all',
+        periodName: 'Mặc định toàn trường',
+        scaleMaxScore: 100,
+        tiers: DEFAULT_VC_RATING_TIERS,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        note: 'Cấu hình xếp loại 4 mức mặc định của nhà trường'
+      };
+      saveVcRatingConfigsCache([defaultGlobalConfig]);
+      callback([defaultGlobalConfig]);
+      return;
+    }
+
+    saveVcRatingConfigsCache(list);
+    callback(list);
+  }, (err) => {
+    console.error('Error subscribing to VC rating configs:', err);
+    const fallbackList = getVcRatingConfigsCache();
+    if (fallbackList.length > 0) {
+      callback(fallbackList);
+    } else {
+      callback([{
+        id: 'vc_rating_default',
+        periodId: 'all',
+        periodName: 'Mặc định toàn trường',
+        scaleMaxScore: 100,
+        tiers: DEFAULT_VC_RATING_TIERS,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }]);
+    }
+  });
+};
+
+/**
+ * Lắng nghe Lịch sử thay đổi cấu hình xếp loại (kpi_vc_rating_config_history)
+ */
+export const subscribeVcRatingConfigHistory = (callback: (history: KpiVcRatingConfigHistory[]) => void) => {
+  const q = query(collection(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY));
+  return onSnapshot(q, (snapshot) => {
+    const list: KpiVcRatingConfigHistory[] = [];
+    snapshot.forEach((docSnap) => {
+      list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcRatingConfigHistory);
+    });
+    list.sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
+    callback(list);
+  }, (err) => {
+    console.error('Error subscribing to VC rating config history:', err);
+  });
+};
+
+/**
+ * Lưu / Cập nhật cấu hình điểm xếp loại KPI
+ */
+export const saveVcRatingConfig = async (
+  config: KpiVcRatingConfig,
+  actor: { id: string; name: string; role?: string },
+  previousTiers?: KpiVcRatingTier[] | null,
+  note?: string
+): Promise<string> => {
+  const sanitizedPeriodId = (config.periodId || 'all').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const configId = config.id || `vc_rating_${sanitizedPeriodId}`;
+  const now = new Date().toISOString();
+
+  const docRef = doc(db, VC_COLLECTIONS.RATING_CONFIGS, configId);
+  const existing = await getDoc(docRef);
+
+  const fullConfig: KpiVcRatingConfig = {
+    ...config,
+    id: configId,
+    scaleMaxScore: 100,
+    createdAt: existing.exists() && existing.data()?.createdAt ? existing.data().createdAt : now,
+    createdBy: existing.exists() && existing.data()?.createdBy ? existing.data().createdBy : (actor.name || actor.id),
+    updatedAt: now,
+    updatedBy: actor.name || actor.id
+  };
+
+  await setDoc(docRef, cleanFirestoreData(fullConfig), { merge: true });
+
+  // Update local cache
+  const cachedConfigs = getVcRatingConfigsCache();
+  const idx = cachedConfigs.findIndex(c => c.id === configId);
+  if (idx >= 0) {
+    cachedConfigs[idx] = fullConfig;
+  } else {
+    cachedConfigs.push(fullConfig);
+  }
+  saveVcRatingConfigsCache(cachedConfigs);
+
+  // Ghi Lịch sử cấu hình
+  const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const historyItem: KpiVcRatingConfigHistory = {
+    id: historyId,
+    configId,
+    periodId: config.periodId,
+    periodName: config.periodName || (config.periodId === 'all' ? 'Mặc định toàn trường' : config.periodId),
+    changedBy: actor.id,
+    changedByName: actor.name,
+    changedAt: now,
+    action: existing.exists() ? 'update' : 'create',
+    tiers: config.tiers,
+    note: note || (existing.exists() ? 'Cập nhật cấu hình xếp loại' : 'Tạo mới cấu hình xếp loại')
+  };
+
+  await setDoc(doc(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY, historyId), cleanFirestoreData(historyItem));
+
+  // Ghi Audit Log chung
+  await addVcAuditLog({
+    action: 'update_criterion' as any,
+    actorId: actor.id,
+    actorName: actor.name,
+    actorRole: actor.role,
+    targetName: config.periodName || config.periodId,
+    description: `Cấu hình điểm xếp loại KPI: ${config.tiers.length} mức (${config.periodName || config.periodId})`
+  });
+
+  return configId;
+};
+
+/**
+ * Khôi phục cấu hình xếp loại về mặc định
+ */
+export const restoreDefaultVcRatingConfig = async (
+  periodId: string,
+  actor: { id: string; name: string; role?: string },
+  periodName?: string
+): Promise<void> => {
+  const sanitizedPeriodId = (periodId || 'all').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const configId = `vc_rating_${sanitizedPeriodId}`;
+  const now = new Date().toISOString();
+
+  const restoredConfig: KpiVcRatingConfig = {
+    id: configId,
+    periodId,
+    periodName: periodName || (periodId === 'all' ? 'Mặc định toàn trường' : periodId),
+    scaleMaxScore: 100,
+    tiers: DEFAULT_VC_RATING_TIERS,
+    isLockedWhenPeriodCompleted: false,
+    isActive: true,
+    createdAt: now,
+    createdBy: actor.name || actor.id,
+    updatedAt: now,
+    updatedBy: actor.name || actor.id,
+    note: 'Khôi phục về 4 mức xếp loại mặc định'
+  };
+
+  const docRef = doc(db, VC_COLLECTIONS.RATING_CONFIGS, configId);
+  await setDoc(docRef, cleanFirestoreData(restoredConfig), { merge: true });
+
+  // Update local cache
+  const cached = getVcRatingConfigsCache().filter(c => c.id !== configId);
+  cached.push(restoredConfig);
+  saveVcRatingConfigsCache(cached);
+
+  // History log
+  const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  await setDoc(doc(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY, historyId), cleanFirestoreData({
+    id: historyId,
+    configId,
+    periodId,
+    periodName: restoredConfig.periodName,
+    changedBy: actor.id,
+    changedByName: actor.name,
+    changedAt: now,
+    action: 'restore_default',
+    tiers: DEFAULT_VC_RATING_TIERS,
+    note: 'Khôi phục về cấu hình xếp loại mặc định ban đầu'
+  }));
+};
+
+/**
+ * Sao chép cấu hình xếp loại từ một kỳ khác
+ */
+export const copyVcRatingConfig = async (
+  fromPeriodId: string,
+  toPeriodId: string,
+  toPeriodName: string,
+  actor: { id: string; name: string; role?: string }
+): Promise<void> => {
+  const cached = getVcRatingConfigsCache();
+  const sourceConfig = cached.find(c => c.periodId === fromPeriodId) || {
+    tiers: DEFAULT_VC_RATING_TIERS,
+    scaleMaxScore: 100
+  };
+
+  const newConfig: KpiVcRatingConfig = {
+    id: `vc_rating_${toPeriodId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+    periodId: toPeriodId,
+    periodName: toPeriodName,
+    scaleMaxScore: 100,
+    tiers: JSON.parse(JSON.stringify(sourceConfig.tiers)),
+    isActive: true,
+    createdBy: actor.name || actor.id,
+    createdAt: new Date().toISOString(),
+    updatedBy: actor.name || actor.id,
+    updatedAt: new Date().toISOString(),
+    note: `Sao chép cấu hình từ kỳ: ${fromPeriodId}`
+  };
+
+  await saveVcRatingConfig(newConfig, actor, null, `Sao chép cấu hình từ kỳ ${fromPeriodId}`);
+};
+
 

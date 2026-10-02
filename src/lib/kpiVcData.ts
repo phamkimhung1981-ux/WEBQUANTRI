@@ -4,9 +4,162 @@ import {
   KpiVcPeriod, 
   KpiVcScoreItem, 
   KpiVcCriteriaSnapshot,
-  KpiVcLevel
+  KpiVcLevel,
+  KpiVcRatingTier,
+  KpiVcRatingConfig
 } from '../types/kpiVc';
 import { Teacher, Department } from '../types';
+
+/**
+ * CẤU HÌNH XẾP LOẠI KPI MẶC ĐỊNH THEO THANG ĐIỂM 100
+ * Áp dụng quy tắc khoảng điểm chuẩn:
+ * - Mức 1 (Xuất sắc): 90 <= điểm <= 100
+ * - Mức 2 (Hoàn thành tốt): 80 <= điểm < 90
+ * - Mức 3 (Hoàn thành): 65 <= điểm < 80
+ * - Mức 4 (Không hoàn thành): 0 <= điểm < 65
+ */
+export const DEFAULT_VC_RATING_TIERS: KpiVcRatingTier[] = [
+  {
+    id: 'tier_1',
+    ratingName: 'Hoàn thành xuất sắc nhiệm vụ',
+    minScore: 90,
+    maxScore: 100,
+    badgeColor: 'emerald',
+    sortOrder: 1,
+    isActive: true,
+    description: 'Từ 90 đến 100 điểm'
+  },
+  {
+    id: 'tier_2',
+    ratingName: 'Hoàn thành tốt nhiệm vụ',
+    minScore: 80,
+    maxScore: 90,
+    badgeColor: 'blue',
+    sortOrder: 2,
+    isActive: true,
+    description: 'Từ 80 đến dưới 90 điểm'
+  },
+  {
+    id: 'tier_3',
+    ratingName: 'Hoàn thành nhiệm vụ',
+    minScore: 65,
+    maxScore: 80,
+    badgeColor: 'amber',
+    sortOrder: 3,
+    isActive: true,
+    description: 'Từ 65 đến dưới 80 điểm'
+  },
+  {
+    id: 'tier_4',
+    ratingName: 'Không hoàn thành nhiệm vụ',
+    minScore: 0,
+    maxScore: 65,
+    badgeColor: 'rose',
+    sortOrder: 4,
+    isActive: true,
+    description: 'Từ 0 đến dưới 65 điểm'
+  }
+];
+
+export const KPI_RATING_COLOR_MAP: Record<string, { bg: string; text: string; border: string; dot: string; label: string }> = {
+  emerald: {
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-800',
+    border: 'border-emerald-200',
+    dot: 'bg-emerald-500',
+    label: 'Xanh lá (Emerald)'
+  },
+  blue: {
+    bg: 'bg-blue-50',
+    text: 'text-blue-800',
+    border: 'border-blue-200',
+    dot: 'bg-blue-500',
+    label: 'Xanh dương (Blue)'
+  },
+  indigo: {
+    bg: 'bg-indigo-50',
+    text: 'text-indigo-800',
+    border: 'border-indigo-200',
+    dot: 'bg-indigo-500',
+    label: 'Xanh chàm (Indigo)'
+  },
+  purple: {
+    bg: 'bg-purple-50',
+    text: 'text-purple-800',
+    border: 'border-purple-200',
+    dot: 'bg-purple-500',
+    label: 'Tím (Purple)'
+  },
+  amber: {
+    bg: 'bg-amber-50',
+    text: 'text-amber-800',
+    border: 'border-amber-200',
+    dot: 'bg-amber-500',
+    label: 'Vàng cam (Amber)'
+  },
+  rose: {
+    bg: 'bg-rose-50',
+    text: 'text-rose-800',
+    border: 'border-rose-200',
+    dot: 'bg-rose-500',
+    label: 'Đỏ hồng (Rose)'
+  },
+  slate: {
+    bg: 'bg-slate-100',
+    text: 'text-slate-800',
+    border: 'border-slate-300',
+    dot: 'bg-slate-500',
+    label: 'Xám (Slate)'
+  }
+};
+
+/**
+ * Kiểm tra hợp lệ các khoảng điểm xếp loại (Validation)
+ * - Không được trùng/chồng lấn khoảng điểm
+ * - Min <= Max và nằm trong khoảng [0, 100]
+ * - Không bỏ trống tên xếp loại
+ */
+export const validateRatingTiers = (tiers: KpiVcRatingTier[]): { isValid: boolean; error?: string } => {
+  const activeTiers = tiers.filter(t => t.isActive);
+  if (activeTiers.length === 0) {
+    return { isValid: false, error: 'Phải có ít nhất 1 mức xếp loại đang hoạt động.' };
+  }
+
+  for (const tier of activeTiers) {
+    if (!tier.ratingName || !tier.ratingName.trim()) {
+      return { isValid: false, error: 'Tên xếp loại không được để trống.' };
+    }
+    const min = Number(tier.minScore);
+    const max = Number(tier.maxScore);
+    if (isNaN(min) || isNaN(max)) {
+      return { isValid: false, error: `Điểm nhập vào của mức "${tier.ratingName}" không hợp lệ.` };
+    }
+    if (min < 0 || min > 100 || max < 0 || max > 100) {
+      return { isValid: false, error: `Điểm của mức "${tier.ratingName}" phải nằm trong khoảng từ 0 đến 100.` };
+    }
+    if (min > max) {
+      return { isValid: false, error: `Điểm tối thiểu (${min}) không được lớn hơn điểm tối đa (${max}) ở mức "${tier.ratingName}".` };
+    }
+  }
+
+  // Sắp xếp theo minScore tăng dần để kiểm tra chồng lấn
+  const sorted = [...activeTiers].sort((a, b) => Number(a.minScore) - Number(b.minScore));
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const current = sorted[i];
+    const next = sorted[i + 1];
+    
+    // Nếu max của tier hiện tại lớn hơn min của tier kế tiếp -> Chồng lấn!
+    if (Number(current.maxScore) > Number(next.minScore)) {
+      return {
+        isValid: false,
+        error: `Khoảng điểm đang bị chồng lấn giữa "${current.ratingName}" (${current.minScore} - ${current.maxScore}) và "${next.ratingName}" (${next.minScore} - ${next.maxScore}).`
+      };
+    }
+  }
+
+  return { isValid: true };
+};
 
 /**
  * 3 NHÓM TIÊU CHÍ CHUẨN THEO FILE PDF:
@@ -745,13 +898,179 @@ export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
 export const calculateVcSelfTotals = calculateVcTotals;
 
 /**
- * Tự động xếp loại theo điểm
+ * Kết quả tính xếp loại KPI
  */
-export const resolveVcClassification = (totalScore: number): string => {
-  if (totalScore >= 90) return 'Hoàn thành xuất sắc nhiệm vụ';
-  if (totalScore >= 70) return 'Hoàn thành tốt nhiệm vụ';
-  if (totalScore >= 50) return 'Hoàn thành nhiệm vụ';
-  return 'Không hoàn thành nhiệm vụ';
+export interface KpiRatingResult {
+  ratingName: string;
+  minScore: number;
+  maxScore: number;
+  badgeColor: string;
+  badgeStyle: {
+    bg: string;
+    text: string;
+    border: string;
+    dot: string;
+  };
+}
+
+/**
+ * Lấy cấu hình xếp loại có hiệu lực cho một kỳ đánh giá
+ */
+export const getEffectiveRatingConfig = (
+  periodId?: string,
+  configs?: KpiVcRatingConfig[]
+): { tiers: KpiVcRatingTier[]; isLockedWhenPeriodCompleted?: boolean } => {
+  if (configs && configs.length > 0) {
+    if (periodId && periodId !== 'all') {
+      const match = configs.find(c => c.periodId === periodId && c.isActive);
+      if (match && match.tiers && match.tiers.length > 0) {
+        return {
+          tiers: match.tiers.filter(t => t.isActive),
+          isLockedWhenPeriodCompleted: match.isLockedWhenPeriodCompleted
+        };
+      }
+    }
+    const defaultCfg = configs.find(c => (c.periodId === 'all' || c.periodId === 'default') && c.isActive);
+    if (defaultCfg && defaultCfg.tiers && defaultCfg.tiers.length > 0) {
+      return {
+        tiers: defaultCfg.tiers.filter(t => t.isActive),
+        isLockedWhenPeriodCompleted: defaultCfg.isLockedWhenPeriodCompleted
+      };
+    }
+  }
+  return { tiers: DEFAULT_VC_RATING_TIERS };
+};
+
+/**
+ * HÀM TÍNH XẾP LOẠI DÙNG CHUNG TOÀN HỆ THỐNG
+ * - Lấy cấu hình xếp loại của kỳ (hoặc mặc định)
+ * - Sắp xếp theo ngưỡng điểm giảm dần
+ * - Tìm khoảng chứa điểm:
+ *   + Mức cao nhất (maxScore = 100): minScore <= điểm <= 100
+ *   + Các mức khác: minScore <= điểm < maxScore
+ *   + Biên điểm 0: 0 <= điểm < maxScore
+ * - Trả về tên xếp loại, khoảng điểm, màu sắc và style nhãn
+ */
+export const getKpiRating = (
+  score: number,
+  periodId?: string,
+  configs?: KpiVcRatingConfig[]
+): KpiRatingResult => {
+  const numScore = isNaN(Number(score)) ? 0 : Math.max(0, Math.min(100, Number(score)));
+  const { tiers } = getEffectiveRatingConfig(periodId, configs);
+  
+  const activeTiers = (tiers.length > 0 ? tiers : DEFAULT_VC_RATING_TIERS)
+    .filter(t => t.isActive)
+    .sort((a, b) => Number(b.minScore) - Number(a.minScore));
+
+  if (activeTiers.length === 0) {
+    return {
+      ratingName: 'Chưa xếp loại',
+      minScore: 0,
+      maxScore: 100,
+      badgeColor: 'slate',
+      badgeStyle: KPI_RATING_COLOR_MAP.slate
+    };
+  }
+
+  // Tìm mức cao nhất (có maxScore lớn nhất)
+  const highestMax = Math.max(...activeTiers.map(t => Number(t.maxScore)));
+
+  for (const tier of activeTiers) {
+    const min = Number(tier.minScore);
+    const max = Number(tier.maxScore);
+
+    // Mức cao nhất: [min, max] (cho phép điểm = 100 hoặc = highestMax)
+    if (max >= highestMax) {
+      if (numScore >= min && numScore <= max) {
+        const colorKey = tier.badgeColor || 'blue';
+        const style = KPI_RATING_COLOR_MAP[colorKey] || KPI_RATING_COLOR_MAP.blue;
+        return {
+          ratingName: tier.ratingName,
+          minScore: min,
+          maxScore: max,
+          badgeColor: colorKey,
+          badgeStyle: style
+        };
+      }
+    } else {
+      // Các mức khác: [min, max) (nửa khoảng: min <= score < max)
+      // Ngoại lệ: Nếu numScore == 0 và min == 0
+      if (numScore >= min && numScore < max) {
+        const colorKey = tier.badgeColor || 'blue';
+        const style = KPI_RATING_COLOR_MAP[colorKey] || KPI_RATING_COLOR_MAP.blue;
+        return {
+          ratingName: tier.ratingName,
+          minScore: min,
+          maxScore: max,
+          badgeColor: colorKey,
+          badgeStyle: style
+        };
+      }
+    }
+  }
+
+  // Fallback: nếu điểm đúng 0 mà chưa khớp, hoặc nằm sát biên dưới
+  if (numScore === 0) {
+    const lowestTier = activeTiers[activeTiers.length - 1];
+    const colorKey = lowestTier.badgeColor || 'rose';
+    return {
+      ratingName: lowestTier.ratingName,
+      minScore: Number(lowestTier.minScore),
+      maxScore: Number(lowestTier.maxScore),
+      badgeColor: colorKey,
+      badgeStyle: KPI_RATING_COLOR_MAP[colorKey] || KPI_RATING_COLOR_MAP.rose
+    };
+  }
+
+  // Fallback chung
+  const fallbackTier = activeTiers[0];
+  const colorKey = fallbackTier.badgeColor || 'blue';
+  return {
+    ratingName: fallbackTier.ratingName,
+    minScore: Number(fallbackTier.minScore),
+    maxScore: Number(fallbackTier.maxScore),
+    badgeColor: colorKey,
+    badgeStyle: KPI_RATING_COLOR_MAP[colorKey] || KPI_RATING_COLOR_MAP.blue
+  };
+};
+
+/**
+ * Tự động xếp loại theo điểm số và cấu hình kỳ đánh giá
+ */
+export const resolveVcClassification = (
+  totalScore: number,
+  periodId?: string,
+  configs?: KpiVcRatingConfig[]
+): string => {
+  return getKpiRating(totalScore, periodId, configs).ratingName;
+};
+
+/**
+ * Lấy kiểu dáng nhãn hiển thị cho một tên xếp loại hoặc một điểm số
+ */
+export const getVcClassificationBadge = (
+  ratingNameOrScore: string | number,
+  periodId?: string,
+  configs?: KpiVcRatingConfig[]
+): { bg: string; text: string; border: string; dot: string } => {
+  if (typeof ratingNameOrScore === 'number') {
+    return getKpiRating(ratingNameOrScore, periodId, configs).badgeStyle;
+  }
+
+  const { tiers } = getEffectiveRatingConfig(periodId, configs);
+  const matchedTier = tiers.find(t => t.ratingName.trim().toLowerCase() === String(ratingNameOrScore).trim().toLowerCase());
+  if (matchedTier && matchedTier.badgeColor && KPI_RATING_COLOR_MAP[matchedTier.badgeColor]) {
+    return KPI_RATING_COLOR_MAP[matchedTier.badgeColor];
+  }
+
+  const str = String(ratingNameOrScore || '').toLowerCase();
+  if (str.includes('xuất sắc')) return KPI_RATING_COLOR_MAP.emerald;
+  if (str.includes('tốt')) return KPI_RATING_COLOR_MAP.blue;
+  if (str.includes('không') || str.includes('chưa')) return KPI_RATING_COLOR_MAP.rose;
+  if (str.includes('hoàn thành')) return KPI_RATING_COLOR_MAP.amber;
+
+  return KPI_RATING_COLOR_MAP.slate;
 };
 
 /**

@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
-import { KpiVcForm, KpiVcCriterion } from '../types/kpiVc';
+import { KpiVcForm, KpiVcCriterion, KpiVcRatingConfig } from '../types/kpiVc';
+import { resolveVcClassification, getEffectiveRatingConfig } from '../lib/kpiVcData';
 
 /**
  * Xuất danh sách tổng hợp KPI Giáo viên ra file Excel
@@ -7,7 +8,8 @@ import { KpiVcForm, KpiVcCriterion } from '../types/kpiVc';
 export const exportVcSummaryToExcel = (
   forms: KpiVcForm[],
   periodName: string = 'Kỳ đánh giá',
-  academicYear: string = '2026-2027'
+  academicYear: string = '2026-2027',
+  ratingConfigs?: KpiVcRatingConfig[]
 ) => {
   const data = forms.map((f, idx) => {
     const groupI = f.groupScores?.group_I ?? 0;
@@ -18,6 +20,20 @@ export const exportVcSummaryToExcel = (
     if (f.status === 'self_evaluated') statusText = 'Đang tự đánh giá';
     if (f.status === 'completed') statusText = 'Đã hoàn thành';
     if (f.status === 'locked') statusText = 'Đã khóa';
+
+    // Xếp loại cá nhân động
+    const effectiveCfg = getEffectiveRatingConfig(f.periodId, ratingConfigs);
+    let selfRating = f.selfClassification;
+    if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
+      selfRating = resolveVcClassification(f.totalScore, f.periodId, ratingConfigs);
+    }
+
+    // Xếp loại lãnh đạo / chính thức động
+    const finalScore = (f.managerTotalScore !== null && f.managerTotalScore !== undefined) ? f.managerTotalScore : f.totalScore;
+    let finalRating = f.leaderClassification || selfRating;
+    if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
+      finalRating = resolveVcClassification(finalScore, f.periodId, ratingConfigs);
+    }
 
     return {
       'STT': idx + 1,
@@ -30,9 +46,10 @@ export const exportVcSummaryToExcel = (
       'Nhóm I (Tối đa 15)': groupI,
       'Nhóm II (Tối đa 15)': groupII,
       'Nhóm III (Tối đa 70)': groupIII,
-      'Tổng điểm (Tối đa 100)': f.totalScore,
-      'Cá nhân tự xếp loại': f.selfClassification || 'Chưa xếp loại',
-      'Lãnh đạo xếp loại': f.leaderClassification || '',
+      'Điểm tự đánh giá (100đ)': f.totalScore,
+      'Điểm lãnh đạo đánh giá (100đ)': f.managerTotalScore !== null && f.managerTotalScore !== undefined ? f.managerTotalScore : 'Chưa chấm',
+      'Cá nhân tự xếp loại': selfRating || 'Chưa xếp loại',
+      'Xếp loại KPI chính thức': finalRating || 'Chưa xếp loại',
       'Trạng thái': statusText,
       'Ngày cập nhật': f.updatedAt ? new Date(f.updatedAt).toLocaleDateString('vi-VN') : ''
     };
@@ -52,9 +69,10 @@ export const exportVcSummaryToExcel = (
     { wch: 18 }, // Nhóm I
     { wch: 18 }, // Nhóm II
     { wch: 18 }, // Nhóm III
-    { wch: 22 }, // Tổng điểm
+    { wch: 22 }, // Điểm tự đánh giá
+    { wch: 26 }, // Điểm lãnh đạo đánh giá
     { wch: 28 }, // Xếp loại cá nhân
-    { wch: 28 }, // Xếp loại lãnh đạo
+    { wch: 28 }, // Xếp loại chính thức
     { wch: 18 }, // Trạng thái
     { wch: 16 }  // Ngày cập nhật
   ];
@@ -69,7 +87,12 @@ export const exportVcSummaryToExcel = (
 /**
  * Xuất chi tiết một phiếu đánh giá ra file Excel
  */
-export const exportSingleVcFormToExcel = (form: KpiVcForm) => {
+export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVcRatingConfig[]) => {
+  const dynamicRating = resolveVcClassification(
+    form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : form.totalScore,
+    form.periodId,
+    ratingConfigs
+  );
   const headerInfo = [
     { A: 'SỞ GD&ĐT TỈNH PHÚ THỌ', B: '', C: 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM' },
     { A: 'TRƯỜNG THPT SƠN LƯƠNG', B: '', C: 'Độc lập – Tự do – Hạnh phúc' },

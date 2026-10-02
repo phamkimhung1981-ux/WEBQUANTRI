@@ -87,6 +87,46 @@ export interface KpiVcCriteriaSnapshot {
   criteria: KpiVcCriterion[];
 }
 
+export interface KpiVcRatingTier {
+  id: string;
+  ratingName: string; // Tên xếp loại (ví dụ: 'Hoàn thành xuất sắc nhiệm vụ', 'Xuất sắc', 'A', 'Mức 1'...)
+  minScore: number; // Điểm tối thiểu (từ điểm)
+  maxScore: number; // Điểm tối đa (đến điểm)
+  badgeColor: string; // 'emerald' | 'blue' | 'indigo' | 'purple' | 'amber' | 'rose' | 'slate' | custom
+  sortOrder: number; // Thứ tự ưu tiên
+  isActive: boolean; // Trạng thái: Đang dùng / Tạm dừng
+  description?: string;
+}
+
+export interface KpiVcRatingConfigHistory {
+  id: string;
+  configId: string;
+  periodId: string;
+  periodName?: string;
+  changedBy: string;
+  changedByName?: string;
+  changedAt: string;
+  action: 'create' | 'update' | 'restore_default' | 'copy_period';
+  tiers: KpiVcRatingTier[];
+  note?: string;
+}
+
+export interface KpiVcRatingConfig {
+  id: string; // e.g. 'vc_rating_default' or `vc_rating_${periodId}`
+  periodId: string; // 'all' (Mặc định toàn trường) hoặc id kỳ cụ thể
+  periodName?: string;
+  academicYear?: string;
+  scaleMaxScore: number; // Thang điểm: mặc định 100
+  tiers: KpiVcRatingTier[];
+  isLockedWhenPeriodCompleted?: boolean; // [ ] Khóa xếp loại khi kỳ đánh giá đã hoàn thành
+  isActive: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+  note?: string;
+}
+
 export type KpiVcFormStatus = 'draft' | 'self_evaluated' | 'submitted' | 'ttcm_evaluated' | 'returned' | 'completed' | 'locked';
 
 export interface KpiVcFormHistory {

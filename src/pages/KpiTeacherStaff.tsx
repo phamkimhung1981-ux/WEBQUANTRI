@@ -43,7 +43,9 @@ import {
   KpiVcPeriod, 
   KpiVcCriterion, 
   KpiVcCriteriaGroup, 
-  KpiVcAuditLog 
+  KpiVcAuditLog,
+  KpiVcRatingConfig,
+  KpiVcRatingConfigHistory
 } from '../types/kpiVc';
 import { 
   subscribeVcForms, 
@@ -51,6 +53,8 @@ import {
   subscribeVcCriteria, 
   subscribeVcGroups, 
   subscribeVcAuditLogs, 
+  subscribeVcRatingConfigs,
+  subscribeVcRatingConfigHistory,
   seedVcInitialDataIfNeeded,
   deleteVcForm,
   bulkDeleteVcForms,
@@ -60,6 +64,9 @@ import {
   getEligibleVcTeachers,
   resolveVcTeacherPosition,
   resolveVcTeacherDepartment,
+  getKpiRating,
+  getVcClassificationBadge,
+  getEffectiveRatingConfig,
   DEFAULT_VC_GROUPS,
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
@@ -67,6 +74,7 @@ import {
 import KpiVcDocumentModal from '../components/kpiVc/KpiVcDocumentModal';
 import KpiVcCriteriaManagerModal from '../components/kpiVc/KpiVcCriteriaManagerModal';
 import KpiVcPeriodManagerModal from '../components/kpiVc/KpiVcPeriodManagerModal';
+import KpiVcRatingConfigModal from '../components/kpiVc/KpiVcRatingConfigModal';
 import KpiVcPrintModal from '../components/kpiVc/KpiVcPrintModal';
 import { exportVcSummaryToExcel } from '../utils/kpiVcExport';
 import { exportVcFormToWord } from '../utils/kpiWordExport';
@@ -109,6 +117,8 @@ export default function KpiTeacherStaff() {
   const [criteria, setCriteria] = useState<KpiVcCriterion[]>([]);
   const [groups, setGroups] = useState<KpiVcCriteriaGroup[]>([]);
   const [auditLogs, setAuditLogs] = useState<KpiVcAuditLog[]>([]);
+  const [ratingConfigs, setRatingConfigs] = useState<KpiVcRatingConfig[]>([]);
+  const [ratingHistoryList, setRatingHistoryList] = useState<KpiVcRatingConfigHistory[]>([]);
 
   // Filters & Search
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('all');
@@ -125,6 +135,7 @@ export default function KpiTeacherStaff() {
 
   const [isCriteriaManagerOpen, setIsCriteriaManagerOpen] = useState<boolean>(false);
   const [isPeriodManagerOpen, setIsPeriodManagerOpen] = useState<boolean>(false);
+  const [isRatingConfigModalOpen, setIsRatingConfigModalOpen] = useState<boolean>(false);
 
   const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
   const [selectedFormForPrint, setSelectedFormForPrint] = useState<KpiVcForm | null>(null);
@@ -162,6 +173,8 @@ export default function KpiTeacherStaff() {
     const unsubCriteria = subscribeVcCriteria(setCriteria);
     const unsubGroups = subscribeVcGroups(setGroups);
     const unsubLogs = subscribeVcAuditLogs(setAuditLogs);
+    const unsubRatingConfigs = subscribeVcRatingConfigs(setRatingConfigs);
+    const unsubRatingHistory = subscribeVcRatingConfigHistory(setRatingHistoryList);
 
     return () => {
       unsubForms();
@@ -169,8 +182,60 @@ export default function KpiTeacherStaff() {
       unsubCriteria();
       unsubGroups();
       unsubLogs();
+      unsubRatingConfigs();
+      unsubRatingHistory();
     };
   }, []);
+
+  // Hàm xác định xếp loại động của phiếu dựa theo cấu hình
+  const getFormRating = (form: KpiVcForm) => {
+    const finalScore = (form.managerTotalScore !== null && form.managerTotalScore !== undefined) 
+      ? form.managerTotalScore 
+      : form.totalScore;
+      
+    const effective = getEffectiveRatingConfig(form.periodId, ratingConfigs);
+    
+    // Nếu kỳ này có tùy chọn khóa xếp loại khi hoàn thành và phiếu đã khóa / hoàn thành
+    if (effective.isLockedWhenPeriodCompleted && (form.status === 'locked' || form.status === 'completed')) {
+      const stored = form.leaderClassification || form.selfClassification;
+      if (stored) {
+        return {
+          ratingName: stored,
+          badgeStyle: getVcClassificationBadge(stored, form.periodId, ratingConfigs)
+        };
+      }
+    }
+
+    const ratingRes = getKpiRating(finalScore, form.periodId, ratingConfigs);
+    return {
+      ratingName: ratingRes.ratingName,
+      badgeStyle: ratingRes.badgeStyle
+    };
+  };
+
+  // Danh sách các tùy chọn xếp loại động cho bộ lọc
+  const dynamicClassificationOptions = useMemo(() => {
+    const effective = getEffectiveRatingConfig(selectedPeriodId, ratingConfigs);
+    const options = new Set<string>();
+    effective.tiers.filter(t => t.isActive).forEach(t => options.add(t.ratingName));
+    
+    // Thêm các tên xếp loại từ tất cả cấu hình để không bị thiếu khi lọc
+    ratingConfigs.forEach(c => {
+      c.tiers?.forEach(t => {
+        if (t.isActive && t.ratingName) options.add(t.ratingName);
+      });
+    });
+
+    // Thêm các giá trị mặc định nếu rỗng
+    if (options.size === 0) {
+      options.add('Hoàn thành xuất sắc nhiệm vụ');
+      options.add('Hoàn thành tốt nhiệm vụ');
+      options.add('Hoàn thành nhiệm vụ');
+      options.add('Không hoàn thành nhiệm vụ');
+    }
+
+    return Array.from(options);
+  }, [selectedPeriodId, ratingConfigs]);
 
   // Filtered forms
   const filteredForms = useMemo(() => {
@@ -178,7 +243,10 @@ export default function KpiTeacherStaff() {
       const matchPeriod = selectedPeriodId === 'all' || f.periodId === selectedPeriodId;
       const matchStatus = statusFilter === 'all' || 
         (statusFilter === 'completed' ? (f.status === 'completed' || f.status === 'self_evaluated') : f.status === statusFilter);
+      
+      const formRatingName = getFormRating(f).ratingName;
       const matchClass = classificationFilter === 'all' || (
+        formRatingName === classificationFilter ||
         f.leaderClassification === classificationFilter || 
         (!f.leaderClassification && f.selfClassification === classificationFilter)
       );
@@ -199,7 +267,7 @@ export default function KpiTeacherStaff() {
 
       return matchPeriod && matchStatus && matchClass && matchDept && matchSearch;
     });
-  }, [forms, selectedPeriodId, statusFilter, classificationFilter, selectedDeptId, searchQuery, teachers]);
+  }, [forms, selectedPeriodId, statusFilter, classificationFilter, selectedDeptId, searchQuery, teachers, ratingConfigs]);
 
   // Group forms by Department
   const groupedFormsByDept = useMemo(() => {
@@ -250,22 +318,31 @@ export default function KpiTeacherStaff() {
     });
     const avgScore = totalForms > 0 ? (Math.round((sumScore / totalForms) * 10) / 10) : 0;
 
-    const excellentCount = filteredForms.filter(f => (f.leaderClassification || f.selfClassification)?.includes('xuất sắc')).length;
-    const goodCount = filteredForms.filter(f => (f.leaderClassification || f.selfClassification)?.includes('tốt')).length;
-    const passCount = filteredForms.filter(f => (f.leaderClassification || f.selfClassification) === 'Hoàn thành nhiệm vụ').length;
-    const failCount = filteredForms.filter(f => (f.leaderClassification || f.selfClassification)?.includes('Không')).length;
+    // Tính thống kê động theo các mức xếp loại cấu hình
+    const ratingCounts: Record<string, number> = {};
+    filteredForms.forEach(f => {
+      const rName = getFormRating(f).ratingName;
+      ratingCounts[rName] = (ratingCounts[rName] || 0) + 1;
+    });
+
+    const effective = getEffectiveRatingConfig(selectedPeriodId, ratingConfigs);
+    const activeTiers = effective.tiers.filter(t => t.isActive);
+    const topTier1Name = activeTiers[0]?.ratingName || 'Hoàn thành xuất sắc nhiệm vụ';
+    const topTier2Name = activeTiers[1]?.ratingName || 'Hoàn thành tốt nhiệm vụ';
+
+    const topCount = (ratingCounts[topTier1Name] || 0) + (ratingCounts[topTier2Name] || 0);
 
     return {
       totalForms,
       completedCount,
       evaluatingCount,
       avgScore,
-      excellentCount,
-      goodCount,
-      passCount,
-      failCount
+      topCount,
+      topTier1Name,
+      topTier2Name,
+      ratingCounts
     };
-  }, [filteredForms]);
+  }, [filteredForms, ratingConfigs, selectedPeriodId]);
 
   // Check if current user has a form in the selected period
   const myFormInPeriod = useMemo(() => {
@@ -484,13 +561,21 @@ export default function KpiTeacherStaff() {
                 >
                   <Calendar size={15} /> Quản lý kỳ
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsRatingConfigModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 hover:text-white text-xs sm:text-sm font-bold rounded-xl border border-amber-400/40 transition-all cursor-pointer backdrop-blur-xs shadow-xs"
+                  title="Cấu hình điểm xếp loại KPI"
+                >
+                  <Sliders size={15} /> ⚙ Cấu hình xếp loại
+                </button>
               </>
             )}
 
             {/* Xuất Excel */}
             <button
               type="button"
-              onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear)}
+              onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear, ratingConfigs)}
               className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl transition-all cursor-pointer shadow-md"
             >
               <FileSpreadsheet size={15} /> Xuất Excel tổng hợp
@@ -589,16 +674,18 @@ export default function KpiTeacherStaff() {
           </div>
         </div>
 
-        {/* Xuất sắc & Tốt */}
+        {/* Mức xếp loại hàng đầu */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
             <Award size={24} />
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Xuất sắc & Tốt</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider line-clamp-1" title={`${stats.topTier1Name} & ${stats.topTier2Name}`}>
+              {stats.topTier1Name} & Tốt
+            </p>
             <div className="flex items-baseline gap-2 mt-0.5">
               <span className="text-xl sm:text-2xl font-black text-amber-600">
-                {stats.excellentCount + stats.goodCount}
+                {stats.topCount}
               </span>
               <span className="text-xs text-slate-500 font-medium">cán bộ</span>
             </div>
@@ -660,10 +747,9 @@ export default function KpiTeacherStaff() {
               className="w-full px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
               <option value="all">Tất cả xếp loại</option>
-              <option value="Hoàn thành xuất sắc nhiệm vụ">Hoàn thành xuất sắc nhiệm vụ</option>
-              <option value="Hoàn thành tốt nhiệm vụ">Hoàn thành tốt nhiệm vụ</option>
-              <option value="Hoàn thành nhiệm vụ">Hoàn thành nhiệm vụ</option>
-              <option value="Không hoàn thành nhiệm vụ">Không hoàn thành nhiệm vụ</option>
+              {dynamicClassificationOptions.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
             </select>
           </div>
 
@@ -861,10 +947,9 @@ export default function KpiTeacherStaff() {
 
                       {group.forms.map((form, idx) => {
                         const isLocked = form.status === 'locked';
-                        const finalClassification = form.leaderClassification || form.selfClassification || 'Hoàn thành tốt nhiệm vụ';
-                        let classColor = 'bg-blue-50 text-blue-800 border-blue-200';
-                        if (finalClassification.includes('xuất sắc')) classColor = 'bg-purple-50 text-purple-800 border-purple-200 font-bold';
-                        if (finalClassification.includes('Không')) classColor = 'bg-rose-50 text-rose-800 border-rose-200';
+                        const ratingInfo = getFormRating(form);
+                        const finalClassification = ratingInfo.ratingName;
+                        const classStyle = ratingInfo.badgeStyle;
                         const isSelected = selectedFormIds.includes(form.id);
 
                         return (
@@ -946,7 +1031,7 @@ export default function KpiTeacherStaff() {
                             </td>
 
                             <td className="p-3.5 text-center">
-                              <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] border ${classColor}`}>
+                              <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${classStyle.bg} ${classStyle.text} ${classStyle.border}`}>
                                 {finalClassification}
                               </span>
                             </td>
@@ -1046,10 +1131,9 @@ export default function KpiTeacherStaff() {
               ) : (
                 filteredForms.map((form, idx) => {
                   const isLocked = form.status === 'locked';
-                  const finalClassification = form.leaderClassification || form.selfClassification || 'Hoàn thành tốt nhiệm vụ';
-                  let classColor = 'bg-blue-50 text-blue-800 border-blue-200';
-                  if (finalClassification.includes('xuất sắc')) classColor = 'bg-purple-50 text-purple-800 border-purple-200 font-bold';
-                  if (finalClassification.includes('Không')) classColor = 'bg-rose-50 text-rose-800 border-rose-200';
+                  const ratingInfo = getFormRating(form);
+                  const finalClassification = ratingInfo.ratingName;
+                  const classStyle = ratingInfo.badgeStyle;
 
                   const isSelected = selectedFormIds.includes(form.id);
 
@@ -1132,7 +1216,7 @@ export default function KpiTeacherStaff() {
                       </td>
 
                       <td className="p-3.5 text-center">
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] border ${classColor}`}>
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${classStyle.bg} ${classStyle.text} ${classStyle.border}`}>
                           {finalClassification}
                         </span>
                       </td>
@@ -1273,6 +1357,17 @@ export default function KpiTeacherStaff() {
         isOpen={isPeriodManagerOpen}
         onClose={() => setIsPeriodManagerOpen(false)}
         periods={periods}
+      />
+
+      {/* MODAL CẤU HÌNH ĐIỂM XẾP LOẠI KPI (RATING CONFIG MODAL) */}
+      <KpiVcRatingConfigModal
+        isOpen={isRatingConfigModalOpen}
+        onClose={() => setIsRatingConfigModalOpen(false)}
+        periods={periods}
+        configs={ratingConfigs}
+        historyList={ratingHistoryList}
+        defaultPeriodId={selectedPeriodId === 'all' ? (periods[0]?.id || 'all') : selectedPeriodId}
+        onSaved={() => {}}
       />
 
       {/* MODAL IN PHIẾU A4 (PRINT MODAL) */}

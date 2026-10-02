@@ -472,6 +472,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Chấp hành nghiêm túc quy định nền nếp, học tập, trang phục và nội quy nhà trường',
     pointType: 'plus',
     defaultPoint: 5,
+    deductionPerOccurrence: 5,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 0
@@ -485,6 +486,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Nghỉ học không xin phép hoặc không có giấy tờ xác nhận của phụ huynh',
     pointType: 'minus',
     defaultPoint: -5,
+    deductionPerOccurrence: -5,
     severity: 'Vừa',
     status: 'active',
     sortOrder: 1
@@ -498,6 +500,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Tự ý rời lớp/trường trong giờ học mà không được sự đồng ý của GV',
     pointType: 'minus',
     defaultPoint: -3,
+    deductionPerOccurrence: -3,
     severity: 'Vừa',
     status: 'active',
     sortOrder: 2
@@ -511,6 +514,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Đến trường/vào lớp sau khi có chuông vào học',
     pointType: 'minus',
     defaultPoint: -2,
+    deductionPerOccurrence: -2,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 3
@@ -524,6 +528,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Bị giáo viên bộ môn ghi tên vào sổ đầu bài do vi phạm trật tự/không chuẩn bị bài',
     pointType: 'minus',
     defaultPoint: -3,
+    deductionPerOccurrence: -3,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 4
@@ -537,6 +542,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Điểm kiểm tra, hỏi bài cũ đạt dưới 4 điểm',
     pointType: 'minus',
     defaultPoint: -2,
+    deductionPerOccurrence: -2,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 5
@@ -550,6 +556,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Đạt điểm giỏi 9-10, hăng hái phát biểu, đạt giải trong kỳ thi, việc tốt',
     pointType: 'plus',
     defaultPoint: 5,
+    deductionPerOccurrence: 5,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 6
@@ -565,6 +572,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Mặc sai đồng phục, không đeo thẻ, đi dép lê, tóc nhuộm sặc sỡ',
     pointType: 'minus',
     defaultPoint: -2,
+    deductionPerOccurrence: -2,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 7
@@ -580,6 +588,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Vứt rác bừa bãi trong lớp học, sân trường, không trực nhật đúng lịch',
     pointType: 'minus',
     defaultPoint: -3,
+    deductionPerOccurrence: -3,
     severity: 'Nhẹ',
     status: 'active',
     sortOrder: 8
@@ -595,6 +604,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Có hành vi/ngôn từ vô văn hóa, vô lễ, lăng mạ, đe dọa hoặc vô lễ',
     pointType: 'minus',
     defaultPoint: -20,
+    deductionPerOccurrence: -20,
     severity: 'Rất nghiêm trọng',
     status: 'active',
     sortOrder: 9
@@ -610,6 +620,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Sử dụng tài liệu, quay cóp, mang điện thoại vào phòng thi, chép bài bạn',
     pointType: 'minus',
     defaultPoint: -10,
+    deductionPerOccurrence: -10,
     severity: 'Nghiêm trọng',
     status: 'active',
     sortOrder: 10
@@ -625,6 +636,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Hút thuốc lá/thuốc lá điện tử, uống rượu bia, mang pháo hoặc chất gây nổ vào trường',
     pointType: 'minus',
     defaultPoint: -20,
+    deductionPerOccurrence: -20,
     severity: 'Rất nghiêm trọng',
     status: 'active',
     sortOrder: 11
@@ -640,6 +652,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Chơi game, lướt mạng, xem video trong giờ học',
     pointType: 'minus',
     defaultPoint: -5,
+    deductionPerOccurrence: -5,
     severity: 'Vừa',
     status: 'active',
     sortOrder: 12
@@ -655,6 +668,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Tụ tập xô xát, gây rối trật tự, lôi kéo người bên ngoài vào trường',
     pointType: 'minus',
     defaultPoint: -20,
+    deductionPerOccurrence: -20,
     severity: 'Rất nghiêm trọng',
     status: 'active',
     sortOrder: 13
@@ -670,6 +684,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Truyền bá ấn phẩm độc hại, game cờ bạc, trò chơi nguy hiểm',
     pointType: 'minus',
     defaultPoint: -10,
+    deductionPerOccurrence: -10,
     severity: 'Nghiêm trọng',
     status: 'active',
     sortOrder: 14
@@ -685,6 +700,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Vi phạm luật giao thông đường bộ, kẹp 3, không đội mũ bảo hiểm khi đi xe máy/xe đạp điện',
     pointType: 'minus',
     defaultPoint: -5,
+    deductionPerOccurrence: -5,
     severity: 'Vừa',
     status: 'active',
     sortOrder: 15
@@ -700,11 +716,31 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     description: 'Các hành vi vi phạm pháp luật hoặc quy định khác chưa liệt kê ở trên',
     pointType: 'minus',
     defaultPoint: -5,
+    deductionPerOccurrence: -5,
     severity: 'Vừa',
     status: 'active',
     sortOrder: 16
   }
 ];
+
+/**
+ * Safely retrieves the deduction per occurrence from a ConductCriterion.
+ * Respects deductionPerOccurrence if present, otherwise defaultPoint.
+ * For the 6 special "Đạt / Chưa đạt" categories, deduction is always 0.
+ */
+export function getCriterionDeduction(crit?: ConductCriterion | null): number {
+  if (!crit) return 0;
+  if (isDatChuaDatCategory(crit.categoryId, crit.categoryName)) {
+    return 0;
+  }
+  if (crit.deductionPerOccurrence !== undefined && crit.deductionPerOccurrence !== null && !isNaN(Number(crit.deductionPerOccurrence))) {
+    return Number(crit.deductionPerOccurrence);
+  }
+  if (crit.defaultPoint !== undefined && crit.defaultPoint !== null && !isNaN(Number(crit.defaultPoint))) {
+    return Number(crit.defaultPoint);
+  }
+  return 0;
+}
 
 export const DEFAULT_CLASSES: ClassInfo[] = [
   { id: 'class_10a1', name: '10A1', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1', homeroomTeacherName: 'Nguyễn Thị A', room: 'Phòng 101', totalStudents: 38 },
@@ -926,6 +962,42 @@ export function calculateStudentRating(
 }
 
 /**
+ * Calculates total minus points for a student by grouping by criterion and multiplying occurrence count by base deduction per occurrence.
+ */
+export function calculateStudentTotalMinus(records: ConductRecord[]): number {
+  if (!records || records.length === 0) return 0;
+  const criterionMap = new Map<string, { count: number; deductionPerOccurrence: number }>();
+
+  records.forEach(r => {
+    if (r.recordType === 'TICH_CUC' || r.pointType === 'plus' || r.point === 0) return;
+    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
+
+    const key = r.criterionId || r.criterionName || 'unknown_crit';
+    const deductionPerOcc = Math.abs(
+      r.deductionPerOccurrence !== undefined && r.deductionPerOccurrence !== null
+        ? Number(r.deductionPerOccurrence)
+        : (r.point !== undefined && r.point !== null ? Number(r.point) : 0)
+    );
+
+    if (!criterionMap.has(key)) {
+      criterionMap.set(key, { count: 0, deductionPerOccurrence: deductionPerOcc });
+    }
+    const item = criterionMap.get(key)!;
+    item.count += 1;
+    if (deductionPerOcc > 0) {
+      item.deductionPerOccurrence = deductionPerOcc;
+    }
+  });
+
+  let totalMinusMagnitude = 0;
+  criterionMap.forEach((val) => {
+    totalMinusMagnitude += val.count * val.deductionPerOccurrence;
+  });
+
+  return totalMinusMagnitude;
+}
+
+/**
  * Calculates student score and classification
  * Uses unified calculateStudentRating internally
  */
@@ -938,17 +1010,26 @@ export function calculateConductScore(
   ratingConfig?: EvaluationRatingConfig | RatingTierItem[] | null,
   recordsOrEvalResult?: ConductRecord[] | GroupEvaluationResult | null
 ): { totalScore: number; classification: ClassificationType | string; specialWarning: boolean; ratingResult: StudentRatingResult } {
+  // If records are passed as recordsOrEvalResult (array), use calculateStudentTotalMinus for accurate occurrence-based calculation
+  let effectiveMinus = totalMinus;
+  let recordsArray: ConductRecord[] | null = null;
+
+  if (recordsOrEvalResult && Array.isArray(recordsOrEvalResult)) {
+    recordsArray = recordsOrEvalResult;
+    effectiveMinus = calculateStudentTotalMinus(recordsArray);
+  }
+
   // totalMinus is positive magnitude (e.g. 8 points lost) or negative point sum (e.g. -8)
-  const minusMagnitude = Math.abs(totalMinus);
+  const minusMagnitude = Math.abs(effectiveMinus);
   const totalScore = baseScore + totalPlus - minusMagnitude;
 
   // Determine 6 groups evaluation result if provided
   let evalResult: GroupEvaluationResult | null = null;
   if (recordsOrEvalResult) {
-    if ('hasEvaluation' in recordsOrEvalResult) {
+    if (!Array.isArray(recordsOrEvalResult) && 'hasEvaluation' in recordsOrEvalResult) {
       evalResult = recordsOrEvalResult;
-    } else if (Array.isArray(recordsOrEvalResult)) {
-      evalResult = evaluateStudent6Groups(recordsOrEvalResult);
+    } else if (recordsArray) {
+      evalResult = evaluateStudent6Groups(recordsArray);
     }
   }
 

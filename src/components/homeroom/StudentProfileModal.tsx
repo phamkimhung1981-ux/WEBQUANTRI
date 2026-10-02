@@ -415,7 +415,9 @@ export default function StudentProfileModal({
                       <th className="p-3 whitespace-nowrap">Ngày</th>
                       <th className="p-3 whitespace-nowrap">Nhóm danh mục</th>
                       <th className="p-3">Nội dung ghi nhận</th>
-                      <th className="p-3 text-center whitespace-nowrap">Điểm trừ</th>
+                      <th className="p-3 text-center whitespace-nowrap">Số lần</th>
+                      <th className="p-3 text-center whitespace-nowrap">Điểm/lần</th>
+                      <th className="p-3 text-center whitespace-nowrap">Tổng điểm trừ</th>
                       <th className="p-3 text-center whitespace-nowrap">Kết quả</th>
                       <th className="p-3">Người ghi nhận</th>
                       <th className="p-3">Ghi chú</th>
@@ -424,8 +426,20 @@ export default function StudentProfileModal({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {studentRecords.map(r => {
-                      const isPositive = r.recordType === 'TICH_CUC';
+                      const isPlus = r.pointType === 'plus' || r.recordType === 'TICH_CUC';
                       const isDatChuaDat = isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus);
+
+                      const critHistoryCount = allStudentRecords.filter(item => 
+                        (r.criterionId && item.criterionId === r.criterionId) || 
+                        (!r.criterionId && item.criterionName === r.criterionName)
+                      ).length;
+                      const recCount = r.violationCount || critHistoryCount || 1;
+                      const recDeductionPerOcc = isDatChuaDat ? 0 : Math.abs(
+                        r.deductionPerOccurrence !== undefined && r.deductionPerOccurrence !== null
+                          ? Number(r.deductionPerOccurrence)
+                          : (r.point !== undefined && r.point !== null ? Number(r.point) : 0)
+                      );
+                      const recTotalDed = isDatChuaDat ? 0 : (r.totalDeduction !== undefined ? Math.abs(Number(r.totalDeduction)) : (recCount * recDeductionPerOcc));
 
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
@@ -463,22 +477,30 @@ export default function StudentProfileModal({
                             )}
                           </td>
 
-                          {/* Điểm trừ */}
+                          {/* Số lần */}
+                          <td className="p-3 text-center font-bold text-blue-900 whitespace-nowrap">
+                            {isDatChuaDat || isPlus ? '—' : `${recCount} lần`}
+                          </td>
+
+                          {/* Điểm/lần */}
+                          <td className="p-3 text-center font-bold text-slate-700 whitespace-nowrap">
+                            {isDatChuaDat || isPlus ? '—' : `-${recDeductionPerOcc}đ`}
+                          </td>
+
+                          {/* Tổng điểm trừ */}
                           <td className="p-3 text-center whitespace-nowrap">
                             {isDatChuaDat ? (
                               <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="Không áp dụng điểm trừ">
-                                0 (Không trừ điểm)
+                                0đ
                               </span>
-                            ) : isPositive ? (
+                            ) : isPlus ? (
                               <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                +{r.point || 5}đ
-                              </span>
-                            ) : r.point ? (
-                              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                                {r.point}đ
+                                +{Math.abs(r.point || 5)}đ
                               </span>
                             ) : (
-                              <span className="text-slate-400">0</span>
+                              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                -{recTotalDed}đ
+                              </span>
                             )}
                           </td>
 

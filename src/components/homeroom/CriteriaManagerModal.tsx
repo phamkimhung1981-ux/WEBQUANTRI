@@ -107,6 +107,7 @@ export default function CriteriaManagerModal({
           categoryName: category?.name || 'VI PHẠM KHÁC',
           pointType,
           defaultPoint: Number(defaultPoint),
+          deductionPerOccurrence: Number(defaultPoint),
           severity
         });
       } else {
@@ -118,6 +119,7 @@ export default function CriteriaManagerModal({
           categoryName: category?.name || 'VI PHẠM KHÁC',
           pointType,
           defaultPoint: Number(defaultPoint),
+          deductionPerOccurrence: Number(defaultPoint),
           severity,
           status: 'active',
           sortOrder: criteria.length + 1

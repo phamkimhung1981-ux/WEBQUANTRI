@@ -82,6 +82,7 @@ export interface ConductCriterion {
   description?: string;
   pointType: PointType;
   defaultPoint: number;
+  deductionPerOccurrence?: number;
   severity?: ViolationSeverity;
   status: 'active' | 'inactive';
   sortOrder: number;
@@ -102,6 +103,9 @@ export interface ConductRecord {
   categoryName: string;
   pointType: PointType;
   point: number; // e.g. -2, +5
+  violationCount?: number; // số lần mắc lỗi cùng tiêu chí
+  deductionPerOccurrence?: number; // điểm trừ cơ bản cho mỗi lần vi phạm
+  totalDeduction?: number; // tổng điểm trừ = số lần × điểm trừ mỗi lần
   level?: ViolationSeverity;
   
   // Record type distinction: 'VI_PHAM' or 'TICH_CUC'

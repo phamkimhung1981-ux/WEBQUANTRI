@@ -30,7 +30,7 @@ import {
 } from '../../types/homeroom';
 import { useAuth } from '../../store/AuthContext';
 import { getDefaultDateForMonthAndWeek, getMonthNumberFromLabel } from '../../utils/schoolWeekUtils';
-import { DEFAULT_CONDUCT_CATEGORIES, DEFAULT_CONDUCT_CRITERIA, DEFAULT_SERIOUS_VIOLATION_CONFIGS, isSpecialWarningCategory, isDatChuaDatCategory } from '../../lib/homeroomData';
+import { DEFAULT_CONDUCT_CATEGORIES, DEFAULT_CONDUCT_CRITERIA, DEFAULT_SERIOUS_VIOLATION_CONFIGS, isSpecialWarningCategory, isDatChuaDatCategory, getCriterionDeduction } from '../../lib/homeroomData';
 
 interface RecordModalProps {
   isOpen: boolean;
@@ -90,19 +90,12 @@ export default function RecordModal({
 
   // Form Fields
   const [recordDate, setRecordDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [pointMagnitude, setPointMagnitude] = useState<number>(5);
+  const [pointMagnitude, setPointMagnitude] = useState<number>(0);
+  const [formViolationCount, setFormViolationCount] = useState<number>(1);
   const [level, setLevel] = useState<ViolationSeverity>('Vừa');
   const [location, setLocation] = useState<string>('');
   const [note, setNote] = useState<string>('');
   const [customCriterionName, setCustomCriterionName] = useState<string>('');
-
-  // Edit record state
-  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
-
-  // Submission state
-  const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successToast, setSuccessToast] = useState<string>('');
 
   // Combined categories & criteria (fallback to defaults if empty)
   const activeCategories = useMemo(() => {
@@ -115,6 +108,24 @@ export default function RecordModal({
 
   // Active student object
   const currentStudent = students.find(s => s.id === activeStudentId) || (students.length > 0 ? students[0] : null);
+
+  // Previous count of this violation for current student (for reference hint)
+  const previousViolationCount = useMemo(() => {
+    if (!currentStudent) return 0;
+    return records.filter(r => 
+      r.studentId === currentStudent.id && 
+      ((selectedCriterionId && r.criterionId === selectedCriterionId) || 
+       (!selectedCriterionId && customCriterionName && r.criterionName.toLowerCase() === customCriterionName.toLowerCase()))
+    ).length;
+  }, [selectedCriterionId, customCriterionName, currentStudent, records]);
+
+  // Edit record state
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+
+  // Submission state
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successToast, setSuccessToast] = useState<string>('');
 
   // History records for current student
   const currentStudentHistory = useMemo(() => {
@@ -187,6 +198,8 @@ export default function RecordModal({
       setLocation('');
       setNote('');
       setCustomCriterionName('');
+      setPointMagnitude(0);
+      setFormViolationCount(1);
 
       // Pick default criterion if provided
       if (defaultCriterionId) {
@@ -197,28 +210,36 @@ export default function RecordModal({
         }
       }
 
-      // Pick first matching criterion
-      const firstMinus = activeCriteria.find(c => c.pointType === (defaultType || 'minus') && c.status !== 'inactive');
-      if (firstMinus) {
-        applyCriterion(firstMinus);
-      }
+      // Do not auto-select first criterion on open; leave "Chưa chọn tiêu chí"
+      setSelectedCriterionId('');
     }
   }, [isOpen, defaultStudentId, defaultCriterionId, defaultType, students, activeCriteria]);
 
   // Select criterion handler
   const applyCriterion = (crit: ConductCriterion) => {
+    // 1. Reset old criterion and clear custom name
     setSelectedCriterionId(crit.id);
+    setCustomCriterionName('');
+
+    // 2. Check if category belongs to the 6 "ĐẠT / CHƯA ĐẠT" categories
     const isCatDatChuaDat = isDatChuaDatCategory(crit.categoryId, crit.categoryName);
-    if (isCatDatChuaDat) {
-      setPointMagnitude(0);
-    } else {
-      setPointMagnitude(Math.abs(crit.defaultPoint || 5));
-    }
+
+    // 3. Extract exact deduction for this criterion (no hardcoded fallback)
+    const rawDeduction = getCriterionDeduction(crit);
+    const deduction = isCatDatChuaDat ? 0 : Math.abs(rawDeduction);
+    setPointMagnitude(deduction);
+
+    // 4. Reset violation count to 1 as required
+    setFormViolationCount(1);
+
+    // 5. Reset evaluation status & set severity
+    setEvaluationStatus(null);
     setLevel(crit.severity || (crit.pointType === 'plus' ? 'Nhẹ' : 'Vừa'));
-    if (crit.categoryId) {
+
+    // 6. Synchronize category selection if user was on a different specific category
+    if (selectedCategoryId !== 'all' && crit.categoryId && selectedCategoryId !== crit.categoryId) {
       setSelectedCategoryId(crit.categoryId);
     }
-    setCustomCriterionName('');
   };
 
   const handleSelectCriterion = (crit: ConductCriterion) => {
@@ -230,13 +251,11 @@ export default function RecordModal({
     setPointType(type);
     setSelectedCriterionId('');
     setCustomCriterionName('');
-    const firstMatch = activeCriteria.find(c => c.pointType === type && c.status !== 'inactive');
-    if (firstMatch) {
-      applyCriterion(firstMatch);
-    } else {
-      setPointMagnitude(type === 'plus' ? 5 : 5);
-      setLevel('Nhẹ');
-    }
+    setSelectedCategoryId('all');
+    setFormViolationCount(1);
+    setPointMagnitude(0);
+    setEvaluationStatus(null);
+    setLevel('Vừa');
   };
 
   // Handle Edit existing record from history
@@ -245,16 +264,25 @@ export default function RecordModal({
     setRecordDate(rec.recordDate || new Date().toISOString().split('T')[0]);
     setPointType(rec.pointType || 'minus');
     const isCatDatChuaDat = isDatChuaDatCategory(rec.categoryId, rec.categoryName) || Boolean(rec.evaluationStatus);
-    setPointMagnitude(isCatDatChuaDat ? 0 : Math.abs(rec.point || 5));
+    const deductionPerOcc = isCatDatChuaDat
+      ? 0
+      : Math.abs(
+          rec.deductionPerOccurrence !== undefined && rec.deductionPerOccurrence !== null
+            ? Number(rec.deductionPerOccurrence)
+            : (rec.point !== undefined && rec.point !== null ? Number(rec.point) : 0)
+        );
+    setPointMagnitude(deductionPerOcc);
     setLevel(rec.level || 'Vừa');
     setLocation(rec.location || '');
     setNote(rec.note || '');
     setEvaluationStatus(rec.evaluationStatus || null);
 
+    setFormViolationCount(rec.violationCount || 1);
+
     if (rec.criterionId) {
       setSelectedCriterionId(rec.criterionId);
       const crit = activeCriteria.find(c => c.id === rec.criterionId);
-      if (crit?.categoryId) {
+      if (crit?.categoryId && selectedCategoryId !== 'all') {
         setSelectedCategoryId(crit.categoryId);
       }
     } else {
@@ -273,8 +301,9 @@ export default function RecordModal({
     setLocation('');
     setNote('');
     setCustomCriterionName('');
-    const firstMatch = activeCriteria.find(c => c.pointType === pointType && c.status !== 'inactive');
-    if (firstMatch) applyCriterion(firstMatch);
+    setSelectedCriterionId('');
+    setPointMagnitude(0);
+    setFormViolationCount(1);
   };
 
   // Delete record from history
@@ -312,7 +341,7 @@ export default function RecordModal({
       const criterionName = selCrit ? selCrit.name : customCriterionName.trim();
 
       if (!criterionName) {
-        throw new Error('Vui lòng chọn tiêu chí hoặc nhập nội dung ghi nhận.');
+        throw new Error('Vui lòng chọn tiêu chí vi phạm.');
       }
 
       const dateObj = new Date(recordDate);
@@ -335,10 +364,15 @@ export default function RecordModal({
         }
       }
 
-      // Point calculation (+ or -)
-      const numericPoint = isTargetEvaluationCategory
-        ? 0
-        : (pointType === 'plus' ? Math.abs(Number(pointMagnitude) || 5) : -Math.abs(Number(pointMagnitude) || 5));
+      // Point calculation (+ or -) with occurrence count multiplication
+      const baseRate = isTargetEvaluationCategory 
+        ? 0 
+        : (pointMagnitude > 0 ? pointMagnitude : Math.abs(getCriterionDeduction(selCrit)));
+      const count = isTargetEvaluationCategory ? 1 : Math.max(1, formViolationCount);
+      const totalDeduction = isTargetEvaluationCategory 
+        ? 0 
+        : (pointType === 'minus' ? -(count * baseRate) : (count * baseRate));
+      const numericPoint = totalDeduction;
 
       // Warning and special warning checks (ONLY for non-evaluation groups)
       const isATGT = !isTargetEvaluationCategory && (categoryName.toUpperCase().includes('GIAO THÔNG') || criterionName.toLowerCase().includes('mũ bảo hiểm') || criterionName.toLowerCase().includes('giao thông'));
@@ -368,6 +402,9 @@ export default function RecordModal({
         location: location.trim(),
         pointType,
         point: numericPoint,
+        violationCount: isTargetEvaluationCategory ? undefined : count,
+        deductionPerOccurrence: isTargetEvaluationCategory ? undefined : (pointType === 'minus' ? -baseRate : baseRate),
+        totalDeduction: isTargetEvaluationCategory ? undefined : totalDeduction,
         level,
         evaluationStatus: isTargetEvaluationCategory ? evaluationStatus : undefined,
         hasConductWarning: !isTargetEvaluationCategory && pointType === 'minus' && (isSpecial || level === 'Nghiêm trọng' || level === 'Rất nghiêm trọng'),
@@ -570,8 +607,19 @@ export default function RecordModal({
                 <select
                   value={selectedCategoryId}
                   onChange={(e) => {
-                    setSelectedCategoryId(e.target.value);
-                    setEvaluationStatus(null);
+                    const newCat = e.target.value;
+                    setSelectedCategoryId(newCat);
+                    if (newCat !== 'all' && selectedCriterionId) {
+                      const crit = activeCriteria.find(c => c.id === selectedCriterionId);
+                      if (crit && crit.categoryId !== newCat) {
+                        setSelectedCriterionId('');
+                        setCustomCriterionName('');
+                        setFormViolationCount(1);
+                        setPointMagnitude(0);
+                        setEvaluationStatus(null);
+                        setLevel('Vừa');
+                      }
+                    }
                   }}
                   className="w-full px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800"
                 >
@@ -606,9 +654,13 @@ export default function RecordModal({
             <div>
               <label className="block text-xs font-extrabold text-blue-950 uppercase tracking-wider mb-2 flex items-center justify-between">
                 <span>DANH SÁCH TIÊU CHÍ NỀN NẾP ({filteredCriteria.length})</span>
-                {currentCriterion && (
+                {currentCriterion ? (
                   <span className="text-[11px] font-bold text-blue-600">
                     Đã chọn: [{currentCriterion.code}] {currentCriterion.name}
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold text-slate-400">
+                    Đã chọn: Chưa chọn tiêu chí
                   </span>
                 )}
               </label>
@@ -796,6 +848,54 @@ export default function RecordModal({
                 </div>
               </div>
             ) : (
+              <div className="space-y-3">
+                {pointType === 'minus' && !isEvaluationGroup && (
+                  <div className="bg-blue-50/90 border-2 border-blue-300 rounded-2xl p-4 space-y-3 shadow-2xs mb-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] font-black text-blue-800 uppercase tracking-wider block">TIÊU CHÍ & SỐ LẦN MẮC LỖI</span>
+                        <strong className="text-sm font-black text-blue-950">
+                          {currentCriterion ? `[${currentCriterion.code}] ${currentCriterion.name}` : (customCriterionName || 'Nội dung tùy chỉnh')}
+                        </strong>
+                      </div>
+                      <span className="text-xs font-bold text-rose-700 bg-rose-100 px-3 py-1 rounded-xl border border-rose-300">
+                        Điểm trừ mỗi lần: -{pointMagnitude} điểm/lần
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-blue-200/80 items-center">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center">
+                          <span>SỐ LẦN MẮC LỖI:</span>
+                          {previousViolationCount > 0 && (
+                            <span className="text-[11px] text-slate-500 font-normal ml-1.5">
+                              (Đã có {previousViolationCount} lần vi phạm trước đó)
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={formViolationCount}
+                          onChange={(e) => setFormViolationCount(Math.max(1, Number(e.target.value)))}
+                          className="w-full px-3 py-2 text-xs font-black border border-blue-300 rounded-xl bg-white text-blue-950 outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          TỔNG ĐIỂM TRỪ (Tự động tính):
+                        </label>
+                        <div className="px-3 py-2 text-sm font-black border border-rose-300 rounded-xl bg-rose-50 text-rose-800 flex items-center justify-between">
+                          <span>Tổng cộng:</span>
+                          <span className="font-mono text-base">-{formViolationCount * pointMagnitude} điểm</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1 border-t border-slate-100">
                 {/* Điểm */}
                 <div className="sm:col-span-4">
@@ -810,7 +910,7 @@ export default function RecordModal({
                     </span>
                     <input
                       type="number"
-                      min="1"
+                      min="0"
                       max="100"
                       value={pointMagnitude}
                       onChange={(e) => setPointMagnitude(Math.abs(Number(e.target.value)))}
@@ -857,6 +957,7 @@ export default function RecordModal({
                     ))}
                   </div>
                 </div>
+              </div>
               </div>
             )}
 
@@ -906,27 +1007,41 @@ export default function RecordModal({
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="p-2.5 min-w-[130px]">Nhóm danh mục</th>
-                    <th className="p-2.5 min-w-[180px]">Tiêu chí / Nội dung</th>
-                    <th className="p-2.5 w-24 text-center">Điểm trừ</th>
+                    <th className="p-2.5 min-w-[120px]">Nhóm danh mục</th>
+                    <th className="p-2.5 min-w-[170px]">Tiêu chí / Nội dung</th>
+                    <th className="p-2.5 w-16 text-center">Số lần</th>
+                    <th className="p-2.5 w-20 text-center">Điểm/lần</th>
+                    <th className="p-2.5 w-24 text-center">Tổng điểm trừ</th>
                     <th className="p-2.5 w-28 text-center">Kết quả</th>
                     <th className="p-2.5 w-20 text-center">Mức độ</th>
                     <th className="p-2.5 w-24 text-center">Ngày</th>
-                    <th className="p-2.5 min-w-[130px]">Địa điểm & Ghi chú</th>
+                    <th className="p-2.5 min-w-[120px]">Địa điểm & Ghi chú</th>
                     <th className="p-2.5 w-24 text-center">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {currentStudentHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-slate-400">
+                      <td colSpan={10} className="p-6 text-center text-slate-400">
                         Học sinh {currentStudent?.name} chưa có bản ghi nền nếp / vi phạm nào.
                       </td>
                     </tr>
                   ) : (
                     currentStudentHistory.map((rec) => {
-                      const isMinus = (rec.point || 0) < 0;
+                      const isPlus = rec.pointType === 'plus' || rec.recordType === 'TICH_CUC';
                       const isDatChuaDat = isDatChuaDatCategory(rec.categoryId, rec.categoryName) || Boolean(rec.evaluationStatus);
+
+                      const critHistoryCount = currentStudentHistory.filter(item => 
+                        (rec.criterionId && item.criterionId === rec.criterionId) || 
+                        (!rec.criterionId && item.criterionName === rec.criterionName)
+                      ).length;
+                      const recCount = rec.violationCount || critHistoryCount || 1;
+                      const recDeductionPerOcc = isDatChuaDat ? 0 : Math.abs(
+                        rec.deductionPerOccurrence !== undefined && rec.deductionPerOccurrence !== null
+                          ? Number(rec.deductionPerOccurrence)
+                          : (rec.point !== undefined && rec.point !== null ? Number(rec.point) : 0)
+                      );
+                      const recTotalDed = isDatChuaDat ? 0 : (rec.totalDeduction !== undefined ? Math.abs(Number(rec.totalDeduction)) : (recCount * recDeductionPerOcc));
 
                       return (
                         <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
@@ -943,18 +1058,24 @@ export default function RecordModal({
                               )}
                             </div>
                           </td>
+                          <td className="p-2.5 text-center font-bold text-blue-900">
+                            {isDatChuaDat || isPlus ? '—' : `${recCount} lần`}
+                          </td>
+                          <td className="p-2.5 text-center font-bold text-slate-700">
+                            {isDatChuaDat || isPlus ? '—' : `-${recDeductionPerOcc}đ`}
+                          </td>
                           <td className="p-2.5 text-center">
                             {isDatChuaDat ? (
                               <span className="font-bold px-2 py-0.5 rounded text-[11px] bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap" title="Không áp dụng điểm trừ">
-                                0 (Không trừ điểm)
+                                0đ
+                              </span>
+                            ) : isPlus ? (
+                              <span className="font-bold px-2 py-0.5 rounded text-[11px] bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                                +{Math.abs(rec.point || 0)}đ
                               </span>
                             ) : (
-                              <span className={`font-bold px-2 py-0.5 rounded text-[11px] border whitespace-nowrap ${
-                                isMinus
-                                  ? 'bg-rose-100 text-rose-800 border-rose-300'
-                                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                              }`}>
-                                {rec.point > 0 ? `+${rec.point}` : rec.point} điểm
+                              <span className="font-bold px-2 py-0.5 rounded text-[11px] bg-rose-100 text-rose-800 border border-rose-300 whitespace-nowrap">
+                                -{recTotalDed}đ
                               </span>
                             )}
                           </td>
