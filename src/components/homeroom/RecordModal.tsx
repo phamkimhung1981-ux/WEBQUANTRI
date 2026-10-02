@@ -30,7 +30,7 @@ import {
 } from '../../types/homeroom';
 import { useAuth } from '../../store/AuthContext';
 import { getDefaultDateForMonthAndWeek, getMonthNumberFromLabel } from '../../utils/schoolWeekUtils';
-import { DEFAULT_CONDUCT_CATEGORIES, DEFAULT_CONDUCT_CRITERIA, DEFAULT_SERIOUS_VIOLATION_CONFIGS, isSpecialWarningCategory, isDatChuaDatCategory, getCriterionDeduction } from '../../lib/homeroomData';
+import { DEFAULT_CONDUCT_CATEGORIES, DEFAULT_CONDUCT_CRITERIA, DEFAULT_SERIOUS_VIOLATION_CONFIGS, isSpecialWarningCategory, isDatChuaDatCategory, getCriterionDeduction, isPassFailCriterion } from '../../lib/homeroomData';
 
 interface RecordModalProps {
   isOpen: boolean;
@@ -137,11 +137,11 @@ export default function RecordModal({
   const currentCriterion = activeCriteria.find(c => c.id === selectedCriterionId);
   const critCatObj = currentCriterion ? activeCategories.find(c => c.id === currentCriterion.categoryId) : null;
 
-  // Determine if the current selection is one of the 6 "ĐẠT / CHƯA ĐẠT" categories
+  // Determine if the current selection is one of the 6 "ĐẠT / CHƯA ĐẠT" categories or a pass-fail criterion
   const isEvaluationGroup = useMemo(() => {
-    // If a criterion is selected, check its category first
+    // If a criterion is selected, check if it's pass-fail or in a dat/chua_dat category
     if (currentCriterion) {
-      if (isDatChuaDatCategory(currentCriterion.categoryId, currentCriterion.categoryName || critCatObj?.name)) {
+      if (isPassFailCriterion(currentCriterion) || isDatChuaDatCategory(currentCriterion.categoryId, currentCriterion.categoryName || critCatObj?.name, currentCriterion)) {
         return true;
       }
     }
@@ -221,8 +221,8 @@ export default function RecordModal({
     setSelectedCriterionId(crit.id);
     setCustomCriterionName('');
 
-    // 2. Check if category belongs to the 6 "ĐẠT / CHƯA ĐẠT" categories
-    const isCatDatChuaDat = isDatChuaDatCategory(crit.categoryId, crit.categoryName);
+    // 2. Check if category belongs to the 6 "ĐẠT / CHƯA ĐẠT" categories or pass-fail criterion
+    const isCatDatChuaDat = isPassFailCriterion(crit) || isDatChuaDatCategory(crit.categoryId, crit.categoryName, crit);
 
     // 3. Extract exact deduction for this criterion (no hardcoded fallback)
     const rawDeduction = getCriterionDeduction(crit);
@@ -674,7 +674,7 @@ export default function RecordModal({
                   filteredCriteria.map((crit) => {
                     const isSelected = selectedCriterionId === crit.id;
                     const isMinus = crit.pointType === 'minus';
-                    const isCritDatCĐ = isDatChuaDatCategory(crit.categoryId, crit.categoryName);
+                    const isCritDatCĐ = isDatChuaDatCategory(crit.categoryId, crit.categoryName, crit) || isPassFailCriterion(crit);
 
                     return (
                       <button
@@ -711,7 +711,7 @@ export default function RecordModal({
                             : 'bg-emerald-100 text-emerald-800 border-emerald-300'
                         }`}>
                           {isCritDatCĐ
-                            ? 'Đạt / CĐ (0đ)'
+                            ? '[ĐẠT/CHƯA ĐẠT]'
                             : crit.defaultPoint > 0 ? `+${crit.defaultPoint}` : `${crit.defaultPoint}đ`}
                         </span>
                       </button>

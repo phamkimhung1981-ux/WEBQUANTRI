@@ -289,7 +289,19 @@ export const DAT_CHUA_DAT_CATEGORIES: DatChuaDatCategoryConfig[] = [
  * 5. AN TOÀN GIAO THÔNG
  * 6. VĂN HÓA – NỘI DUNG KHÔNG PHÙ HỢP
  */
-export function isDatChuaDatCategory(categoryIdOrName?: string, categoryCode?: string): boolean {
+export function isPassFailCriterion(crit?: ConductCriterion | null): boolean {
+  if (!crit) return false;
+  if (crit.evaluationType === 'PASS_FAIL') return true;
+  if (crit.id === 'crit_12' || crit.code === 'TC12') return true;
+  if (crit.name && crit.name.toLowerCase().includes('sử dụng điện thoại')) return true;
+  return false;
+}
+
+export function isDatChuaDatCategory(categoryIdOrName?: string, categoryCode?: string, criterion?: ConductCriterion | null): boolean {
+  if (criterion && isPassFailCriterion(criterion)) {
+    return true;
+  }
+  if (categoryIdOrName === 'crit_12' || categoryIdOrName === 'TC12') return true;
   if (!categoryIdOrName && !categoryCode) return false;
   
   const idOrName = (categoryIdOrName || '').trim();
@@ -372,8 +384,13 @@ export function evaluateStudent6Groups(records: ConductRecord[]): GroupEvaluatio
     };
   }
 
-  // Filter records belonging to the 6 "ĐẠT / CHƯA ĐẠT" evaluation groups
-  const evalRecords = records.filter(r => isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus));
+  // Filter records belonging to the evaluation groups or pass-fail criteria (like TC12)
+  const evalRecords = records.filter(r => 
+    isDatChuaDatCategory(r.categoryId, r.categoryName) || 
+    r.criterionId === 'crit_12' || 
+    r.criterionName?.toLowerCase().includes('điện thoại') ||
+    Boolean(r.evaluationStatus)
+  );
 
   if (evalRecords.length === 0) {
     return {
@@ -651,8 +668,9 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
     name: 'Sử dụng điện thoại di động, các thiết bị khác khi đang học tập trên lớp không phục vụ cho việc học tập và không được giáo viên cho phép',
     description: 'Chơi game, lướt mạng, xem video trong giờ học',
     pointType: 'minus',
-    defaultPoint: -5,
-    deductionPerOccurrence: -5,
+    defaultPoint: 0,
+    deductionPerOccurrence: 0,
+    evaluationType: 'PASS_FAIL',
     severity: 'Vừa',
     status: 'active',
     sortOrder: 12
@@ -730,7 +748,7 @@ export const DEFAULT_CONDUCT_CRITERIA: ConductCriterion[] = [
  */
 export function getCriterionDeduction(crit?: ConductCriterion | null): number {
   if (!crit) return 0;
-  if (isDatChuaDatCategory(crit.categoryId, crit.categoryName)) {
+  if (isPassFailCriterion(crit) || isDatChuaDatCategory(crit.categoryId, crit.categoryName, crit)) {
     return 0;
   }
   if (crit.deductionPerOccurrence !== undefined && crit.deductionPerOccurrence !== null && !isNaN(Number(crit.deductionPerOccurrence))) {

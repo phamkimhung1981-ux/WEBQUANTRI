@@ -83,6 +83,7 @@ export interface ConductCriterion {
   pointType: PointType;
   defaultPoint: number;
   deductionPerOccurrence?: number;
+  evaluationType?: 'POINT_DEDUCTION' | 'PASS_FAIL';
   severity?: ViolationSeverity;
   status: 'active' | 'inactive';
   sortOrder: number;
