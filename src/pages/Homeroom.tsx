@@ -50,6 +50,9 @@ import {
   TeacherAssessmentCompletion
 } from '../types/homeroom';
 import { homeroomService } from '../services/homeroomService';
+import { youthDisciplineService } from '../services/youthDisciplineService';
+import { studentViolationService, StudentViolationSummary } from '../services/studentViolationService';
+import { YouthViolationRecord, YouthDisciplineCriterion } from '../types/youthDiscipline';
 import {
   calculateConductScore,
   evaluateStudentConductRules,
@@ -100,6 +103,22 @@ export default function Homeroom() {
   const [criteria, setCriteria] = useState<ConductCriterion[]>([]);
   const [records, setRecords] = useState<ConductRecord[]>([]);
   const [evaluations, setEvaluations] = useState<ConductEvaluation[]>([]);
+
+  // Youth Discipline Violations (Single Source of Truth)
+  const [youthViolations, setYouthViolations] = useState<YouthViolationRecord[]>([]);
+
+  // Student Violation Details Modal State
+  const [selectedStudentForViolationsModal, setSelectedStudentForViolationsModal] = useState<{ student: Student; summary: StudentViolationSummary } | null>(null);
+  const [isStudentViolationsModalOpen, setIsStudentViolationsModalOpen] = useState<boolean>(false);
+
+  // Record Violation Modal for Homeroom
+  const [selectedStudentForNewViolation, setSelectedStudentForNewViolation] = useState<Student | null>(null);
+  const [isRecordViolationModalOpen, setIsRecordViolationModalOpen] = useState<boolean>(false);
+  const [youthCriteriaList, setYouthCriteriaList] = useState<YouthDisciplineCriterion[]>([]);
+  const [selectedCriterionIdForNewVio, setSelectedCriterionIdForNewVio] = useState<string>('');
+  const [formNewVioMinusPoints, setFormNewVioMinusPoints] = useState<number>(2);
+  const [formNewVioContent, setFormNewVioContent] = useState<string>('');
+  const [formNewVioDate, setFormNewVioDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [teacherAssessments, setTeacherAssessments] = useState<TeacherAssessment[]>([]);
   const [assessmentCompletions, setAssessmentCompletions] = useState<TeacherAssessmentCompletion[]>([]);
   const [showReportCompletionModal, setShowReportCompletionModal] = useState(false);
@@ -250,6 +269,20 @@ export default function Homeroom() {
       unsubHistory();
     };
   }, []);
+
+  // Load Youth Discipline Violations (Single Source of Truth)
+  const loadYouthViolations = async () => {
+    try {
+      const list = await youthDisciplineService.getViolations({ schoolYear: selectedSchoolYear });
+      setYouthViolations(list);
+    } catch (e) {
+      console.warn('Error loading youth violations:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadYouthViolations();
+  }, [selectedSchoolYear]);
 
   // Set default class once loaded (restore from localStorage if valid)
   useEffect(() => {
@@ -564,56 +597,34 @@ export default function Homeroom() {
     return activeRatingTiers.find(t => t.name.trim().toLowerCase() === 'tốt') || activeRatingTiers[0] || DEFAULT_RATING_TIERS[0];
   }, [activeRatingTiers]);
 
-  // Class student scores & ratings dynamically evaluated from active configuration (Requirements 6 & 7)
+  // Class student scores & ratings dynamically evaluated from single source of truth (youthViolations via studentViolationService)
   const classStudentScores = useMemo(() => {
-    const map = new Map<string, { totalScore: number; classification: string; badgeStyle: string; totalPlus: number; totalMinus: number; hasSpecialWarning: boolean }>();
+    const map = new Map<string, { totalScore: number; classification: string; badgeStyle: string; totalPlus: number; totalMinus: number; hasSpecialWarning: boolean; violationCount: number; violations: YouthViolationRecord[] }>();
 
     classStudents.forEach(st => {
-      const stRecords = classRecords.filter(r => {
-        if (r.studentId !== st.id) return false;
-        if (studentTableScope === 'year') return true;
-        const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
-        if (rMonth !== selMonthNum) return false;
-        if (studentTableScope === 'week') return Number(r.weekNumber) === Number(selectedWeek);
-        return true;
-      });
-
-      const hasSpecialWarning = checkStudentHasSpecialWarning(stRecords);
-      let totalPlus = 0;
-      let totalMinus = 0;
-      stRecords.forEach(r => {
-        if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-        // Do not deduct or add points for the 6 evaluation groups
-        if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-        if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
-        else totalMinus += Math.abs(r.point);
-      });
-
-      // Evaluate the 6 "ĐẠT / CHƯA ĐẠT" categories
-      const evalResult = evaluateStudent6Groups(stRecords);
-
-      const { totalScore, classification, ratingResult } = calculateConductScore(
-        settings.baseScore || 100,
-        totalPlus,
-        totalMinus,
-        settings.thresholds,
-        hasSpecialWarning,
-        activeRatingConfig,
-        evalResult
+      const summary = studentViolationService.getStudentViolationSummary(
+        st,
+        youthViolations,
+        selectedSchoolYear,
+        studentTableScope,
+        selectedWeek,
+        selMonthNum
       );
 
       map.set(st.id, {
-        totalScore,
-        classification,
-        badgeStyle: ratingResult.badge_style || getRatingBadgeStyle(ratingResult.color, classification),
-        totalPlus,
-        totalMinus,
-        hasSpecialWarning
+        totalScore: summary.trainingScore,
+        classification: summary.classification,
+        badgeStyle: summary.badgeStyle || getRatingBadgeStyle(summary.classificationColor, summary.classification),
+        totalPlus: 0,
+        totalMinus: summary.totalDeduction,
+        hasSpecialWarning: false,
+        violationCount: summary.violationCount,
+        violations: summary.violations
       });
     });
 
     return map;
-  }, [classStudents, classRecords, studentTableScope, selMonthNum, selectedWeek, settings, activeRatingConfig]);
+  }, [classStudents, youthViolations, selectedSchoolYear, studentTableScope, selectedWeek, selMonthNum]);
 
   // Dynamic count per tier in current class view (Requirement 7)
   const classRatingCounts = useMemo(() => {
@@ -1859,8 +1870,19 @@ export default function Homeroom() {
                           </button>
                         </td>
                         <td className="p-3.5 text-center text-slate-600">{st.gender}</td>
-                        <td className="p-3.5 text-center font-bold text-rose-600">
-                          {totalMinus > 0 ? `-${totalMinus}` : '0'}
+                        <td className="p-3.5 text-center font-bold">
+                          {totalMinus > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => handleViewStudentViolations(st)}
+                              className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 font-black rounded-lg text-xs cursor-pointer transition-transform hover:scale-105 inline-flex items-center gap-1 shadow-2xs"
+                              title={`Xem chi tiết vi phạm của ${st.full_name || st.name}`}
+                            >
+                              <span>-{totalMinus} đ</span>
+                            </button>
+                          ) : (
+                            <span className="font-bold text-slate-400">0</span>
+                          )}
                         </td>
                         <td className="p-3.5 text-center">
                           <span className="text-base font-black text-blue-800">{totalScore}</span>
@@ -1873,7 +1895,7 @@ export default function Homeroom() {
                         <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
                           <button
                             onClick={() => handleOpenProfile(st)}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer"
                           >
                             Hồ sơ
                           </button>
@@ -1901,10 +1923,9 @@ export default function Homeroom() {
                           ) : null}
 
                           <button
-                            onClick={() => {
-                              handleOpenRecordForStudent(st.id);
-                            }}
-                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg text-xs cursor-pointer"
+                            onClick={() => handleOpenRecordViolationModalForStudent(st)}
+                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold rounded-lg text-xs cursor-pointer border border-blue-200 hover:border-blue-300"
+                            title="Thêm vi phạm cho học sinh này"
                           >
                             + Vi phạm
                           </button>
@@ -3120,6 +3141,225 @@ export default function Homeroom() {
         onSaveConfig={handleSaveRatingConfig}
         onRestoreDefault={handleRestoreDefaultRatingConfig}
       />
+
+      {/* MODAL 1: CHI TIẾT VI PHẠM CỦA HỌC SINH */}
+      {isStudentViolationsModalOpen && selectedStudentForViolationsModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-black text-base sm:text-lg flex items-center gap-2">
+                  <ShieldAlert size={20} />
+                  <span>CHI TIẾT VI PHẠM CỦA HỌC SINH – {selectedStudentForViolationsModal.student.fullName || selectedStudentForViolationsModal.student.name}</span>
+                </h3>
+                <p className="text-xs text-rose-100 font-bold mt-0.5">
+                  Lớp: {selectedStudentForViolationsModal.student.className || selectedClass?.name} • Mã HS: {selectedStudentForViolationsModal.student.code || '—'} • Số lần vi phạm: {selectedStudentForViolationsModal.summary.violationCount} • Tổng điểm trừ: -{selectedStudentForViolationsModal.summary.totalDeduction} đ
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStudentViolationsModalOpen(false)}
+                className="p-1.5 text-white/80 hover:text-white rounded-xl transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content Table */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs flex-1">
+              {selectedStudentForViolationsModal.summary.violations.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 italic space-y-2">
+                  <CheckCircle2 size={36} className="mx-auto text-emerald-500" />
+                  <p className="font-bold text-slate-700">Học sinh không có vi phạm nào trong phạm vi được chọn.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-xs">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase border-b border-slate-200 divide-x divide-slate-200">
+                        <th className="py-3 px-3 text-center w-12">STT</th>
+                        <th className="py-3 px-3.5">NGÀY VI PHẠM</th>
+                        <th className="py-3 px-3 text-center">TUẦN</th>
+                        <th className="py-3 px-3.5">TIÊU CHÍ VI PHẠM</th>
+                        <th className="py-3 px-4">NỘI DUNG VI PHẠM</th>
+                        <th className="py-3 px-3 text-center">ĐIỂM TRỪ</th>
+                        <th className="py-3 px-3.5">NGƯỜI GHI NHẬN</th>
+                        <th className="py-3 px-3 text-center">TRẠNG THÁI</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {selectedStudentForViolationsModal.summary.violations.map((v, idx) => (
+                        <tr key={v.id} className="hover:bg-rose-50/40 transition-colors divide-x divide-slate-200">
+                          <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                          <td className="py-3 px-3.5 font-extrabold text-slate-900">
+                            <div>{v.violationDate}</div>
+                            <span className="text-[11px] font-normal text-slate-500">
+                              {v.violationTime || ''} {v.periodSlot ? `(${v.periodSlot})` : ''}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center font-bold text-blue-900">Tuần {v.weekNumber}</td>
+                          <td className="py-3 px-3.5 font-bold text-slate-900">{v.criterionName}</td>
+                          <td className="py-3 px-4 text-slate-700">{v.content || v.criterionName}</td>
+                          <td className="py-3 px-3 text-center font-black text-rose-600 text-sm">
+                            -{v.minusPoints} đ
+                          </td>
+                          <td className="py-3 px-3.5">
+                            <div className="font-bold text-slate-800">{v.recordedByName}</div>
+                            <span className="text-[10px] text-slate-500">{v.recordedByRole}</span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {v.status === 'DA_XAC_NHAN' ? (
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full font-extrabold text-[10px] inline-block">
+                                ✓ Đã xác nhận
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-full font-extrabold text-[10px] inline-block">
+                                ⏳ Chờ xác nhận
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs flex-shrink-0">
+              <span className="font-bold text-slate-600">
+                Tổng cộng {selectedStudentForViolationsModal.summary.violationCount} lần vi phạm • Tổng điểm bị trừ: <span className="text-rose-600 font-black">-{selectedStudentForViolationsModal.summary.totalDeduction} đ</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsStudentViolationsModalOpen(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: GHI NHẬN VI PHẠM CHO HỌC SINH TỪ CÔNG TÁC CHỦ NHIỆM */}
+      {isRecordViolationModalOpen && selectedStudentForNewViolation && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-700 to-indigo-800 text-white flex items-center justify-between">
+              <h3 className="font-black text-base flex items-center gap-2">
+                <PlusCircle size={18} />
+                <span>GHI NHẬN VI PHẠM HỌC SINH</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsRecordViolationModalOpen(false)}
+                className="p-1 text-white/80 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveNewViolationFromHomeroom} className="p-6 space-y-4 text-xs">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1">
+                <p className="font-black text-blue-900 text-sm">{selectedStudentForNewViolation.fullName || selectedStudentForNewViolation.name}</p>
+                <p className="text-slate-600">
+                  Mã HS: <strong className="font-bold">{selectedStudentForNewViolation.code || '—'}</strong> • Lớp: <strong className="font-bold">{selectedClass?.name}</strong>
+                </p>
+              </div>
+
+              <div>
+                <label className="font-extrabold text-slate-800 block mb-1">
+                  Chọn tiêu chí vi phạm <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={selectedCriterionIdForNewVio}
+                  onChange={e => {
+                    const cId = e.target.value;
+                    setSelectedCriterionIdForNewVio(cId);
+                    const matched = youthCriteriaList.find(c => c.id === cId);
+                    if (matched) {
+                      setFormNewVioMinusPoints(matched.minusPoints || 2);
+                      setFormNewVioContent(matched.name);
+                    }
+                  }}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:border-blue-500"
+                  required
+                >
+                  {youthCriteriaList.map(crit => (
+                    <option key={crit.id} value={crit.id}>
+                      {crit.name} (-{crit.minusPoints}đ)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-extrabold text-slate-800 block mb-1">
+                    Ngày vi phạm <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={formNewVioDate}
+                    onChange={e => setFormNewVioDate(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="font-extrabold text-slate-800 block mb-1">
+                    Số điểm trừ <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={formNewVioMinusPoints}
+                    onChange={e => setFormNewVioMinusPoints(Number(e.target.value))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-black text-rose-600 outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-extrabold text-slate-800 block mb-1">
+                  Mô tả / Chi tiết vi phạm
+                </label>
+                <textarea
+                  value={formNewVioContent}
+                  onChange={e => setFormNewVioContent(e.target.value)}
+                  placeholder="Nhập mô tả chi tiết lỗi vi phạm của học sinh..."
+                  rows={3}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsRecordViolationModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <PlusCircle size={15} />
+                  <span>Ghi nhận vi phạm</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

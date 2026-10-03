@@ -167,6 +167,17 @@ export interface YouthClassificationConfig {
   updatedBy?: string;
 }
 
+export interface StudentWithViolationsSummary {
+  studentId: string;
+  studentName: string;
+  studentCode?: string;
+  classId: string;
+  className: string;
+  violationCount: number;
+  totalDeduction: number;
+  violations: YouthViolationRecord[];
+}
+
 export interface ClassDisciplineSummary {
   classId: string;
   className: string;

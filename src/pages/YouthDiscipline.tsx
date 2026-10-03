@@ -54,10 +54,13 @@ import {
   ClassDisciplineSummary,
   ViolationStatus,
   QuickCheckStatus,
-  ViolationSeverity
+  ViolationSeverity,
+  YouthClassificationConfig,
+  StudentWithViolationsSummary
 } from '../types/youthDiscipline';
 import { youthDisciplineService } from '../services/youthDisciplineService';
 import { homeroomService } from '../services/homeroomService';
+import { classificationService } from '../services/classificationService';
 import {
   YOUTH_DISCIPLINE_CATEGORIES,
   DEFAULT_YOUTH_CRITERIA,
@@ -109,6 +112,19 @@ export default function YouthDisciplinePage() {
   const [auditLogs, setAuditLogs] = useState<YouthAuditLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Classification Configurations State
+  const [classifications, setClassifications] = useState<YouthClassificationConfig[]>([]);
+  const [isClassifModalOpen, setIsClassifModalOpen] = useState<boolean>(false);
+  const [editingClassif, setEditingClassif] = useState<YouthClassificationConfig | null>(null);
+
+  // Classification Form state
+  const [formClassifName, setFormClassifName] = useState<string>('');
+  const [formClassifMinScore, setFormClassifMinScore] = useState<number>(90);
+  const [formClassifMaxScore, setFormClassifMaxScore] = useState<number>(100);
+  const [formClassifColor, setFormClassifColor] = useState<string>('#10B981');
+  const [formClassifSortOrder, setFormClassifSortOrder] = useState<number>(1);
+  const [formClassifActive, setFormClassifActive] = useState<boolean>(true);
+  const [classifError, setClassifError] = useState<string | null>(null);
 
   // Modals State
   const [isViolationModalOpen, setIsViolationModalOpen] = useState<boolean>(false);
@@ -122,6 +138,19 @@ export default function YouthDisciplinePage() {
 
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState<boolean>(false);
   const [unlockReason, setUnlockReason] = useState<string>('');
+
+  // Weekly Locks Map & Modal State
+  const [allWeeklyLocks, setAllWeeklyLocks] = useState<Record<number, YouthWeeklyLockRecord>>({});
+  const [isWeekLockModalOpen, setIsWeekLockModalOpen] = useState<boolean>(false);
+  const [targetLockWeekNumber, setTargetLockWeekNumber] = useState<number>(1);
+
+  // Student Violations List Modal State
+  const [selectedClassForStudentList, setSelectedClassForStudentList] = useState<{ classId: string; className: string } | null>(null);
+  const [isClassStudentsModalOpen, setIsClassStudentsModalOpen] = useState<boolean>(false);
+
+  // Individual Student Violation Details Modal State
+  const [selectedStudentForViolationDetail, setSelectedStudentForViolationDetail] = useState<StudentWithViolationsSummary | null>(null);
+  const [isStudentDetailModalOpen, setIsStudentDetailModalOpen] = useState<boolean>(false);
 
   // Selected violations for batch delete & clear scope
   const [selectedViolationIds, setSelectedViolationIds] = useState<string[]>([]);
@@ -205,6 +234,11 @@ export default function YouthDisciplinePage() {
       setLoading(true);
       await youthDisciplineService.seedIfEmpty();
       await homeroomService.seedIfEmpty();
+      await classificationService.seedIfEmpty(selectedYear);
+
+      // Load classifications
+      const classifList = await classificationService.getClassifications(selectedYear, true);
+      setClassifications(classifList);
 
       // Load classes and students
       const clsList = await homeroomService.getClasses();
@@ -230,9 +264,17 @@ export default function YouthDisciplinePage() {
       });
       setViolations(vioList);
 
-      // Load weekly lock record
-      const lk = await youthDisciplineService.getWeeklyLock(selectedYear, selectedWeek);
+      // Load weekly lock record for active week
+      const activeWeekForLock = selectedWeek > 0 ? selectedWeek : 1;
+      const lk = await youthDisciplineService.getWeeklyLock(selectedYear, activeWeekForLock);
       setWeeklyLock(lk);
+
+      // Load locks map for all 37 weeks
+      const locksMap: Record<number, YouthWeeklyLockRecord> = {};
+      for (let w = 1; w <= 37; w++) {
+        locksMap[w] = await youthDisciplineService.getWeeklyLock(selectedYear, w);
+      }
+      setAllWeeklyLocks(locksMap);
 
       // Load audit logs
       const logs = await youthDisciplineService.getAuditLogs(30);
@@ -250,7 +292,135 @@ export default function YouthDisciplinePage() {
     }
   };
 
-  // Filtered students according to selected class in Modal
+  // Range validation for classifications
+  const rangeValidation = useMemo(() => {
+    return classificationService.validateClassificationRanges(classifications);
+  }, [classifications]);
+
+  // Classification Handlers
+  const handleOpenNewClassifModal = () => {
+    setEditingClassif(null);
+    setFormClassifName('');
+    setFormClassifMinScore(90);
+    setFormClassifMaxScore(100);
+    setFormClassifColor('#10B981');
+    setFormClassifSortOrder(classifications.length + 1);
+    setFormClassifActive(true);
+    setClassifError(null);
+    setIsClassifModalOpen(true);
+  };
+
+  const handleOpenEditClassifModal = (item: YouthClassificationConfig) => {
+    setEditingClassif(item);
+    setFormClassifName(item.name);
+    setFormClassifMinScore(item.minScore);
+    setFormClassifMaxScore(item.maxScore);
+    setFormClassifColor(item.color || '#3B82F6');
+    setFormClassifSortOrder(item.sortOrder || 1);
+    setFormClassifActive(item.active !== false);
+    setClassifError(null);
+    setIsClassifModalOpen(true);
+  };
+
+  const handleSaveClassif = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formClassifName.trim()) {
+      setClassifError('Vui lòng nhập tên mức xếp loại.');
+      return;
+    }
+    if (formClassifMinScore < 0 || formClassifMaxScore > 100) {
+      setClassifError('Điểm phải nằm trong khoảng từ 0 đến 100.');
+      return;
+    }
+    if (formClassifMinScore > formClassifMaxScore) {
+      setClassifError('Điểm tối thiểu không được lớn hơn điểm tối đa.');
+      return;
+    }
+
+    // Check overlap with other active items
+    const otherActive = classifications.filter(c => c.active !== false && (!editingClassif || c.id !== editingClassif.id));
+    for (const other of otherActive) {
+      if (Math.max(formClassifMinScore, other.minScore) <= Math.min(formClassifMaxScore, other.maxScore)) {
+        setClassifError(`Khoảng điểm (${formClassifMinScore}–${formClassifMaxScore}) đang bị chồng lấn với mức "${other.name}" (${other.minScore}–${other.maxScore}).`);
+        return;
+      }
+    }
+
+    try {
+      if (editingClassif) {
+        await classificationService.updateClassification(
+          editingClassif.id,
+          {
+            name: formClassifName.trim(),
+            minScore: Number(formClassifMinScore),
+            maxScore: Number(formClassifMaxScore),
+            color: formClassifColor,
+            sortOrder: Number(formClassifSortOrder),
+            active: formClassifActive,
+            academicYear: selectedYear
+          },
+          user?.name || 'Bí thư Đoàn',
+          effectiveRole
+        );
+        showToast(`Đã cập nhật mức xếp loại "${formClassifName.trim()}"!`);
+      } else {
+        await classificationService.createClassification(
+          {
+            academicYear: selectedYear,
+            name: formClassifName.trim(),
+            minScore: Number(formClassifMinScore),
+            maxScore: Number(formClassifMaxScore),
+            color: formClassifColor,
+            sortOrder: Number(formClassifSortOrder),
+            active: formClassifActive
+          },
+          user?.name || 'Bí thư Đoàn',
+          effectiveRole
+        );
+        showToast(`Đã thêm mức xếp loại mới "${formClassifName.trim()}"!`);
+      }
+
+      setIsClassifModalOpen(false);
+      const updated = await classificationService.getClassifications(selectedYear, true);
+      setClassifications(updated);
+      await loadAllData();
+    } catch (err) {
+      console.error(err);
+      setClassifError('Lỗi khi lưu cấu hình điểm xếp loại.');
+    }
+  };
+
+  const handleToggleDeactivateClassif = async (item: YouthClassificationConfig) => {
+    try {
+      if (item.active !== false) {
+        await classificationService.deactivateClassification(item.id, user?.name || 'Bí thư Đoàn', effectiveRole);
+        showToast(`Đã chuyển mức "${item.name}" sang trạng thái Ngừng sử dụng.`);
+      } else {
+        await classificationService.restoreClassification(item.id, user?.name || 'Bí thư Đoàn', effectiveRole);
+        showToast(`Đã khôi phục hoạt động mức xếp loại "${item.name}".`);
+      }
+      const updated = await classificationService.getClassifications(selectedYear, true);
+      setClassifications(updated);
+      await loadAllData();
+    } catch (err) {
+      console.error(err);
+      showToast('Có lỗi xảy ra khi cập nhật trạng thái.');
+    }
+  };
+
+  const handleRestoreDefaultClassifs = async () => {
+    if (!window.confirm(`Bạn có chắc chắn muốn khôi phục cấu hình điểm xếp loại mặc định cho năm học ${selectedYear}?`)) return;
+    try {
+      await classificationService.restoreDefaults(selectedYear, user?.name || 'Bí thư Đoàn', effectiveRole);
+      const updated = await classificationService.getClassifications(selectedYear, true);
+      setClassifications(updated);
+      await loadAllData();
+      showToast('Đã khôi phục cấu hình điểm xếp loại mặc định!');
+    } catch (err) {
+      console.error(err);
+      showToast('Có lỗi xảy ra khi khôi phục mặc định.');
+    }
+  };
   const modalClassStudents = useMemo(() => {
     let list = !formVioClassId ? [] : students.filter(s => s.classId === formVioClassId || s.className === formVioClassId);
     if (editingViolation && editingViolation.studentId && editingViolation.studentId !== 'ALL_CLASS' && !list.some(s => s.id === editingViolation.studentId)) {
@@ -429,9 +599,33 @@ export default function YouthDisciplinePage() {
       violations,
       settings,
       selectedWeek,
-      selectedYear
+      selectedYear,
+      students
     );
-  }, [displayedClasses, violations, settings, selectedWeek, selectedYear]);
+  }, [displayedClasses, violations, settings, selectedWeek, selectedYear, students]);
+
+  // Reactive Student Violations List for selected class
+  const classStudentSummaries = useMemo(() => {
+    if (!selectedClassForStudentList) return [];
+    return youthDisciplineService.getStudentsWithViolationsByClass(
+      violations,
+      students,
+      selectedClassForStudentList.classId,
+      selectedYear,
+      selectedWeek
+    );
+  }, [selectedClassForStudentList, violations, students, selectedYear, selectedWeek]);
+
+  // Handlers for Student List Modals
+  const handleOpenClassStudentsModal = (classId: string, className: string) => {
+    setSelectedClassForStudentList({ classId, className });
+    setIsClassStudentsModalOpen(true);
+  };
+
+  const handleOpenStudentDetailModal = (studentSummary: StudentWithViolationsSummary) => {
+    setSelectedStudentForViolationDetail(studentSummary);
+    setIsStudentDetailModalOpen(true);
+  };
 
   // Dashboard Summary Metrics
   const stats = useMemo(() => {
@@ -978,10 +1172,16 @@ export default function YouthDisciplinePage() {
 
   // Lock / Unlock Week
   const handleToggleLockWeek = async () => {
+    if (selectedWeek === 0) {
+      setTargetLockWeekNumber(1);
+      setIsWeekLockModalOpen(true);
+      return;
+    }
+
     if (weeklyLock.isLocked) {
       setIsUnlockModalOpen(true);
     } else {
-      if (!window.confirm(`Bạn có chắc chắn muốn CHỐT KẾT QUẢ NỀN NẾP TUẦN ${selectedWeek}? Sau khi chốt, dữ liệu sẽ được khóa để đảm bảo tính công bằng.`)) return;
+      if (!window.confirm(`Bạn có chắc chắn muốn CHỐT KẾT QUẢ NỀ NẾP TUẦN ${selectedWeek}? Sau khi chốt, dữ liệu vi phạm của Tuần ${selectedWeek} sẽ được khóa để đảm bảo tính công bằng.`)) return;
       try {
         await youthDisciplineService.lockWeek(
           selectedYear,
@@ -996,10 +1196,53 @@ export default function YouthDisciplinePage() {
           }
         );
         showToast(`Đã chốt kết quả nền nếp Tuần ${selectedWeek} thành công!`);
-        loadAllData();
+        await loadAllData();
       } catch (e: any) {
         alert(e.message || 'Lỗi khi chốt tuần');
       }
+    }
+  };
+
+  const handleLockSpecificWeek = async (wNum: number) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn CHỐT KẾT QUẢ NỀ NẾP TUẦN ${wNum}? Sau khi chốt, dữ liệu vi phạm Tuần ${wNum} sẽ được khóa.`)) return;
+    try {
+      await youthDisciplineService.lockWeek(
+        selectedYear,
+        wNum,
+        user?.id || 'bi_thu_doan',
+        user?.name || 'Bí thư Đoàn trường',
+        effectiveRole
+      );
+      showToast(`Đã chốt kết quả nền nếp Tuần ${wNum} thành công!`);
+      setSelectedWeek(wNum);
+      await loadAllData();
+      setIsWeekLockModalOpen(false);
+    } catch (e: any) {
+      alert(e.message || 'Lỗi khi chốt tuần');
+    }
+  };
+
+  const handleUnlockSpecificWeek = async (wNum: number, reasonStr?: string) => {
+    const r = reasonStr || prompt(`Nhập lý do mở khóa Tuần ${wNum}:`);
+    if (!r || !r.trim()) {
+      if (reasonStr !== undefined) showToast('Vui lòng nhập lý do mở khóa tuần');
+      return;
+    }
+    try {
+      await youthDisciplineService.unlockWeek(
+        selectedYear,
+        wNum,
+        user?.id || 'admin',
+        user?.name || 'Quản trị viên / Bí thư',
+        r.trim(),
+        effectiveRole
+      );
+      showToast(`Đã mở khóa sửa kết quả Tuần ${wNum}!`);
+      setSelectedWeek(wNum);
+      await loadAllData();
+      setIsWeekLockModalOpen(false);
+    } catch (e: any) {
+      alert(e.message || 'Lỗi khi mở khóa tuần');
     }
   };
 
@@ -1156,6 +1399,19 @@ export default function YouthDisciplinePage() {
               <Calendar size={16} />
               <span>Lịch trực Đoàn</span>
             </Link>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('settings_audit');
+                handleOpenNewClassifModal();
+              }}
+              className="px-3.5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-violet-400/40"
+              title="Cấu hình khoảng điểm xếp loại nền nếp học sinh"
+            >
+              <Settings size={16} />
+              <span className="hidden sm:inline">Cấu hình điểm</span>
+            </button>
 
             <button
               type="button"
@@ -1828,18 +2084,28 @@ export default function YouthDisciplinePage() {
                       <span className="font-black text-emerald-700 text-sm">{cls.finalScore} đ</span>
                     </td>
                     <td className="py-3 px-3.5 text-center font-bold text-slate-800">{cls.violationCount}</td>
-                    <td className="py-3 px-3.5 text-center font-bold text-slate-800">{cls.violatingStudentCount}</td>
+                    <td className="py-3 px-3.5 text-center">
+                      {cls.violatingStudentCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenClassStudentsModal(cls.classId, cls.className)}
+                          className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-extrabold text-xs rounded-full shadow-2xs transition-all hover:scale-110 cursor-pointer inline-flex items-center gap-1"
+                          title={`Xem danh sách ${cls.violatingStudentCount} học sinh vi phạm của lớp ${cls.className}`}
+                        >
+                          <span>{cls.violatingStudentCount}</span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 font-medium">0</span>
+                      )}
+                    </td>
                     <td className="py-3 px-3.5 text-center">
                       <span
-                        className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${
-                          cls.classification === 'Tốt'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : cls.classification === 'Khá'
-                            ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                            : cls.classification === 'Đạt'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : 'bg-rose-100 text-rose-800 border border-rose-300'
-                        }`}
+                        className="text-[11px] font-black px-2.5 py-1 rounded-full border inline-block shadow-2xs"
+                        style={{
+                          backgroundColor: `${cls.classificationColor || '#3B82F6'}18`,
+                          color: cls.classificationColor || '#1D4ED8',
+                          borderColor: `${cls.classificationColor || '#3B82F6'}55`
+                        }}
                       >
                         {cls.classification}
                       </span>
@@ -1870,90 +2136,231 @@ export default function YouthDisciplinePage() {
         <Card className="p-5 sm:p-7 bg-white border border-slate-200 rounded-[24px] shadow-sm space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
             <div>
-              <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">
-                TỔNG HỢP NỀN NẾP TUẦN {selectedWeek} ({currentWeekInfo.startDateStr} ➔ {currentWeekInfo.endDateStr})
+              <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight flex items-center gap-2">
+                <span>
+                  {selectedWeek > 0
+                    ? `TỔNG HỢP NỀN NẾP TUẦN ${selectedWeek} (${currentWeekInfo.startDateStr} ➔ ${currentWeekInfo.endDateStr})`
+                    : `DANH SÁCH CHỐT KẾT QUẢ CÁC TUẦN - NĂM HỌC ${selectedYear}`}
+                </span>
               </h3>
               <p className="text-xs sm:text-sm font-semibold text-slate-500 mt-0.5">
-                Bảng chốt điểm thi đua nề nếp toàn trường THPT Sơn Lương
+                {selectedWeek > 0
+                  ? 'Bảng chốt điểm thi đua nề nếp toàn trường THPT Sơn Lương'
+                  : 'Quản lý chốt/mở khóa điểm thi đua nền nếp theo từng tuần học trong năm'}
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700">
+                <span>Chọn tuần:</span>
+                <select
+                  value={selectedWeek}
+                  onChange={e => setSelectedWeek(Number(e.target.value))}
+                  className="bg-white text-slate-900 font-extrabold px-2.5 py-1 rounded-lg border border-slate-300 outline-none cursor-pointer"
+                >
+                  <option value={0}>-- Tất cả các tuần --</option>
+                  {allWeeks.map(w => {
+                    const isL = allWeeklyLocks[w.weekNumber]?.isLocked;
+                    return (
+                      <option key={w.weekNumber} value={w.weekNumber}>
+                        Tuần {w.weekNumber} ({w.startDateStr}) {isL ? '🔒 [Đã chốt]' : '🔓 [Mở]'}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
               {canLockWeek && (
                 <button
                   type="button"
                   onClick={handleToggleLockWeek}
                   className={`px-4 py-2 text-xs sm:text-sm font-black rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer ${
-                    weeklyLock.isLocked
+                    selectedWeek > 0 && weeklyLock.isLocked
                       ? 'bg-rose-600 hover:bg-rose-700 text-white'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                   }`}
                 >
-                  {weeklyLock.isLocked ? <Lock size={16} /> : <Unlock size={16} />}
-                  <span>{weeklyLock.isLocked ? 'Đã khóa tuần (Mở khóa)' : 'Chốt kết quả tuần'}</span>
+                  {selectedWeek > 0 && weeklyLock.isLocked ? <Lock size={16} /> : <Unlock size={16} />}
+                  <span>
+                    {selectedWeek > 0
+                      ? weeklyLock.isLocked
+                        ? `Đã chốt Tuần ${selectedWeek} (Mở khóa)`
+                        : `Chốt kết quả Tuần ${selectedWeek}`
+                      : '⚙️ Quan lý chốt tất cả các tuần'}
+                  </span>
                 </button>
               )}
             </div>
           </div>
 
-          {/* Weekly Status Banner */}
-          <div
-            className={`p-4 rounded-2xl border flex items-center justify-between flex-wrap gap-3 ${
-              weeklyLock.isLocked
-                ? 'bg-rose-50 border-rose-200 text-rose-900'
-                : 'bg-amber-50 border-amber-200 text-amber-900'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              {weeklyLock.isLocked ? <Lock size={20} className="text-rose-600" /> : <Unlock size={20} className="text-amber-600" />}
-              <div>
-                <span className="font-black text-sm block">
-                  {weeklyLock.isLocked
-                    ? `Kết quả Tuần ${selectedWeek} ĐÃ ĐƯỢC CHỐT KHÓA`
-                    : `Tuần ${selectedWeek} đang mở (Chưa chốt)`}
-                </span>
-                <span className="text-xs text-slate-600">
-                  {weeklyLock.isLocked
-                    ? `Chốt bởi ${weeklyLock.lockedByName || 'Bí thư Đoàn'} lúc ${new Date(weeklyLock.lockedAt || '').toLocaleString('vi-VN')}`
-                    : 'Các cán bộ Đoàn và GVCN vẫn có thể cập nhật bản ghi vi phạm.'}
-                </span>
+          {/* If selectedWeek === 0: Show Overview list of all 37 weeks with lock/unlock toggles */}
+          {selectedWeek === 0 ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl border bg-blue-50 border-blue-200 text-blue-900 flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Calendar size={22} className="text-blue-600 flex-shrink-0" />
+                  <div>
+                    <span className="font-black text-sm block">Danh Sách Bảng Chốt Thi Đua Nề Nếp Các Tuần ({selectedYear})</span>
+                    <span className="text-xs text-blue-700">
+                      Chọn một tuần cụ thể bên dưới để xem danh sách xếp hạng chi tiết hoặc thực hiện chốt/mở khóa tuần đó.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-xs">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase border-b border-slate-200 divide-x divide-slate-200">
+                      <th className="py-3 px-3 text-center w-14">TUẦN</th>
+                      <th className="py-3 px-4">THỜI GIAN TUẦN</th>
+                      <th className="py-3 px-4 text-center">TRẠNG THÁI KHÓA</th>
+                      <th className="py-3 px-4">THÔNG TIN CHỐT KẾT QUẢ</th>
+                      <th className="py-3 px-4 text-center w-40">THAO TÁC</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    {allWeeks.slice(0, 37).map(w => {
+                      const lk = allWeeklyLocks[w.weekNumber] || { isLocked: false };
+                      return (
+                        <tr key={w.weekNumber} className="hover:bg-slate-50 transition-colors divide-x divide-slate-200">
+                          <td className="py-3 px-3 text-center font-black text-blue-900">Tuần {w.weekNumber}</td>
+                          <td className="py-3 px-4 font-bold text-slate-800">
+                            {w.startDateStr} ➔ {w.endDateStr}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {lk.isLocked ? (
+                              <span className="px-2.5 py-1 bg-rose-100 text-rose-800 border border-rose-300 rounded-full font-black text-[11px] inline-flex items-center gap-1">
+                                <Lock size={12} /> Đã chốt khóa
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full font-black text-[11px] inline-flex items-center gap-1">
+                                <Unlock size={12} /> Đang mở
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600">
+                            {lk.isLocked ? (
+                              <div>
+                                <span className="font-bold text-slate-800 block">Chốt bởi: {lk.lockedByName || 'Bí thư Đoàn'}</span>
+                                <span className="text-[11px] text-slate-500">
+                                  {lk.lockedAt ? new Date(lk.lockedAt).toLocaleString('vi-VN') : ''}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">Chưa chốt kết quả</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedWeek(w.weekNumber)}
+                                className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg transition-colors cursor-pointer"
+                                title="Xem chi tiết điểm tuần này"
+                              >
+                                Xem
+                              </button>
+
+                              {canLockWeek && (
+                                lk.isLocked ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUnlockSpecificWeek(w.weekNumber)}
+                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg transition-colors cursor-pointer"
+                                    title="Mở khóa kết quả tuần này"
+                                  >
+                                    Mở khóa
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLockSpecificWeek(w.weekNumber)}
+                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                                    title="Chốt kết quả tuần này"
+                                  >
+                                    Chốt tuần
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Weekly Status Banner */}
+              <div
+                className={`p-4 rounded-2xl border flex items-center justify-between flex-wrap gap-3 ${
+                  weeklyLock.isLocked
+                    ? 'bg-rose-50 border-rose-200 text-rose-900'
+                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {weeklyLock.isLocked ? <Lock size={20} className="text-rose-600" /> : <Unlock size={20} className="text-amber-600" />}
+                  <div>
+                    <span className="font-black text-sm block">
+                      {weeklyLock.isLocked
+                        ? `Kết quả Tuần ${selectedWeek} ĐÃ ĐƯỢC CHỐT KHÓA`
+                        : `Tuần ${selectedWeek} đang mở (Chưa chốt)`}
+                    </span>
+                    <span className="text-xs text-slate-600">
+                      {weeklyLock.isLocked
+                        ? `Chốt bởi ${weeklyLock.lockedByName || 'Bí thư Đoàn'} lúc ${new Date(weeklyLock.lockedAt || '').toLocaleString('vi-VN')}`
+                        : 'Các cán bộ Đoàn và GVCN vẫn có thể cập nhật bản ghi vi phạm.'}
+                    </span>
+                  </div>
+                </div>
+              </div>
 
-          {/* Summaries list */}
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full border-collapse text-left text-xs sm:text-sm">
-              <thead>
-                <tr className="bg-slate-100 text-slate-800 font-extrabold text-[11px] uppercase border-b border-slate-200">
-                  <th className="py-3 px-3 text-center">Xếp hạng</th>
-                  <th className="py-3 px-4">Lớp</th>
-                  <th className="py-3 px-4">Giáo viên chủ nhiệm</th>
-                  <th className="py-3 px-3 text-center">Điểm trừ</th>
-                  <th className="py-3 px-4 text-center">Điểm tổng kết</th>
-                  <th className="py-3 px-3 text-center">Xếp loại</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {classSummaries.map(c => (
-                  <tr key={c.classId} className="hover:bg-slate-50">
-                    <td className="py-3 px-3 text-center font-black">#{c.rank}</td>
-                    <td className="py-3 px-4 font-black text-blue-900">{c.className}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-700">
-                      {c.homeroomTeacherName && c.homeroomTeacherName !== '—' && c.homeroomTeacherName !== 'Chưa phân công' ? c.homeroomTeacherName : getHomeroomTeacherName(classes.find(cls => cls.id === c.classId || cls.name === c.className))}
-                    </td>
-                    <td className="py-3 px-3 text-center font-black text-rose-600">-{c.totalMinusPoints} đ</td>
-                    <td className="py-3 px-4 text-center font-black text-emerald-700 text-base">{c.finalScore} đ</td>
-                    <td className="py-3 px-3 text-center">
-                      <span className="font-bold text-xs bg-slate-100 px-2 py-0.5 rounded-md">
-                        {c.classification}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              {/* Summaries list */}
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full border-collapse text-left text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-800 font-extrabold text-[11px] uppercase border-b border-slate-200">
+                      <th className="py-3 px-3 text-center">Xếp hạng</th>
+                      <th className="py-3 px-4">Lớp</th>
+                      <th className="py-3 px-4">Giáo viên chủ nhiệm</th>
+                      <th className="py-3 px-3 text-center">Điểm trừ</th>
+                      <th className="py-3 px-4 text-center">Điểm tổng kết</th>
+                      <th className="py-3 px-3 text-center">Xếp loại</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {classSummaries.map(c => (
+                      <tr key={c.classId} className="hover:bg-slate-50">
+                        <td className="py-3 px-3 text-center font-black">#{c.rank}</td>
+                        <td className="py-3 px-4 font-black text-blue-900">{c.className}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-700">
+                          {c.homeroomTeacherName && c.homeroomTeacherName !== '—' && c.homeroomTeacherName !== 'Chưa phân công' ? c.homeroomTeacherName : getHomeroomTeacherName(classes.find(cls => cls.id === c.classId || cls.name === c.className))}
+                        </td>
+                        <td className="py-3 px-3 text-center font-black text-rose-600">-{c.totalMinusPoints} đ</td>
+                        <td className="py-3 px-4 text-center font-black text-emerald-700 text-base">{c.finalScore} đ</td>
+                        <td className="py-3 px-3 text-center">
+                          <span
+                            className="font-bold text-xs px-2.5 py-1 rounded-full border inline-block"
+                            style={{
+                              backgroundColor: `${c.classificationColor || '#3B82F6'}18`,
+                              color: c.classificationColor || '#1D4ED8',
+                              borderColor: `${c.classificationColor || '#3B82F6'}44`
+                            }}
+                          >
+                            {c.classification}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </Card>
       )}
 
@@ -2130,11 +2537,183 @@ export default function YouthDisciplinePage() {
       {/* TAB 9: CẤU HÌNH & AUDIT LOG */}
       {activeTab === 'settings_audit' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Cấu hình */}
+          {/* CẤU HÌNH ĐIỂM XẾP LOẠI NỀ NẾP */}
+          <Card className="col-span-1 lg:col-span-2 p-6 bg-white border border-slate-200 rounded-[24px] shadow-sm space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
+                  <Settings size={20} className="text-amber-500" />
+                  CẤU HÌNH ĐIỂM XẾP LOẠI NỀ NẾP
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Cấu hình các khoảng điểm tương ứng với từng mức xếp loại nền nếp của lớp theo năm học {selectedYear}.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700">
+                  <span>Năm học:</span>
+                  <select
+                    value={selectedYear}
+                    onChange={e => setSelectedYear(e.target.value)}
+                    className="bg-white text-slate-900 font-extrabold px-2 py-1 rounded-lg border border-slate-300 outline-none cursor-pointer"
+                  >
+                    {ACADEMIC_YEARS.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOpenNewClassifModal}
+                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-amber-300"
+                >
+                  <Plus size={16} />
+                  <span>+ Thêm mức xếp loại</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaultClassifs}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-slate-300"
+                  title="Khôi phục bộ cấu hình điểm xếp loại mặc định"
+                >
+                  <RefreshCw size={14} />
+                  <span>↺ Khôi phục mặc định</span>
+                </button>
+              </div>
+            </div>
+
+            {/* CẢNH BÁO VALIDATION / BAO PHỦ */}
+            {rangeValidation && (
+              <div>
+                {!rangeValidation.valid ? (
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs font-bold flex items-center gap-2">
+                    <AlertTriangle size={18} className="text-rose-600 flex-shrink-0" />
+                    <span>{rangeValidation.error}</span>
+                  </div>
+                ) : rangeValidation.warning ? (
+                  <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl text-xs font-bold flex items-center gap-2">
+                    <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
+                    <span>{rangeValidation.warning}</span>
+                  </div>
+                ) : (
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
+                    <span>Cấu hình hợp lệ: Đã bao phủ toàn bộ khoảng điểm từ 0 đến 100.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* BẢNG CẤU HÌNH XẾP LOẠI */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-xs">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-700 font-extrabold uppercase border-b border-slate-200 divide-x divide-slate-200">
+                    <th className="py-3 px-3 w-12 text-center">STT</th>
+                    <th className="py-3 px-4">MỨC XẾP LOẠI</th>
+                    <th className="py-3 px-4 text-center">ĐIỂM TỪ</th>
+                    <th className="py-3 px-4 text-center">ĐIỂM ĐẾN</th>
+                    <th className="py-3 px-4 text-center">MÀU HIỂN THỊ</th>
+                    <th className="py-3 px-4 text-center">THỨ TỰ</th>
+                    <th className="py-3 px-4 text-center">TRẠNG THÁI</th>
+                    <th className="py-3 px-4 text-center w-32">THAO TÁC</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {classifications.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-500 italic">
+                        Chưa có cấu hình điểm xếp loại cho năm học này.
+                        <button
+                          type="button"
+                          onClick={handleRestoreDefaultClassifs}
+                          className="ml-2 underline font-bold text-blue-600 cursor-pointer"
+                        >
+                          + Tạo cấu hình mặc định
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    classifications.map((item, idx) => (
+                      <tr
+                        key={item.id}
+                        className={`hover:bg-slate-50 transition-colors divide-x divide-slate-200 ${
+                          item.active === false ? 'opacity-50 bg-slate-50/60' : ''
+                        }`}
+                      >
+                        <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="py-3 px-4 font-black">
+                          <span
+                            className="px-3 py-1 rounded-full text-xs font-black inline-block border"
+                            style={{
+                              backgroundColor: `${item.color || '#3B82F6'}18`,
+                              color: item.color || '#1D4ED8',
+                              borderColor: `${item.color || '#3B82F6'}44`
+                            }}
+                          >
+                            {item.name}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-black text-slate-800">{item.minScore} đ</td>
+                        <td className="py-3 px-4 text-center font-black text-slate-800">{item.maxScore} đ</td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="inline-flex items-center gap-2 bg-slate-100 px-2.5 py-1 rounded-xl">
+                            <span className="w-4 h-4 rounded-full border border-slate-300 shadow-2xs" style={{ backgroundColor: item.color }} />
+                            <span className="font-mono text-[11px] font-bold text-slate-600">{item.color}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-center font-bold text-slate-700">{item.sortOrder || idx + 1}</td>
+                        <td className="py-3 px-4 text-center font-bold">
+                          {item.active !== false ? (
+                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full text-[11px]">
+                              Hoạt động
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 bg-slate-200 text-slate-600 border border-slate-300 rounded-full text-[11px]">
+                              Ngừng sử dụng
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditClassifModal(item)}
+                              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors cursor-pointer"
+                              title="Chỉnh sửa mức xếp loại này"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleDeactivateClassif(item)}
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                item.active !== false
+                                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-600'
+                                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600'
+                              }`}
+                              title={item.active !== false ? 'Ngừng sử dụng (Ngừng tính toán)' : 'Khôi phục hoạt động'}
+                            >
+                              {item.active !== false ? <Trash2 size={15} /> : <CheckCircle2 size={15} />}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Cấu hình chung */}
           <Card className="p-5 sm:p-6 bg-white border border-slate-200 rounded-[24px] shadow-sm space-y-4">
             <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
               <Settings size={18} className="text-blue-600" />
-              Cấu Hình Điểm Chuẩn & Ngưỡng Xếp Loại
+              Cấu Hình Điểm Chuẩn & Quy Định Khác
             </h3>
 
             <div className="space-y-4 text-xs">
@@ -2148,36 +2727,6 @@ export default function YouthDisciplinePage() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Ngưỡng Tốt (&gt;=)</label>
-                  <input
-                    type="number"
-                    value={settings.thresholdGood}
-                    onChange={e => setSettings({ ...settings, thresholdGood: Number(e.target.value) })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-emerald-700"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Ngưỡng Khá (&gt;=)</label>
-                  <input
-                    type="number"
-                    value={settings.thresholdFair}
-                    onChange={e => setSettings({ ...settings, thresholdFair: Number(e.target.value) })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-blue-700"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Ngưỡng Đạt (&gt;=)</label>
-                  <input
-                    type="number"
-                    value={settings.thresholdPass}
-                    onChange={e => setSettings({ ...settings, thresholdPass: Number(e.target.value) })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-amber-700"
-                  />
-                </div>
-              </div>
-
               <button
                 type="button"
                 onClick={async () => {
@@ -2186,7 +2735,7 @@ export default function YouthDisciplinePage() {
                 }}
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md cursor-pointer mt-2"
               >
-                Lưu cấu hình
+                Lưu cấu hình chung
               </button>
             </div>
           </Card>
@@ -2962,6 +3511,469 @@ export default function YouthDisciplinePage() {
               >
                 <Check size={16} />
                 <span>{editingCriterion ? 'Lưu thay đổi' : 'Thêm tiêu chí'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL CẤU HÌNH MỨC XẾP LOẠI */}
+      {isClassifModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 flex items-center justify-between">
+              <h3 className="font-black text-base flex items-center gap-2">
+                <Settings size={18} />
+                <span>{editingClassif ? 'SỬA MỨC XẾP LOẠI NỀ NẾP' : 'THÊM MỨC XẾP LOẠI NỀ NẾP MỚI'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsClassifModalOpen(false)}
+                className="p-1 text-slate-900 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveClassif} className="p-6 space-y-4 text-xs">
+              {classifError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl font-bold flex items-center gap-2">
+                  <AlertCircle size={16} className="text-rose-600 flex-shrink-0" />
+                  <span>{classifError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="font-extrabold text-slate-800 block mb-1">
+                  Tên xếp loại <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formClassifName}
+                  onChange={e => setFormClassifName(e.target.value)}
+                  placeholder="Ví dụ: Tốt, Khá, Đạt, Chưa đạt..."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 focus:bg-white focus:border-amber-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-extrabold text-slate-800 block mb-1">
+                    Điểm từ <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={formClassifMinScore}
+                    onChange={e => setFormClassifMinScore(Number(e.target.value))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:border-amber-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="font-extrabold text-slate-800 block mb-1">
+                    Điểm đến <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={formClassifMaxScore}
+                    onChange={e => setFormClassifMaxScore(Number(e.target.value))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:border-amber-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-extrabold text-slate-800 block mb-1">Màu hiển thị</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={formClassifColor}
+                    onChange={e => setFormClassifColor(e.target.value)}
+                    className="w-10 h-10 rounded-xl border border-slate-300 cursor-pointer p-1 bg-white"
+                  />
+                  <input
+                    type="text"
+                    value={formClassifColor}
+                    onChange={e => setFormClassifColor(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-slate-900 uppercase"
+                  />
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  {['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4'].map(color => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setFormClassifColor(color)}
+                      className={`w-6 h-6 rounded-full border-2 transition-transform ${
+                        formClassifColor.toLowerCase() === color.toLowerCase() ? 'scale-110 border-slate-900 ring-2 ring-amber-400' : 'border-transparent'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-extrabold text-slate-800 block mb-1">Thứ tự ưu tiên</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formClassifSortOrder}
+                    onChange={e => setFormClassifSortOrder(Number(e.target.value))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-extrabold text-slate-800 block mb-1">Trạng thái</label>
+                  <select
+                    value={formClassifActive ? 'active' : 'inactive'}
+                    onChange={e => setFormClassifActive(e.target.value === 'active')}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  >
+                    <option value="active">Hoạt động</option>
+                    <option value="inactive">Ngừng sử dụng</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsClassifModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl shadow-md transition-all cursor-pointer"
+                >
+                  Lưu
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL QUẢN LÝ CHỐT TUẦN */}
+      {isWeekLockModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
+              <h3 className="font-black text-base flex items-center gap-2">
+                <Lock size={18} />
+                <span>QUẢN LÝ CHỐT KẾT QUẢ THI ĐUA THEO TUẦN</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsWeekLockModalOpen(false)}
+                className="p-1 text-white/80 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div>
+                <label className="font-extrabold text-slate-800 block mb-1">
+                  Chọn tuần học cần thao tác ({selectedYear}):
+                </label>
+                <select
+                  value={targetLockWeekNumber}
+                  onChange={e => setTargetLockWeekNumber(Number(e.target.value))}
+                  className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-black text-slate-900 text-sm outline-none cursor-pointer"
+                >
+                  {allWeeks.slice(0, 37).map(w => {
+                    const lk = allWeeklyLocks[w.weekNumber];
+                    return (
+                      <option key={w.weekNumber} value={w.weekNumber}>
+                        Tuần {w.weekNumber} ({w.startDateStr} - {w.endDateStr}) {lk?.isLocked ? '🔒 [ĐÃ CHỐT KHÓA]' : '🔓 [ĐANG MỞ]'}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Status Box */}
+              {allWeeklyLocks[targetLockWeekNumber]?.isLocked ? (
+                <div className="p-4 bg-rose-50 border border-rose-200 text-rose-900 rounded-2xl space-y-1">
+                  <span className="font-black text-sm flex items-center gap-2 text-rose-700">
+                    <Lock size={16} /> Tuần {targetLockWeekNumber} ĐÃ CHỐT KHÓA
+                  </span>
+                  <p className="text-xs text-slate-600">
+                    Chốt bởi: <strong className="text-slate-800">{allWeeklyLocks[targetLockWeekNumber]?.lockedByName || 'Bí thư Đoàn'}</strong>
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Thời gian chốt: {allWeeklyLocks[targetLockWeekNumber]?.lockedAt ? new Date(allWeeklyLocks[targetLockWeekNumber].lockedAt!).toLocaleString('vi-VN') : 'Mới đây'}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl space-y-1">
+                  <span className="font-black text-sm flex items-center gap-2 text-emerald-700">
+                    <Unlock size={16} /> Tuần {targetLockWeekNumber} ĐANG MỞ (CHƯA CHỐT)
+                  </span>
+                  <p className="text-xs text-slate-600">
+                    Bấm nút "Chốt kết quả Tuần {targetLockWeekNumber}" bên dưới để khóa điểm nền nếp tuần này, ngăn chỉnh sửa hoặc chèn vi phạm mới.
+                  </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsWeekLockModalOpen(false)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Đóng
+                </button>
+
+                {allWeeklyLocks[targetLockWeekNumber]?.isLocked ? (
+                  <button
+                    type="button"
+                    onClick={() => handleUnlockSpecificWeek(targetLockWeekNumber)}
+                    className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Unlock size={16} />
+                    <span>Mở khóa Tuần {targetLockWeekNumber}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleLockSpecificWeek(targetLockWeekNumber)}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Lock size={16} />
+                    <span>Chốt kết quả Tuần {targetLockWeekNumber}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 1: DANH SÁCH HỌC SINH VI PHẠM THEO LỚP */}
+      {isClassStudentsModalOpen && selectedClassForStudentList && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-black text-base sm:text-lg flex items-center gap-2">
+                  <UserCheck size={20} />
+                  <span>DANH SÁCH HỌC SINH VI PHẠM – LỚP {selectedClassForStudentList.className}</span>
+                </h3>
+                <p className="text-xs text-slate-900/80 font-bold mt-0.5">
+                  Năm học {selectedYear} • {selectedWeek > 0 ? `Tuần ${selectedWeek}` : 'Tất cả các tuần'} • Tổng số: {classStudentSummaries.length} học sinh
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClassStudentsModalOpen(false)}
+                className="p-1.5 text-slate-950 hover:bg-white/20 rounded-xl transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content Table */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs flex-1">
+              {classStudentSummaries.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 italic space-y-2">
+                  <UserCheck size={36} className="mx-auto text-slate-300" />
+                  <p className="font-bold text-slate-700">Lớp {selectedClassForStudentList.className} không có học sinh vi phạm nào trong phạm vi được chọn.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-xs">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase border-b border-slate-200 divide-x divide-slate-200">
+                        <th className="py-3 px-3 text-center w-12">STT</th>
+                        <th className="py-3 px-4">HỌ VÀ TÊN</th>
+                        <th className="py-3 px-3 text-center">MÃ HS</th>
+                        <th className="py-3 px-3 text-center">LỚP</th>
+                        <th className="py-3 px-4 text-center">SỐ LẦN VI PHẠM</th>
+                        <th className="py-3 px-4 text-center">TỔNG ĐIỂM TRỪ</th>
+                        <th className="py-3 px-4">NỘI DUNG VI PHẠM</th>
+                        <th className="py-3 px-4 text-center w-28">THAO TÁC</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {classStudentSummaries.map((st, idx) => {
+                        const uniqueCriteria = Array.from(
+                          new Set(st.violations.map(v => v.criterionName || v.content || 'Vi phạm'))
+                        ).join(', ');
+
+                        return (
+                          <tr key={st.studentId} className="hover:bg-amber-50/40 transition-colors divide-x divide-slate-200">
+                            <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                            <td className="py-3 px-4 font-black text-slate-900">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenStudentDetailModal(st)}
+                                className="font-black text-blue-700 hover:text-blue-900 hover:underline cursor-pointer inline-flex items-center gap-1.5 text-left"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-blue-600 inline-block" />
+                                <span>{st.studentName}</span>
+                              </button>
+                            </td>
+                            <td className="py-3 px-3 text-center font-mono font-bold text-slate-600">{st.studentCode || '—'}</td>
+                            <td className="py-3 px-3 text-center font-extrabold text-blue-900">{st.className}</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 font-extrabold rounded-lg text-[11px] inline-block">
+                                {st.violationCount} lần
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center font-black text-rose-600 text-sm">
+                              -{st.totalDeduction} đ
+                            </td>
+                            <td className="py-3 px-4 text-slate-700 font-medium leading-relaxed">
+                              {uniqueCriteria}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenStudentDetailModal(st)}
+                                className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors cursor-pointer text-[11px] shadow-xs inline-flex items-center gap-1"
+                              >
+                                <Eye size={13} />
+                                <span>Xem chi tiết</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs flex-shrink-0">
+              <span className="font-bold text-slate-600">
+                Lớp {selectedClassForStudentList.className} • Tổng điểm bị trừ: <span className="text-rose-600 font-black">-{classStudentSummaries.reduce((sum, s) => sum + s.totalDeduction, 0)} đ</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsClassStudentsModalOpen(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: CHI TIẾT VI PHẠM HỌC SINH */}
+      {isStudentDetailModalOpen && selectedStudentForViolationDetail && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-700 to-indigo-800 text-white flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-black text-base sm:text-lg flex items-center gap-2">
+                  <UserCheck size={20} />
+                  <span>CHI TIẾT VI PHẠM HỌC SINH – {selectedStudentForViolationDetail.studentName}</span>
+                </h3>
+                <p className="text-xs text-blue-100 font-bold mt-0.5">
+                  Lớp {selectedStudentForViolationDetail.className} • Mã HS: {selectedStudentForViolationDetail.studentCode || '—'} • Tổng {selectedStudentForViolationDetail.violationCount} lần vi phạm • Bị trừ -{selectedStudentForViolationDetail.totalDeduction} đ
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStudentDetailModalOpen(false)}
+                className="p-1.5 text-white/80 hover:text-white rounded-xl transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Table */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs flex-1">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-xs">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase border-b border-slate-200 divide-x divide-slate-200">
+                      <th className="py-3 px-3 text-center w-12">STT</th>
+                      <th className="py-3 px-3.5">NGÀY VI PHẠM</th>
+                      <th className="py-3 px-3 text-center">TUẦN</th>
+                      <th className="py-3 px-3 text-center">LỚP</th>
+                      <th className="py-3 px-4">TIÊU CHÍ VI PHẠM</th>
+                      <th className="py-3 px-4">NỘI DUNG VI PHẠM</th>
+                      <th className="py-3 px-3 text-center">ĐIỂM TRỪ</th>
+                      <th className="py-3 px-3.5">NGƯỜI GHI NHẬN</th>
+                      <th className="py-3 px-3 text-center">TRẠNG THÁI</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    {selectedStudentForViolationDetail.violations.map((v, idx) => (
+                      <tr key={v.id} className="hover:bg-blue-50/40 transition-colors divide-x divide-slate-200">
+                        <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="py-3 px-3.5 font-extrabold text-slate-900">
+                          <div>{v.violationDate}</div>
+                          <span className="text-[11px] font-normal text-slate-500">
+                            {v.violationTime || ''} {v.periodSlot ? `(${v.periodSlot})` : ''}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-center font-bold text-blue-900">Tuần {v.weekNumber}</td>
+                        <td className="py-3 px-3 text-center font-extrabold text-slate-800">{v.className}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">{v.criterionName}</td>
+                        <td className="py-3 px-4 text-slate-700">{v.content || v.criterionName}</td>
+                        <td className="py-3 px-3 text-center font-black text-rose-600 text-sm">
+                          -{v.minusPoints} đ
+                        </td>
+                        <td className="py-3 px-3.5">
+                          <div className="font-bold text-slate-800">{v.recordedByName}</div>
+                          <span className="text-[10px] text-slate-500">{v.recordedByRole}</span>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          {v.status === 'DA_XAC_NHAN' ? (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full font-extrabold text-[10px] inline-block">
+                              ✓ Đã xác nhận
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-full font-extrabold text-[10px] inline-block">
+                              ⏳ Chờ xác nhận
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsStudentDetailModalOpen(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                ← Quay lại danh sách lớp
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStudentDetailModalOpen(false);
+                  setIsClassStudentsModalOpen(false);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Đóng
               </button>
             </div>
           </div>

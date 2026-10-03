@@ -21,8 +21,98 @@ import {
   YouthAuditLog,
   ClassDisciplineSummary,
   ViolationStatus,
-  YouthClassificationConfig
+  YouthClassificationConfig,
+  StudentWithViolationsSummary
 } from '../types/youthDiscipline';
+import { Student } from '../types/homeroom';
+
+export function getStudentsWithViolationsByClass(
+  violations: YouthViolationRecord[],
+  students: Student[] = [],
+  classId: string,
+  academicYear?: string,
+  weekNumber?: number
+): StudentWithViolationsSummary[] {
+  const normalizeClassStr = (s?: string) => {
+    if (!s) return '';
+    return s.toLowerCase().replace(/^(lớp|lop|class|c_|c-)\s*/i, '').replace(/[^a-z0-9]/g, '');
+  };
+
+  const targetClassNorm = normalizeClassStr(classId);
+
+  // Filter violations by scope
+  const scopedViolations = violations.filter(v => {
+    if (v.status === 'TU_CHOI') return false;
+
+    // Academic year
+    if (academicYear && academicYear !== 'All') {
+      const vY = (v.schoolYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
+      const aY = academicYear.replace(/[\u2010-\u2015]/g, '-').trim();
+      if (vY && aY && vY !== aY) return false;
+    }
+
+    // Week number
+    if (weekNumber !== undefined && weekNumber > 0) {
+      if (v.weekNumber !== weekNumber) return false;
+    }
+
+    // Class match
+    const vNormId = normalizeClassStr(v.classId);
+    const vNormName = normalizeClassStr(v.className);
+
+    const isMatch =
+      (v.classId && classId && v.classId === classId) ||
+      (v.className && classId && v.className.toLowerCase() === classId.toLowerCase()) ||
+      (vNormId && targetClassNorm && vNormId === targetClassNorm) ||
+      (vNormName && targetClassNorm && vNormName === targetClassNorm);
+
+    return isMatch;
+  });
+
+  // Group by studentId
+  const map = new Map<string, YouthViolationRecord[]>();
+
+  scopedViolations.forEach(v => {
+    const sKey = v.studentId && v.studentId !== 'ALL_CLASS' ? v.studentId : null;
+    if (sKey) {
+      if (!map.has(sKey)) {
+        map.set(sKey, []);
+      }
+      map.get(sKey)!.push(v);
+    }
+  });
+
+  const result: StudentWithViolationsSummary[] = [];
+
+  map.forEach((vList, sId) => {
+    const foundStu = students.find(s => s.id === sId || s.code === sId);
+    const firstV = vList[0];
+
+    const studentName = foundStu?.fullName || foundStu?.name || (firstV.studentName && !firstV.studentName.toLowerCase().includes('tập thể') ? firstV.studentName : 'Không xác định được học sinh');
+    const studentCode = foundStu?.code || firstV.studentCode || '';
+    const className = foundStu?.className || firstV.className || '';
+    const resolvedClassId = foundStu?.classId || firstV.classId || classId;
+
+    const totalDeduction = vList.reduce((sum, item) => sum + Math.abs(Number(item.minusPoints) || 0), 0);
+
+    result.push({
+      studentId: sId,
+      studentName,
+      studentCode,
+      classId: resolvedClassId,
+      className,
+      violationCount: vList.length,
+      totalDeduction,
+      violations: vList.sort((a, b) => new Date(b.violationDate).getTime() - new Date(a.violationDate).getTime())
+    });
+  });
+
+  return result.sort((a, b) => {
+    if (b.totalDeduction !== a.totalDeduction) return b.totalDeduction - a.totalDeduction;
+    if (b.violationCount !== a.violationCount) return b.violationCount - a.violationCount;
+    return a.studentName.localeCompare(b.studentName, 'vi');
+  });
+}
 import { classificationService } from './classificationService';
 import {
   DEFAULT_YOUTH_CRITERIA,
@@ -709,13 +799,24 @@ export const youthDisciplineService = {
     return [];
   },
 
-  // 8. SUMMARY CALCULATION
+  // 8. SUMMARY CALCULATION & STUDENT VIOLATION DEDUCTION
+  getStudentsWithViolationsByClass(
+    violations: YouthViolationRecord[],
+    students: Student[] = [],
+    classId: string,
+    academicYear?: string,
+    weekNumber?: number
+  ): StudentWithViolationsSummary[] {
+    return getStudentsWithViolationsByClass(violations, students, classId, academicYear, weekNumber);
+  },
+
   calculateClassSummaries(
     classes: ClassInfo[],
     violations: YouthViolationRecord[],
     settings: YouthDisciplineSettings,
     targetWeek?: number,
-    targetYear?: string
+    targetYear?: string,
+    students: Student[] = []
   ): ClassDisciplineSummary[] {
     const baseScore = settings?.baseScore || 100;
 
@@ -761,15 +862,14 @@ export const youthDisciplineService = {
       const totalMinusPoints = classViolations.reduce((sum, v) => sum + Math.abs(Number(v.minusPoints) || 0), 0);
       const finalScore = Math.max(0, baseScore - totalMinusPoints);
 
-      // Distinct violating students (ignore 'ALL_CLASS' and empty names)
-      const studentIds = new Set<string>();
-      classViolations.forEach(v => {
-        if (v.studentId && v.studentId !== 'ALL_CLASS') {
-          studentIds.add(v.studentId);
-        } else if (v.studentName && !v.studentName.toLowerCase().includes('tập thể')) {
-          studentIds.add(v.studentName);
-        }
-      });
+      // Distinct violating students calculated via getStudentsWithViolationsByClass helper
+      const studentSummaries = getStudentsWithViolationsByClass(
+        classViolations,
+        students,
+        cls.id,
+        targetYear,
+        targetWeek
+      );
 
       // Dynamic Classification from Classification Service
       const classifMatch = classificationService.getClassificationByScore(
@@ -800,7 +900,7 @@ export const youthDisciplineService = {
         totalMinusPoints,
         finalScore,
         violationCount: classViolations.length,
-        violatingStudentCount: studentIds.size,
+        violatingStudentCount: studentSummaries.length,
         classification,
         classificationColor,
         rank: 1, // Will be computed below
