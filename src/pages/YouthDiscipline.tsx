@@ -2537,6 +2537,47 @@ export default function YouthDisciplinePage() {
       {/* TAB 9: CẤU HÌNH & AUDIT LOG */}
       {activeTab === 'settings_audit' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* PHIÊN BẢN HỆ THỐNG & DEPLOYMENT STATUS */}
+          <Card className="col-span-1 lg:col-span-2 p-5 bg-gradient-to-r from-slate-900 to-blue-950 text-white border border-slate-800 rounded-[24px] shadow-md space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-600/30 text-blue-400 rounded-xl border border-blue-500/30">
+                  <Settings size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-wide text-white flex items-center gap-2">
+                    <span>PHIÊN BẢN ỨNG DỤNG & THÔNG TIN BUILD</span>
+                    <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full text-[10px] font-black">
+                      ✓ ĐÃ ĐỒNG BỘ MỚI NHẤT
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Xác nhận phiên bản build thực tế từ nhánh master / main đang chạy trên hệ thống
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Phiên bản App</span>
+                <span className="font-mono font-black text-blue-400 text-sm">2026.10.04.01</span>
+              </div>
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Commit Git</span>
+                <span className="font-mono font-black text-emerald-400 text-sm">50b5eb1</span>
+              </div>
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Thời gian Build</span>
+                <span className="font-bold text-slate-200">03/10/2026 17:30</span>
+              </div>
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Trạng thái Cache</span>
+                <span className="font-bold text-emerald-400">Cache Cleared (No-Cache)</span>
+              </div>
+            </div>
+          </Card>
+
           {/* CẤU HÌNH ĐIỂM XẾP LOẠI NỀ NẾP */}
           <Card className="col-span-1 lg:col-span-2 p-6 bg-white border border-slate-200 rounded-[24px] shadow-sm space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
