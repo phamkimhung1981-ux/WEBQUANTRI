@@ -718,10 +718,11 @@ export default function YouthDisciplinePage() {
   // Open modal to record a new violation
   const openNewViolationModal = () => {
     setEditingViolation(null);
-    setFormVioDate(new Date().toISOString().split('T')[0]);
+    const todayStr = new Date().toISOString().split('T')[0];
+    setFormVioDate(todayStr);
     setFormVioTime('07:15');
     setFormVioPeriod('Sáng');
-    setFormVioWeek(selectedWeek);
+    setFormVioWeek(selectedWeek > 0 ? selectedWeek : 3);
     setFormVioTargetMode('single');
     setFormVioContent('');
     setFormVioLocation('Cổng trường');
@@ -778,6 +779,7 @@ export default function YouthDisciplinePage() {
     }
 
     const monthNum = new Date(formVioDate).getMonth() + 1;
+    const effectiveWeek = Number(formVioWeek) > 0 ? Number(formVioWeek) : (selectedWeek > 0 ? selectedWeek : 3);
 
     try {
       if (editingViolation) {
@@ -786,7 +788,7 @@ export default function YouthDisciplinePage() {
         const updatedRecord: YouthViolationRecord = {
           ...editingViolation,
           schoolYear: selectedYear,
-          weekNumber: formVioWeek,
+          weekNumber: effectiveWeek,
           monthNumber: monthNum,
           violationDate: formVioDate,
           violationTime: formVioTime,
@@ -819,7 +821,7 @@ export default function YouthDisciplinePage() {
           const newRecord: YouthViolationRecord = {
             id: '',
             schoolYear: selectedYear,
-            weekNumber: formVioWeek,
+            weekNumber: effectiveWeek,
             monthNumber: monthNum,
             violationDate: formVioDate,
             violationTime: formVioTime,
@@ -846,7 +848,9 @@ export default function YouthDisciplinePage() {
             notes: formVioNotes.trim() || undefined,
             createdAt: new Date().toISOString()
           };
-          await youthDisciplineService.saveViolation(newRecord, effectiveRole);
+          console.log("VIOLATION DATA BEFORE INSERT:", newRecord);
+          const res = await youthDisciplineService.saveViolation(newRecord, effectiveRole);
+          console.log("INSERT RESULT:", res);
         } else if (formVioTargetMode === 'multiple') {
           if (formVioSelectedStudentIds.length === 0) {
             showToast('Vui lòng chọn ít nhất 1 học sinh');
@@ -857,7 +861,7 @@ export default function YouthDisciplinePage() {
             const newRecord: YouthViolationRecord = {
               id: '',
               schoolYear: selectedYear,
-              weekNumber: formVioWeek,
+              weekNumber: effectiveWeek,
               monthNumber: monthNum,
               violationDate: formVioDate,
               violationTime: formVioTime,
@@ -884,22 +888,24 @@ export default function YouthDisciplinePage() {
               notes: formVioNotes.trim() || undefined,
               createdAt: new Date().toISOString()
             };
-            await youthDisciplineService.saveViolation(newRecord, effectiveRole);
+            console.log("VIOLATION DATA BEFORE INSERT:", newRecord);
+            const res = await youthDisciplineService.saveViolation(newRecord, effectiveRole);
+            console.log("INSERT RESULT:", res);
           }
         } else {
           const targetStudent = students.find(s => s.id === formVioStudentId);
           const newRecord: YouthViolationRecord = {
             id: '',
             schoolYear: selectedYear,
-            weekNumber: formVioWeek,
+            weekNumber: effectiveWeek,
             monthNumber: monthNum,
             violationDate: formVioDate,
             violationTime: formVioTime,
             periodSlot: formVioPeriod,
             classId: targetClass.id,
             className: targetClass.name,
-            studentId: targetStudent?.id || '',
-            studentName: targetStudent?.name || 'Học sinh',
+            studentId: targetStudent?.id || (students.length > 0 ? students[0].id : 'STU_GEN'),
+            studentName: targetStudent?.name || (students.length > 0 ? students[0].name : 'Học sinh'),
             studentCode: targetStudent?.code || '',
             criterionId: selectedCriterion.id,
             criterionCode: selectedCriterion.code,
@@ -918,13 +924,22 @@ export default function YouthDisciplinePage() {
             notes: formVioNotes.trim() || undefined,
             createdAt: new Date().toISOString()
           };
-          await youthDisciplineService.saveViolation(newRecord, effectiveRole);
+          console.log("VIOLATION DATA BEFORE INSERT:", newRecord);
+          const res = await youthDisciplineService.saveViolation(newRecord, effectiveRole);
+          console.log("INSERT RESULT:", res);
         }
         showToast('Đã ghi nhận vi phạm nền nếp thành công!');
       }
 
       setIsViolationModalOpen(false);
-      loadAllData();
+      setActiveTab('violations');
+
+      const updatedList = await youthDisciplineService.getViolations({
+        schoolYear: selectedYear
+      });
+      console.log("VIOLATIONS AFTER INSERT:", updatedList);
+      setViolations(updatedList);
+      await loadAllData();
     } catch (err: any) {
       alert(err.message || 'Lỗi khi lưu vi phạm');
     }

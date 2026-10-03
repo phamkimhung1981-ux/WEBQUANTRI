@@ -321,3 +321,62 @@ export function getDefaultDateForMonthAndWeek(
   const targetDate = new Date(year, monthNum - 1, 15);
   return format(targetDate, 'yyyy-MM-dd');
 }
+
+export interface AssessmentScopeInfo {
+  scope: 'week' | 'month' | 'year';
+  label: string;
+  startDateIso: string;
+  endDateIso: string;
+  targetWeekNumbers?: number[];
+  monthNumber?: number;
+  weekNumber?: number;
+}
+
+/**
+ * Hàm hỗ trợ lấy phạm vi đánh giá rèn luyện (Tuần / Tháng / Năm)
+ */
+export function getAssessmentScope(
+  scope: 'week' | 'month' | 'year',
+  academicYear: string = '2026–2027',
+  monthNumber: number = 9,
+  weekNumber: number = 1
+): AssessmentScopeInfo {
+  const startYear = parseStartYear(academicYear);
+
+  if (scope === 'week') {
+    const wInfo = getWeekInfoByNumber(weekNumber, academicYear);
+    return {
+      scope: 'week',
+      label: `TUẦN ${String(weekNumber).padStart(2, '0')}`,
+      startDateIso: wInfo.startDateIso,
+      endDateIso: wInfo.endDateIso,
+      weekNumber
+    };
+  }
+
+  if (scope === 'month') {
+    const yr = monthNumber >= 8 ? startYear : startYear + 1;
+    const monthStartIso = `${yr}-${String(monthNumber).padStart(2, '0')}-01`;
+    const lastDay = new Date(yr, monthNumber, 0).getDate();
+    const monthEndIso = `${yr}-${String(monthNumber).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const targetWeekNumbers = getWeeksForMonth(monthNumber, academicYear);
+
+    return {
+      scope: 'month',
+      label: `THÁNG ${String(monthNumber).padStart(2, '0')}`,
+      startDateIso: monthStartIso,
+      endDateIso: monthEndIso,
+      targetWeekNumbers,
+      monthNumber
+    };
+  }
+
+  const yearStartIso = `${startYear}-09-01`;
+  const yearEndIso = `${startYear + 1}-08-31`;
+  return {
+    scope: 'year',
+    label: `CẢ NĂM HỌC ${academicYear}`,
+    startDateIso: yearStartIso,
+    endDateIso: yearEndIso
+  };
+}

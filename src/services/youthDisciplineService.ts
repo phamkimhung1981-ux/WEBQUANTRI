@@ -164,14 +164,8 @@ export const youthDisciplineService = {
         localStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
       }
 
-      // 1.3 Sample Violations if none exist
-      const vioSnap = await getDocs(collection(db, COLLECTIONS.VIOLATIONS));
-      if (vioSnap.empty) {
-        for (const vio of SAMPLE_YOUTH_VIOLATIONS) {
-          await setDoc(doc(db, COLLECTIONS.VIOLATIONS, vio.id), vio);
-        }
-        localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(SAMPLE_YOUTH_VIOLATIONS));
-      }
+      // 1.3 Clean up any old sample violations if present
+      await this.cleanupSampleViolations();
     } catch (e) {
       console.warn('YouthDiscipline seed error (using local storage fallback):', e);
       if (!localStorage.getItem(CACHE_KEYS.CRITERIA)) {
@@ -180,9 +174,35 @@ export const youthDisciplineService = {
       if (!localStorage.getItem(CACHE_KEYS.SETTINGS)) {
         localStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
       }
-      if (!localStorage.getItem(CACHE_KEYS.VIOLATIONS)) {
-        localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(SAMPLE_YOUTH_VIOLATIONS));
+    }
+  },
+
+  async cleanupSampleViolations(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.VIOLATIONS));
+      if (!snap.empty) {
+        for (const docSnap of snap.docs) {
+          if (docSnap.id.startsWith('yv_sample_')) {
+            try {
+              await deleteDoc(doc(db, COLLECTIONS.VIOLATIONS, docSnap.id));
+            } catch (err) {
+              console.warn('Failed to delete sample doc:', docSnap.id, err);
+            }
+          }
+        }
       }
+      const cached = localStorage.getItem(CACHE_KEYS.VIOLATIONS);
+      if (cached) {
+        try {
+          const list: YouthViolationRecord[] = JSON.parse(cached);
+          const filtered = list.filter(v => !v.id.startsWith('yv_sample_'));
+          localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(filtered));
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    } catch (e) {
+      console.warn('cleanupSampleViolations error:', e);
     }
   },
 
@@ -291,39 +311,57 @@ export const youthDisciplineService = {
   }): Promise<YouthViolationRecord[]> {
     let list: YouthViolationRecord[] = [];
 
+    // 1. Read local cache first
+    let cachedList: YouthViolationRecord[] = [];
+    const cached = localStorage.getItem(CACHE_KEYS.VIOLATIONS);
+    if (cached) {
+      try {
+        cachedList = JSON.parse(cached) || [];
+      } catch (err) {
+        console.error('Error parsing cached violations:', err);
+      }
+    }
+
+    // 2. Fetch Firestore documents
+    let firestoreList: YouthViolationRecord[] = [];
     try {
       const snap = await getDocs(collection(db, COLLECTIONS.VIOLATIONS));
       if (!snap.empty) {
-        list = snap.docs.map(d => d.data() as YouthViolationRecord);
-        localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
+        firestoreList = snap.docs.map(d => d.data() as YouthViolationRecord);
       }
     } catch (e) {
-      console.warn('Firestore getViolations error, using cache:', e);
+      console.warn('Firestore getViolations error, falling back to cache:', e);
     }
 
-    if (list.length === 0) {
-      const cached = localStorage.getItem(CACHE_KEYS.VIOLATIONS);
-      if (cached) {
-        try {
-          list = JSON.parse(cached);
-        } catch (err) {
-          console.error(err);
-        }
-      } else {
-        list = SAMPLE_YOUTH_VIOLATIONS;
+    // 3. Merge firestoreList & cachedList by item ID
+    const map = new Map<string, YouthViolationRecord>();
+    for (const item of firestoreList) {
+      if (item && item.id) map.set(item.id, item);
+    }
+    for (const item of cachedList) {
+      if (item && item.id && !map.has(item.id)) {
+        map.set(item.id, item);
       }
     }
+
+    list = Array.from(map.values());
+    localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
 
     // Apply filtering
     if (filters) {
       if (filters.schoolYear && filters.schoolYear !== 'All') {
-        list = list.filter(v => v.schoolYear === filters.schoolYear);
+        const fY = filters.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
+        list = list.filter(v => {
+          if (!v.schoolYear) return true;
+          const vY = v.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
+          return vY === fY;
+        });
       }
-      if (filters.weekNumber && filters.weekNumber > 0) {
-        list = list.filter(v => v.weekNumber === filters.weekNumber);
+      if (filters.weekNumber !== undefined && filters.weekNumber > 0) {
+        list = list.filter(v => Number(v.weekNumber) === Number(filters.weekNumber));
       }
-      if (filters.monthNumber && filters.monthNumber > 0) {
-        list = list.filter(v => v.monthNumber === filters.monthNumber);
+      if (filters.monthNumber !== undefined && filters.monthNumber > 0) {
+        list = list.filter(v => Number(v.monthNumber) === Number(filters.monthNumber));
       }
       if (filters.classId && filters.classId !== 'All') {
         list = list.filter(v => v.classId === filters.classId);

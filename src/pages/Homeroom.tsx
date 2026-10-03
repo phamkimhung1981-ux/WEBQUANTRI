@@ -51,7 +51,7 @@ import {
 } from '../types/homeroom';
 import { homeroomService } from '../services/homeroomService';
 import { youthDisciplineService } from '../services/youthDisciplineService';
-import { studentViolationService, StudentViolationSummary } from '../services/studentViolationService';
+import { studentViolationService, StudentViolationSummary, MonthlyConductSummary } from '../services/studentViolationService';
 import { YouthViolationRecord, YouthDisciplineCriterion } from '../types/youthDiscipline';
 import {
   calculateConductScore,
@@ -110,6 +110,19 @@ export default function Homeroom() {
   // Student Violation Details Modal State
   const [selectedStudentForViolationsModal, setSelectedStudentForViolationsModal] = useState<{ student: Student; summary: StudentViolationSummary } | null>(null);
   const [isStudentViolationsModalOpen, setIsStudentViolationsModalOpen] = useState<boolean>(false);
+
+  const handleViewStudentViolations = (st: Student) => {
+    const summary = studentViolationService.getStudentViolationSummary(
+      st,
+      youthViolations,
+      selectedSchoolYear,
+      studentTableScope,
+      studentTableScope === 'week' ? selectedWeek : undefined,
+      selMonthNum
+    );
+    setSelectedStudentForViolationsModal({ student: st, summary });
+    setIsStudentViolationsModalOpen(true);
+  };
 
   // Record Violation Modal for Homeroom
   const [selectedStudentForNewViolation, setSelectedStudentForNewViolation] = useState<Student | null>(null);
@@ -200,9 +213,7 @@ export default function Homeroom() {
   const [isSeriousReportModalOpen, setIsSeriousReportModalOpen] = useState(false);
   const [isResetConductModalOpen, setIsResetConductModalOpen] = useState(false);
   const [resetSuccessToast, setResetSuccessToast] = useState<string>('');
-  const [studentTableScope, setStudentTableScopeState] = useState<'week' | 'month' | 'year'>(() => {
-    return (localStorage.getItem('homeroom_student_table_scope') as any) || 'month';
-  });
+  const [studentTableScope, setStudentTableScopeState] = useState<'week' | 'month' | 'year'>('month');
   const setStudentTableScope = (val: 'week' | 'month' | 'year') => {
     setStudentTableScopeState(val);
     localStorage.setItem('homeroom_student_table_scope', val);
@@ -213,6 +224,10 @@ export default function Homeroom() {
 
   // Selected entities for modals
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<Student | null>(null);
+  const [selectedStudentForMonthlyDetail, setSelectedStudentForMonthlyDetail] = useState<{
+    student: Student;
+    summary: MonthlyConductSummary;
+  } | null>(null);
   const [selectedStudentForEval, setSelectedStudentForEval] = useState<Student | null>(null);
   const [selectedStudentForAssessment, setSelectedStudentForAssessment] = useState<Student | null>(null);
   const [assessmentInitialSelectedIds, setAssessmentInitialSelectedIds] = useState<string[] | undefined>(undefined);
@@ -599,7 +614,17 @@ export default function Homeroom() {
 
   // Class student scores & ratings dynamically evaluated from single source of truth (youthViolations via studentViolationService)
   const classStudentScores = useMemo(() => {
-    const map = new Map<string, { totalScore: number; classification: string; badgeStyle: string; totalPlus: number; totalMinus: number; hasSpecialWarning: boolean; violationCount: number; violations: YouthViolationRecord[] }>();
+    const map = new Map<string, {
+      totalScore: number;
+      classification: string;
+      badgeStyle: string;
+      totalPlus: number;
+      totalMinus: number;
+      hasSpecialWarning: boolean;
+      violationCount: number;
+      violations: YouthViolationRecord[];
+      monthlySummary?: MonthlyConductSummary;
+    }>();
 
     classStudents.forEach(st => {
       const summary = studentViolationService.getStudentViolationSummary(
@@ -607,9 +632,19 @@ export default function Homeroom() {
         youthViolations,
         selectedSchoolYear,
         studentTableScope,
-        selectedWeek,
+        studentTableScope === 'week' ? selectedWeek : undefined,
         selMonthNum
       );
+
+      const monthlySummary = studentTableScope === 'month'
+        ? studentViolationService.getMonthlyConductSummaryForStudent(
+            st,
+            youthViolations,
+            teacherAssessments,
+            selectedSchoolYear,
+            selMonthNum
+          )
+        : undefined;
 
       map.set(st.id, {
         totalScore: summary.trainingScore,
@@ -619,12 +654,13 @@ export default function Homeroom() {
         totalMinus: summary.totalDeduction,
         hasSpecialWarning: false,
         violationCount: summary.violationCount,
-        violations: summary.violations
+        violations: summary.violations,
+        monthlySummary
       });
     });
 
     return map;
-  }, [classStudents, youthViolations, selectedSchoolYear, studentTableScope, selectedWeek, selMonthNum]);
+  }, [classStudents, youthViolations, teacherAssessments, selectedSchoolYear, studentTableScope, selectedWeek, selMonthNum]);
 
   // Dynamic count per tier in current class view (Requirement 7)
   const classRatingCounts = useMemo(() => {
@@ -1032,7 +1068,9 @@ export default function Homeroom() {
 
             {/* Week Selector */}
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
-              <span className="text-slate-500 font-medium">Tuần:</span>
+              <span className="text-slate-500 font-medium">
+                {studentTableScope === 'month' ? 'Tuần xem chi tiết:' : 'Tuần:'}
+              </span>
               <select
                 value={selectedWeek}
                 onChange={(e) => setSelectedWeek(Number(e.target.value))}
@@ -1049,7 +1087,10 @@ export default function Homeroom() {
               <span className="text-slate-500 font-medium">Tháng:</span>
               <select
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
+                onChange={(e) => {
+                  setSelectedMonth(e.target.value);
+                  setStudentTableScope('month');
+                }}
                 className="bg-transparent font-bold text-slate-800 outline-none cursor-pointer"
               >
                 {ALL_MONTH_OPTIONS.map(m => (
@@ -1888,11 +1929,36 @@ export default function Homeroom() {
                           <span className="text-base font-black text-blue-800">{totalScore}</span>
                         </td>
                         <td className="p-3.5 text-center">
-                          <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${badgeStyle}`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (studentTableScope === 'month' && scoreInfo.monthlySummary) {
+                                setSelectedStudentForMonthlyDetail({
+                                  student: st,
+                                  summary: scoreInfo.monthlySummary
+                                });
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${badgeStyle} ${studentTableScope === 'month' ? 'cursor-pointer hover:scale-105 transition-transform shadow-2xs' : ''}`}
+                            title={studentTableScope === 'month' ? 'Nhấn để xem chi tiết kết quả tổng hợp tháng từ các tuần của Đoàn TN' : undefined}
+                          >
                             {classification}
-                          </span>
+                          </button>
                         </td>
                         <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
+                          {studentTableScope === 'month' && scoreInfo.monthlySummary && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStudentForMonthlyDetail({
+                                student: st,
+                                summary: scoreInfo.monthlySummary!
+                              })}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold border border-blue-200 rounded-lg text-xs cursor-pointer inline-flex items-center gap-1 transition-colors"
+                              title="Xem chi tiết tổng hợp các tuần trong tháng của Đoàn TN"
+                            >
+                              <Calendar size={12} /> Chi tiết tháng
+                            </button>
+                          )}
                           <button
                             onClick={() => handleOpenProfile(st)}
                             className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer"
@@ -3357,6 +3423,128 @@ export default function Homeroom() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHI TIẾT TỔNG HỢP RÈN LUYỆN THÁNG (TỔNG HỢP CÁC TUẦN CỦA ĐOÀN TN) */}
+      {selectedStudentForMonthlyDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center">
+                  <Calendar size={20} className="text-blue-300" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base">
+                    CHI TIẾT TỔNG HỢP RÈN LUYỆN {selectedStudentForMonthlyDetail.summary.monthLabel.toUpperCase()}
+                  </h3>
+                  <p className="text-xs text-blue-200">
+                    Học sinh: <strong className="text-amber-300">{selectedStudentForMonthlyDetail.student.fullName || selectedStudentForMonthlyDetail.student.name}</strong> ({selectedStudentForMonthlyDetail.student.code || 'MHS'}) • Lớp {selectedClass?.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedStudentForMonthlyDetail(null)}
+                className="p-1.5 text-blue-200 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center">
+                  <span className="text-[11px] font-bold text-slate-500 block uppercase">Số tuần thuộc tháng</span>
+                  <span className="text-base font-black text-slate-900">{selectedStudentForMonthlyDetail.summary.totalWeeksInMonth} tuần</span>
+                </div>
+                <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 text-center">
+                  <span className="text-[11px] font-bold text-blue-600 block uppercase">Tổng điểm trừ tháng</span>
+                  <span className="text-base font-black text-rose-600">-{selectedStudentForMonthlyDetail.summary.totalDeduction}đ</span>
+                </div>
+                <div className="p-3 bg-indigo-50/70 rounded-2xl border border-indigo-200 text-center">
+                  <span className="text-[11px] font-bold text-indigo-600 block uppercase">Điểm rèn luyện tháng</span>
+                  <span className="text-base font-black text-indigo-900">{selectedStudentForMonthlyDetail.summary.trainingScore} / 100</span>
+                </div>
+                <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 text-center">
+                  <span className="text-[11px] font-bold text-emerald-700 block uppercase">Xếp loại tháng</span>
+                  <span className="text-base font-black uppercase text-emerald-800">{selectedStudentForMonthlyDetail.summary.monthlyResult}</span>
+                </div>
+              </div>
+
+              {/* Weekly breakdown table */}
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-xs uppercase mb-2 flex items-center gap-1.5">
+                  <ListOrdered size={15} className="text-blue-600" />
+                  <span>Chi tiết đánh giá theo từng tuần của Đoàn TN & Lớp:</span>
+                </h4>
+                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-extrabold text-[11px]">
+                      <tr>
+                        <th className="py-2.5 px-3">Tuần</th>
+                        <th className="py-2.5 px-3">Thời gian</th>
+                        <th className="py-2.5 px-3 text-center">Xếp loại tuần</th>
+                        <th className="py-2.5 px-3 text-center">Điểm trừ</th>
+                        <th className="py-2.5 px-3">Vi phạm trong tuần</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {selectedStudentForMonthlyDetail.summary.weeklyResults.map(item => (
+                        <tr key={item.weekNumber} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-blue-900">{item.weekLabel}</td>
+                          <td className="py-2.5 px-3 text-slate-500 font-medium text-[11px]">{item.timeRangeStr}</td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[11px] ${
+                              item.rating === 'Tốt' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                              item.rating === 'Khá' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+                              item.rating === 'Đạt' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                              item.rating === 'Chưa đạt' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                              'bg-slate-100 text-slate-600 border border-slate-300'
+                            }`}>
+                              {item.rating}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-black text-rose-600">
+                            {item.deduction > 0 ? `-${item.deduction}đ` : '0đ'}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-700">
+                            {item.violations.length > 0 ? (
+                              <ul className="space-y-1 list-disc list-inside">
+                                {item.violations.map(v => (
+                                  <li key={v.id} className="text-[11px]">
+                                    <strong className="text-slate-900">{v.criterionName}</strong> (-{v.minusPoints}đ)
+                                    {v.content && v.content !== v.criterionName ? <span className="text-slate-500"> - {v.content}</span> : null}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-slate-400 italic">Không có vi phạm</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedStudentForMonthlyDetail(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}
