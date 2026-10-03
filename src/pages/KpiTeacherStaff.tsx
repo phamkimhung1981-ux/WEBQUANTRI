@@ -240,6 +240,15 @@ export default function KpiTeacherStaff() {
   // Filtered forms
   const filteredForms = useMemo(() => {
     return forms.filter(f => {
+      if (user && !isAdmin) {
+        const isOwner = f.employeeId === user.id;
+        const isAssignedTtcm = f.ttcmEvaluatorId === user.id || f.evaluatorId === user.id;
+        const isAssignedBgh = f.bghEvaluatorId === user.id;
+        if (!isOwner && !isAssignedTtcm && !isAssignedBgh) {
+          return false;
+        }
+      }
+
       const matchPeriod = selectedPeriodId === 'all' || f.periodId === selectedPeriodId;
       const matchStatus = statusFilter === 'all' || 
         (statusFilter === 'completed' ? (f.status === 'completed' || f.status === 'self_evaluated') : f.status === statusFilter);
@@ -509,78 +518,73 @@ export default function KpiTeacherStaff() {
         <BackButton />
       </div>
 
-      {/* 1. TOP HEADER BANNER - COMPACT & RESPONSIVE */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-5 lg:p-6 text-white shadow-xl relative overflow-hidden border border-blue-800/40">
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold border border-blue-400/30">
-              <Award size={13} /> Mẫu chuẩn Viên chức (15-15-70) • Trường THPT Sơn Lương
-            </div>
-            <h1 className="text-lg sm:text-xl lg:text-2xl font-black tracking-tight text-white leading-snug">
-              ĐÁNH GIÁ KPI GIÁO VIÊN
-            </h1>
-            <p className="text-blue-200/90 text-xs sm:text-sm max-w-3xl leading-relaxed">
-              Áp dụng cho viên chức không giữ chức vụ lãnh đạo. Thang điểm 100: Nhóm I (15đ), Nhóm II (15đ), Nhóm III (70đ).
-            </p>
-          </div>
+      {/* 1. TOP HEADER BANNER - CLEAN HORIZONTAL CONTROL PANEL */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-5 text-white shadow-xl relative overflow-hidden border border-blue-800/40 space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h1 className="text-lg sm:text-xl font-black tracking-tight text-white flex items-center gap-2.5">
+            <Award size={20} className="text-blue-300 shrink-0" />
+            ĐÁNH GIÁ KPI GIÁO VIÊN
+          </h1>
+          <span className="text-xs text-blue-200 font-medium">Trường THPT Sơn Lương</span>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {/* Nút Quay lại Trang chủ */}
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold rounded-xl border border-white/20 transition-all cursor-pointer backdrop-blur-xs"
-              title="Trở về Trang chủ Dashboard"
-            >
-              <Home size={15} /> Trang chủ
-            </button>
+        {/* Thanh chức năng ngang */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/15">
+          {/* Nút Quay lại Trang chủ */}
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl border border-white/25 transition-all cursor-pointer backdrop-blur-xs"
+            title="Trở về Trang chủ Dashboard"
+          >
+            <Home size={15} /> Trang chủ
+          </button>
 
-            {/* Tạo phiếu mới */}
-            <button
-              type="button"
-              onClick={handleOpenCreateModal}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
-            >
-              <Plus size={16} /> Tạo phiếu đánh giá mới
-            </button>
+          {/* Tạo phiếu mới */}
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+          >
+            <Plus size={16} /> Tạo phiếu đánh giá mới
+          </button>
 
-            {/* Quản lý tiêu chí (Admin only) */}
-            {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setIsCriteriaManagerOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold rounded-xl border border-white/20 transition-all cursor-pointer backdrop-blur-xs"
-                >
-                  <Sliders size={15} /> Quản lý tiêu chí
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsPeriodManagerOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold rounded-xl border border-white/20 transition-all cursor-pointer backdrop-blur-xs"
-                >
-                  <Calendar size={15} /> Quản lý kỳ
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsRatingConfigModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 hover:text-white text-xs sm:text-sm font-bold rounded-xl border border-amber-400/40 transition-all cursor-pointer backdrop-blur-xs shadow-xs"
-                  title="Cấu hình điểm xếp loại KPI"
-                >
-                  <Sliders size={15} /> ⚙ Cấu hình xếp loại
-                </button>
-              </>
-            )}
+          {/* Quản lý tiêu chí (Admin only) */}
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsCriteriaManagerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl border border-white/25 transition-all cursor-pointer backdrop-blur-xs"
+              >
+                <Sliders size={15} /> Quản lý tiêu chí
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPeriodManagerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl border border-white/25 transition-all cursor-pointer backdrop-blur-xs"
+              >
+                <Calendar size={15} /> Quản lý kỳ
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsRatingConfigModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 hover:text-white text-xs font-bold rounded-xl border border-amber-400/40 transition-all cursor-pointer backdrop-blur-xs shadow-xs"
+                title="Cấu hình điểm xếp loại KPI"
+              >
+                <Sliders size={15} /> Cấu hình xếp loại
+              </button>
+            </>
+          )}
 
-            {/* Xuất Excel */}
-            <button
-              type="button"
-              onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear, ratingConfigs)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl transition-all cursor-pointer shadow-md"
-            >
-              <FileSpreadsheet size={15} /> Xuất Excel tổng hợp
-            </button>
-          </div>
+          {/* Xuất Excel */}
+          <button
+            type="button"
+            onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear, ratingConfigs)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md ml-auto"
+          >
+            <FileSpreadsheet size={15} /> Xuất Excel tổng hợp
+          </button>
         </div>
 
         {/* Trang trí background */}
@@ -905,8 +909,11 @@ export default function KpiTeacherStaff() {
                 <th className="p-3.5 text-center w-32 bg-blue-50/70 text-blue-900 font-bold">
                   Điểm tự đánh giá
                 </th>
+                <th className="p-3.5 text-center w-36 bg-purple-50/70 text-purple-900 font-bold">
+                  Điểm TTCM đánh giá
+                </th>
                 <th className="p-3.5 text-center w-36 bg-indigo-50/70 text-indigo-900 font-bold">
-                  Điểm lãnh đạo đánh giá
+                  Điểm BGH đánh giá
                 </th>
                 <th className="p-3.5 text-center min-w-[180px]">Xếp loại</th>
                 <th className="p-3.5 text-center w-28">Trạng thái</th>
@@ -1017,7 +1024,19 @@ export default function KpiTeacherStaff() {
                             </td>
 
                             <td className="p-3.5 text-center font-extrabold text-blue-800 bg-blue-50/30 text-sm">
-                              {form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
+                              {form.totalScore !== null && form.totalScore !== undefined ? (
+                                <>{form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
+                              )}
+                            </td>
+
+                            <td className="p-3.5 text-center font-extrabold text-purple-800 bg-purple-50/30 text-sm">
+                              {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? (
+                                <>{form.ttcmTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
+                              )}
                             </td>
 
                             <td className="p-3.5 text-center font-extrabold text-indigo-800 bg-indigo-50/30 text-sm">

@@ -56,13 +56,15 @@ export interface KpiStaffScoreItem {
   
   // Scoring values
   selfScore: number; // Cá nhân tự chấm
+  ttcmScore?: number | null; // Tổ trưởng chuyên môn chấm
+  ttcmComment?: string;
   isNA?: boolean; // Tùy chọn N/A nếu không giao
   evidence?: string; // Minh chứng / ghi chú
 
   // Evaluator scoring
   supervisorScore?: number | null;
   supervisorComment?: string;
-  managerScore?: number | null;
+  managerScore?: number | null; // BGH chấm
   managerComment?: string;
 }
 
@@ -101,16 +103,22 @@ export interface KpiStaffForm {
 
   // Calculated totals
   generalTotalSelf: number; // max 30
-  positionTotalSelf: number; // max 70
-  totalScore: number; // max 100
-
+  generalTotalTtcm?: number | null;
   generalTotalManager?: number | null;
+
+  positionTotalSelf: number; // max 70
+  positionTotalTtcm?: number | null;
   positionTotalManager?: number | null;
+
+  totalScore: number; // max 100
+  ttcmTotalScore?: number | null;
   managerTotalScore?: number | null;
 
   // Classification
   selfClassification: string;
+  ttcmClassification?: string;
   leaderClassification?: string;
+  bghClassification?: string;
 
   // Comments
   selfComment?: string;

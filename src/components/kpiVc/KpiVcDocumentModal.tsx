@@ -118,6 +118,7 @@ export default function KpiVcDocumentModal({
   }, [teachers]);
 
   // --- SINGLE FORM STATE (FOR EDIT / VIEW / EVAL MODES) ---
+  const [zoomLevel, setZoomLevel] = useState<number>(0.75);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>('');
@@ -158,9 +159,8 @@ export default function KpiVcDocumentModal({
   const [hasTtcmEval, setHasTtcmEval] = useState<boolean>(true);
   const [hasBghEval, setHasBghEval] = useState<boolean>(true);
   const [evaluatorType, setEvaluatorType] = useState<'TTCM' | 'BGH'>('TTCM');
-  const [selectedTtcmId, setSelectedTtcmId] = useState<string>('auto'); // 'auto' = auto assign TTCM by department
+  const [selectedTtcmId, setSelectedTtcmId] = useState<string>('');
   const [selectedBghId, setSelectedBghId] = useState<string>('');
-  const [deptEvaluatorMap, setDeptEvaluatorMap] = useState<Record<string, string>>({});
 
   // Evaluation Settings State (Create Mode)
   const [allowSelfEval, setAllowSelfEval] = useState<boolean>(true);
@@ -423,20 +423,8 @@ export default function KpiVcDocumentModal({
       setHasTtcmEval(true);
       setHasBghEval(true);
       setEvaluatorType('TTCM');
-      setSelectedTtcmId('auto');
+      setSelectedTtcmId('');
       setSelectedBghId(bghEvaluators[0]?.id || '');
-
-      // Pre-map each department's TTCM
-      const initialDeptMap: Record<string, string> = {};
-      departments.forEach(d => {
-        const foundTtcm = findTtcmForDepartment(d.id, teachers, departments);
-        if (foundTtcm) {
-          initialDeptMap[d.id] = foundTtcm.id;
-        } else if (ttcmEvaluators.length > 0) {
-          initialDeptMap[d.id] = ttcmEvaluators[0].id;
-        }
-      });
-      setDeptEvaluatorMap(initialDeptMap);
 
       setSelectedEvaluatorId('');
       setLeaderSignName('');
@@ -465,91 +453,6 @@ export default function KpiVcDocumentModal({
       }
     }
   }, [periods, selectedPeriodId]);
-
-  // Departments with selected teachers
-  const selectedDepartmentsList = useMemo(() => {
-    const deptMap = new Map<string, { dept: Department; teachers: Teacher[] }>();
-    
-    selectedTeacherIds.forEach(tId => {
-      const t = eligibleTeachers.find(item => item.id === tId) || teachers.find(item => item.id === tId);
-      if (!t) return;
-      const dId = t.departmentId || 'other';
-      const deptObj = departments.find(d => d.id === dId) || { id: dId, name: t.departmentName || (t as any).department || 'Tổ chuyên môn', headId: '' };
-      
-      if (!deptMap.has(dId)) {
-        deptMap.set(dId, { dept: deptObj, teachers: [] });
-      }
-      deptMap.get(dId)!.teachers.push(t);
-    });
-
-    return Array.from(deptMap.values());
-  }, [selectedTeacherIds, eligibleTeachers, teachers, departments]);
-
-  // Xác định nếu tất cả giáo viên được chọn thuộc về 1 tổ duy nhất
-  const singleOrCommonDept = useMemo(() => {
-    if (selectedDepartmentsList.length === 1) {
-      return selectedDepartmentsList[0];
-    }
-    return null;
-  }, [selectedDepartmentsList]);
-
-  // Tổ trưởng tự động đề xuất cho tổ duy nhất được chọn
-  const autoSuggestedTtcm = useMemo(() => {
-    if (!singleOrCommonDept) return null;
-    const deptId = singleOrCommonDept.dept.id;
-    const mappedId = deptEvaluatorMap[deptId];
-    if (mappedId) {
-      const foundTeacher = teachers.find(t => t.id === mappedId);
-      if (foundTeacher) return foundTeacher;
-    }
-    return findTtcmForDepartment(deptId, teachers, departments) || (ttcmEvaluators[0]?.teacher || null);
-  }, [singleOrCommonDept, deptEvaluatorMap, teachers, departments, ttcmEvaluators]);
-
-  // Tự động đồng bộ và gán đúng Tổ trưởng chuyên môn cho từng tổ
-  useEffect(() => {
-    if (departments.length === 0 && teachers.length === 0) return;
-
-    setDeptEvaluatorMap(prev => {
-      let hasChanges = false;
-      const updated = { ...prev };
-
-      departments.forEach(d => {
-        if (!updated[d.id]) {
-          const ttcm = findTtcmForDepartment(d.id, teachers, departments);
-          if (ttcm) {
-            updated[d.id] = ttcm.id;
-            hasChanges = true;
-          } else if (ttcmEvaluators.length > 0) {
-            updated[d.id] = ttcmEvaluators[0].id;
-            hasChanges = true;
-          }
-        }
-      });
-
-      // Kiểm tra thêm các tổ xuất hiện trong danh sách giáo viên được chọn
-      selectedDepartmentsList.forEach(({ dept }) => {
-        if (!updated[dept.id]) {
-          const ttcm = findTtcmForDepartment(dept.id, teachers, departments);
-          if (ttcm) {
-            updated[dept.id] = ttcm.id;
-            hasChanges = true;
-          } else if (ttcmEvaluators.length > 0) {
-            updated[dept.id] = ttcmEvaluators[0].id;
-            hasChanges = true;
-          }
-        }
-      });
-
-      return hasChanges ? updated : prev;
-    });
-  }, [departments, teachers, selectedDepartmentsList, ttcmEvaluators]);
-
-  const handleDeptEvaluatorChange = (deptId: string, ttcmId: string) => {
-    setDeptEvaluatorMap(prev => ({
-      ...prev,
-      [deptId]: ttcmId
-    }));
-  };
 
   // Tự động cập nhật BGH ID nếu chưa có
   useEffect(() => {
@@ -767,6 +670,11 @@ export default function KpiVcDocumentModal({
       return;
     }
 
+    if (hasTtcmEval && !selectedTtcmId) {
+      setErrorMsg('Vui lòng chọn Tổ trưởng chuyên môn đánh giá.');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setErrorMsg(null);
@@ -803,17 +711,13 @@ export default function KpiVcDocumentModal({
         let ttcmDept = teacherDept;
 
         if (hasTtcmEval) {
-          if (selectedTtcmId && selectedTtcmId !== 'auto') {
-            ttcmId = selectedTtcmId;
-          } else {
-            // Tự động phân công đúng tổ trưởng của tổ đó từ danh sách CBGVNV
-            ttcmId = deptEvaluatorMap[teacherDeptId] || findTtcmForDepartment(teacherDeptId, teachers, departments)?.id || '';
-            if (!ttcmId && ttcmEvaluators.length > 0) {
-              ttcmId = ttcmEvaluators[0].id;
-            }
+          if (!selectedTtcmId) {
+            setErrorMsg('Vui lòng chọn Tổ trưởng chuyên môn đánh giá.');
+            setIsSubmitting(false);
+            return;
           }
-
-          const ttcmObj = ttcmId ? teachers.find(t => t.id === ttcmId) : null;
+          ttcmId = selectedTtcmId;
+          const ttcmObj = teachers.find(t => t.id === ttcmId);
           ttcmName = ttcmObj?.name || '';
           ttcmRole = 'Tổ trưởng chuyên môn';
           const tDeptObj = departments.find(d => d.id === teacherDeptId);
@@ -1082,6 +986,23 @@ export default function KpiVcDocumentModal({
             </div>
 
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 bg-white/10 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white">
+                <span className="hidden sm:inline">Thu phóng:</span>
+                <button 
+                  type="button"
+                  onClick={() => setZoomLevel(prev => Math.max(0.6, Number((prev - 0.1).toFixed(1))))}
+                  className="px-1.5 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs cursor-pointer font-mono"
+                  title="Thu nhỏ"
+                >-</button>
+                <span className="px-1 font-mono text-xs">{Math.round(zoomLevel * 100)}%</span>
+                <button 
+                  type="button"
+                  onClick={() => setZoomLevel(prev => Math.min(1.2, Number((prev + 0.1).toFixed(1))))}
+                  className="px-1.5 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs cursor-pointer font-mono"
+                  title="Phóng to"
+                >+</button>
+              </div>
+
               <div className="hidden sm:flex items-center gap-2 bg-white/10 px-3.5 py-1.5 rounded-xl border border-white/15 text-xs text-blue-100 font-semibold">
                 <Users size={16} className="text-blue-300" />
                 <span>Số người đã chọn:</span>
@@ -1689,28 +1610,6 @@ export default function KpiVcDocumentModal({
                       {/* 2. MỤC TỔ TRƯỞNG CHUYÊN MÔN ĐÁNH GIÁ (NẾU ĐƯỢC CHỌN) */}
                       {hasTtcmEval && (
                         <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-3.5 text-xs">
-                          {/* BANNER THÔNG BÁO TỰ ĐỘNG ĐỀ XUẤT NẾU CHỌN 1 TỔ / 1 GIÁO VIÊN */}
-                          {singleOrCommonDept && autoSuggestedTtcm && (
-                            <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
-                                  <Sparkles size={16} />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="font-bold text-emerald-950 truncate">
-                                    Tổ chuyên môn: <span className="underline">{singleOrCommonDept.dept.name}</span>
-                                  </p>
-                                  <p className="text-emerald-800 text-[11px] font-medium mt-0.5 truncate">
-                                    ⭐ Đã tự động đề xuất: <strong className="text-emerald-950 font-bold">{autoSuggestedTtcm.name}</strong> — Tổ trưởng {singleOrCommonDept.dept.name}
-                                  </p>
-                                </div>
-                              </div>
-                              <span className="px-2.5 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-extrabold text-[10.5px] shrink-0">
-                                ✓ Tự động khớp tổ
-                              </span>
-                            </div>
-                          )}
-
                           <div>
                             <label className="block font-bold text-indigo-950 mb-1 text-xs sm:text-sm">
                               Tổ trưởng chuyên môn đánh giá: <span className="text-rose-500">*</span>
@@ -1720,9 +1619,7 @@ export default function KpiVcDocumentModal({
                               onChange={e => setSelectedTtcmId(e.target.value)}
                               className="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white text-indigo-950 border border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
                             >
-                              <option value="auto">
-                                ⭐ Tự động đề xuất đúng Tổ trưởng của từng tổ (Khuyến nghị)
-                              </option>
+                              <option value="">-- Chọn Tổ trưởng chuyên môn đánh giá --</option>
                               {ttcmEvaluators.map(ttcm => (
                                 <option key={ttcm.id} value={ttcm.id}>
                                   {ttcm.displayLabel}
@@ -1730,79 +1627,9 @@ export default function KpiVcDocumentModal({
                               ))}
                             </select>
                             <p className="text-[11px] text-indigo-700 italic mt-1">
-                              {selectedTtcmId === 'auto'
-                                ? 'Hệ thống tự động xác định tổ chuyên môn của từng giáo viên và tự động đề xuất đúng Tổ trưởng của tổ đó từ danh sách CBGVNV.'
-                                : 'Tất cả giáo viên được chọn sẽ do Tổ trưởng này đánh giá.'}
+                              Vui lòng chọn trực tiếp Tổ trưởng chuyên môn chịu trách nhiệm đánh giá.
                             </p>
                           </div>
-
-                          {/* PHÂN CÔNG NGƯỜI ĐÁNH GIÁ THEO TỪNG TỔ CHUYÊN MÔN */}
-                          {selectedDepartmentsList.length > 0 && selectedTtcmId === 'auto' && (
-                            <div className="pt-3 border-t border-indigo-200/80 space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <h3 className="font-extrabold text-indigo-950 text-xs sm:text-[13px] uppercase tracking-wide flex items-center gap-1.5">
-                                  <Sparkles size={14} className="text-indigo-600" />
-                                  PHÂN CÔNG NGƯỜI ĐÁNH GIÁ THEO TỪNG TỔ CHUYÊN MÔN
-                                </h3>
-                                <span className="text-[10.5px] text-indigo-700 font-semibold">
-                                  {selectedDepartmentsList.length} tổ chuyên môn
-                                </span>
-                              </div>
-
-                              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-                                {selectedDepartmentsList.map(({ dept, teachers: deptTeachers }) => {
-                                  const autoTtcm = findTtcmForDepartment(dept.id, teachers, departments);
-                                  const currentDeptEvalId = deptEvaluatorMap[dept.id] || autoTtcm?.id || '';
-                                  const deptOptions = getDepartmentTtcmDropdownOptions(dept.id, teachers, departments);
-
-                                  return (
-                                    <div key={dept.id} className="p-3 bg-white border border-indigo-150 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs hover:border-indigo-300 transition-all">
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-2">
-                                          <p className="font-extrabold text-slate-900 text-xs sm:text-sm truncate">
-                                            {dept.name}
-                                          </p>
-                                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 text-[10.5px] rounded-md font-bold shrink-0">
-                                            {deptTeachers.length} GV
-                                          </span>
-                                        </div>
-
-                                        {autoTtcm ? (
-                                          <p className="text-[11.5px] text-emerald-800 font-semibold mt-0.5 truncate flex items-center gap-1">
-                                            <span className="text-slate-500">Tổ trưởng:</span>
-                                            <strong className="text-emerald-950 font-bold underline decoration-emerald-400 decoration-2">{autoTtcm.name}</strong>
-                                            <span className="text-[10px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-bold ml-1">Đã phân công</span>
-                                          </p>
-                                        ) : (
-                                          <p className="text-[11.5px] text-amber-800 font-semibold mt-0.5 truncate flex items-center gap-1">
-                                            <span>⚠️ Chưa xác định Tổ trưởng</span>
-                                            <span className="text-[10px] text-slate-500 font-normal italic">(Vui lòng chọn người đánh giá)</span>
-                                          </p>
-                                        )}
-                                      </div>
-
-                                      <div className="w-full sm:w-80 shrink-0">
-                                        <select
-                                          value={currentDeptEvalId}
-                                          onChange={e => handleDeptEvaluatorChange(dept.id, e.target.value)}
-                                          className="w-full px-3 py-2 text-xs font-bold bg-indigo-50/70 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:outline-none cursor-pointer"
-                                        >
-                                          {deptOptions.map(opt => {
-                                            const isAuto = opt.id === autoTtcm?.id;
-                                            return (
-                                              <option key={`dept_${dept.id}_${opt.id}`} value={opt.id}>
-                                                {opt.displayLabel} {isAuto ? '⭐ (Đúng tổ trưởng)' : ''}
-                                              </option>
-                                            );
-                                          })}
-                                        </select>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1868,6 +1695,7 @@ export default function KpiVcDocumentModal({
       <div 
         id="kpi-vc-document-modal" 
         className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col my-auto max-h-[96vh] overflow-hidden border border-slate-200 font-sans"
+        style={{ zoom: zoomLevel }}
       >
         
         {/* MODAL ACTION BAR TRÊN CÙNG */}
@@ -1896,6 +1724,23 @@ export default function KpiVcDocumentModal({
           </div>
 
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-white/10 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white">
+              <span className="hidden sm:inline">Thu phóng:</span>
+              <button 
+                type="button"
+                onClick={() => setZoomLevel(prev => Math.max(0.6, Number((prev - 0.1).toFixed(1))))}
+                className="px-1.5 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs cursor-pointer font-mono"
+                title="Thu nhỏ"
+              >-</button>
+              <span className="px-1 font-mono text-xs">{Math.round(zoomLevel * 100)}%</span>
+              <button 
+                type="button"
+                onClick={() => setZoomLevel(prev => Math.min(1.2, Number((prev + 0.1).toFixed(1))))}
+                className="px-1.5 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs cursor-pointer font-mono"
+                title="Phóng to"
+              >+</button>
+            </div>
+
             {form && onPrintRequest && (
               <button
                 type="button"

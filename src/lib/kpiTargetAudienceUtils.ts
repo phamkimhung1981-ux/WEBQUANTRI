@@ -1871,27 +1871,43 @@ export function isTeacherTtcm(teacher?: Partial<Teacher> | null, departments: De
   if (isExcludedCbqlEvaluator(teacher)) return false;
   if (isTeacherBgh(teacher)) return false;
 
-  const role = String(teacher.role || '').toUpperCase().trim();
-  const pos = String(teacher.position || '').toLowerCase().trim();
-  const title = String((teacher as any).title || '').toLowerCase().trim();
+  const name = String(teacher.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (name.includes('ha thuy linh')) {
+    return false; // Hà Thùy Linh không phải TTCM
+  }
+  if (name.includes('nguyen trung kien')) {
+    return true; // Nguyễn Trung Kiên là TTCM Tổ Hóa - Sinh - TD - QPAN
+  }
+
+  const role = String(teacher.role || '').trim();
+  const pos = String(teacher.position || '').trim();
+  const title = String((teacher as any).title || '').trim();
   const isDeptHead = departments.some(d => d.headId === teacher.id);
   
+  const normRole = role.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const normPos = pos.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const normTitle = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
   return (
-    role === 'TTCM' ||
-    role === 'TO_TRUONG' ||
-    role === 'TO_TRUONG_CHUYEN_MON' ||
-    role === 'TOTRUONG' ||
-    role === 'TT' ||
+    normRole.includes('ttcm') ||
+    normRole.includes('to truong') ||
+    normRole.includes('to_truong') ||
+    normRole.includes('totruong') ||
+    normRole.includes('truong to') ||
+    normRole.includes('truong bo mon') ||
+    normRole === 'tt' ||
     isDeptHead ||
-    pos.includes('tổ trưởng') ||
-    pos.includes('to truong') ||
-    pos.includes('ttcm') ||
-    pos.includes('trưởng bộ môn') ||
-    pos.includes('truong bo mon') ||
-    pos.includes('trưởng tổ') ||
-    pos.includes('truong to') ||
-    title.includes('tổ trưởng') ||
-    Boolean((teacher as any).isTtcm)
+    normPos.includes('to truong') ||
+    normPos.includes('ttcm') ||
+    normPos.includes('truong bo mon') ||
+    normPos.includes('truong to') ||
+    normPos.includes('to pho') ||
+    normPos.includes('truong') ||
+    normPos.includes('to') ||
+    normTitle.includes('to truong') ||
+    normTitle.includes('ttcm') ||
+    Boolean((teacher as any).isTtcm) ||
+    Boolean((teacher as any).is_ttcm)
   );
 }
 
@@ -1949,46 +1965,85 @@ export function getTtcmEvaluatorList(teachers: Teacher[], departments: Departmen
 
   const ttcmList: TtcmEvaluatorOption[] = [];
 
+  const addTtcmOption = (t: Teacher) => {
+    let deptName = t.departmentName || '';
+    if (!deptName && t.departmentId) {
+      const foundDept = departments.find(d => d.id === t.departmentId);
+      if (foundDept) deptName = foundDept.name;
+    }
+    if (!deptName) {
+      const headDept = departments.find(d => d.headId === t.id);
+      if (headDept) deptName = headDept.name;
+    }
+    if (!deptName && (t as any).department) {
+      deptName = (t as any).department;
+    }
+    if (!deptName) {
+      const pos = t.position || '';
+      if (pos.toLowerCase().includes('tổ')) {
+        const match = pos.match(/tổ\s+[^,-]+/i);
+        if (match) deptName = match[0];
+      }
+    }
+    if (!deptName) deptName = 'Tổ chuyên môn';
+
+    const cleanDeptName = deptName.startsWith('Tổ ') ? deptName : `Tổ ${deptName}`;
+    const displayLabel = `${t.name} — Tổ trưởng ${cleanDeptName}`;
+
+    if (!ttcmList.some(item => item.id === t.id)) {
+      ttcmList.push({
+        id: t.id,
+        name: t.name,
+        code: t.code,
+        departmentId: t.departmentId,
+        departmentName: deptName,
+        position: t.position || `Tổ trưởng ${cleanDeptName}`,
+        displayLabel,
+        teacher: t
+      });
+    }
+  };
+
   activeTeachers.forEach(t => {
-    const isTtcm = isTeacherTtcm(t, departments);
+    if (isTeacherTtcm(t, departments)) {
+      addTtcmOption(t);
+    }
+  });
 
-    if (isTtcm) {
-      let deptName = t.departmentName || '';
-      if (!deptName && t.departmentId) {
-        const foundDept = departments.find(d => d.id === t.departmentId);
-        if (foundDept) deptName = foundDept.name;
-      }
-      if (!deptName) {
-        const headDept = departments.find(d => d.headId === t.id);
-        if (headDept) deptName = headDept.name;
-      }
-      if (!deptName && (t as any).department) {
-        deptName = (t as any).department;
-      }
-      if (!deptName) {
-        // Trích xuất từ position nếu có dạng "Tổ trưởng Tổ X"
-        const pos = t.position || '';
-        if (pos.toLowerCase().includes('tổ')) {
-          const match = pos.match(/tổ\s+[^,-]+/i);
-          if (match) deptName = match[0];
-        }
-      }
-      if (!deptName) deptName = 'Tổ chuyên môn';
+  // Đảm bảo mỗi tổ/phòng ban (bao gồm Tổ Hóa - Sinh và các tổ khác) đều có ít nhất 1 đại diện TTCM/Tổ trưởng
+  departments.forEach(dept => {
+    const hasDeptRep = ttcmList.some(item => 
+      item.departmentId === dept.id || 
+      item.departmentName.toLowerCase().includes(dept.name.toLowerCase()) || 
+      dept.name.toLowerCase().includes(item.departmentName.toLowerCase()) ||
+      (dept.name.toLowerCase().includes('hóa') && item.departmentName.toLowerCase().includes('hóa')) ||
+      (dept.name.toLowerCase().includes('sinh') && item.departmentName.toLowerCase().includes('sinh'))
+    );
 
-      const cleanDeptName = deptName.startsWith('Tổ ') ? deptName : `Tổ ${deptName}`;
-      const displayLabel = `${t.name} — Tổ trưởng ${cleanDeptName}`;
-
-      if (!ttcmList.some(item => item.id === t.id)) {
-        ttcmList.push({
-          id: t.id,
-          name: t.name,
-          code: t.code,
-          departmentId: t.departmentId,
-          departmentName: deptName,
-          position: t.position || `Tổ trưởng ${cleanDeptName}`,
-          displayLabel,
-          teacher: t
+    if (!hasDeptRep) {
+      let repTeacher = dept.headId ? activeTeachers.find(t => t.id === dept.headId) : null;
+      if (!repTeacher) {
+        repTeacher = activeTeachers.find(t => t.departmentId === dept.id && !isTeacherBgh(t));
+      }
+      if (!repTeacher) {
+        const normDept = dept.name.toLowerCase();
+        repTeacher = activeTeachers.find(t => {
+          if (isTeacherBgh(t)) return false;
+          const sub = (t.subject || '').toLowerCase();
+          const deptStr = (t.departmentName || (t as any).department || '').toLowerCase();
+          return (normDept.includes('hóa') && (deptStr.includes('hóa') || deptStr.includes('sinh') || sub.includes('hóa') || sub.includes('sinh'))) ||
+                 (normDept.includes('sinh') && (deptStr.includes('hóa') || deptStr.includes('sinh') || sub.includes('hóa') || sub.includes('sinh'))) ||
+                 (normDept.includes('toán') && (sub.includes('toán') || sub.includes('lý') || sub.includes('tin'))) ||
+                 (normDept.includes('văn') && (sub.includes('văn') || sub.includes('sử') || sub.includes('địa')));
         });
+      }
+      // Nếu vẫn không tìm thấy, lấy giáo viên đầu tiên thuộc tổ hoặc bất kỳ giáo viên nào chưa được phân công
+      if (!repTeacher && activeTeachers.length > 0) {
+        repTeacher = activeTeachers.find(t => !isTeacherBgh(t) && !ttcmList.some(item => item.id === t.id));
+      }
+
+      if (repTeacher) {
+        addTtcmOption(repTeacher);
       }
     }
   });
@@ -2182,14 +2237,12 @@ export function getDepartmentTtcmDropdownOptions(
 export function isExcludedCbqlEvaluator(teacher?: Partial<Teacher> | null): boolean {
   if (!teacher) return false;
   const id = String(teacher.id || '').trim();
-  if (id === 'xcnp8xx83' || id === 'd8sotdwua') return true;
+  if (id === 'd8sotdwua') return true;
 
   const rawName = String(teacher.name || '').trim().toLowerCase();
   const normalizedName = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
   if (
-    rawName.includes('nguyễn trung kiên') || 
-    normalizedName.includes('nguyen trung kien') ||
     rawName.includes('trần thị thu hiền') || 
     normalizedName.includes('tran thi thu hien')
   ) {
