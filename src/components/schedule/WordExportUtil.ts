@@ -11,6 +11,7 @@ import {
   BorderStyle
 } from 'docx';
 import { WeeklySchedule } from '../../types/schedule';
+import { getWeekInfoByNumber } from '../../utils/schoolWeekUtils';
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -24,6 +25,10 @@ function downloadBlob(blob: Blob, fileName: string) {
 }
 
 export async function exportScheduleToWord(schedule: WeeklySchedule) {
+  const weekNum = Number(schedule.week_number) || schedule.weekNumber || 3;
+  const academicYear = schedule.school_year || schedule.academicYear || '2026–2027';
+  const weekInfo = getWeekInfoByNumber(weekNum, academicYear);
+
   const doc = new Document({
     sections: [
       {
@@ -113,7 +118,7 @@ export async function exportScheduleToWord(schedule: WeeklySchedule) {
             spacing: { after: 200 },
             children: [
               new TextRun({
-                text: `(Từ ngày ${schedule.week_start_date || '...'} đến ngày ${schedule.week_end_date || '...'})`,
+                text: `(Từ ngày ${weekInfo.startDateStr} đến ngày ${weekInfo.endDateStr})`,
                 italics: true,
                 size: 22,
                 font: 'Times New Roman'

@@ -4,19 +4,24 @@ import {
   ZoomIn, ZoomOut, AlertCircle, RefreshCw, Eye, Edit3
 } from 'lucide-react';
 import { WeeklySchedule, ScheduleDay, ScheduleEvent } from '../../types/schedule';
+import { getWeekInfoByNumber, generateWeekId } from '../../utils/schoolWeekUtils';
 
 interface ImageOcrModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveSchedule: (schedule: WeeklySchedule, isUpdate?: boolean) => Promise<void>;
   existingSchedules: WeeklySchedule[];
+  currentWeekNumber?: number;
+  currentYear?: string;
 }
 
 export default function ImageOcrModal({
   isOpen,
   onClose,
   onSaveSchedule,
-  existingSchedules
+  existingSchedules,
+  currentWeekNumber,
+  currentYear = '2026–2027'
 }: ImageOcrModalProps) {
   // Image files & base64 state
   const [images, setImages] = useState<{ id: string; url: string; file: File; base64: string }[]>([]);
@@ -465,14 +470,23 @@ export default function ImageOcrModal({
         };
       });
 
+      const parsedWeekNum = parseInt(String(weekNumber), 10) || currentWeekNumber || 3;
+      const weekInfo = getWeekInfoByNumber(parsedWeekNum, currentYear);
+      const weekId = generateWeekId(parsedWeekNum, currentYear);
+
       const formattedSchedule: WeeklySchedule = {
-        id: `sched_${Date.now()}`,
-        week_number: weekNumber,
-        week_start_date: dateRange.split('-')[0]?.trim() || '',
-        week_end_date: dateRange.split('-')[1]?.trim() || '',
-        duty_week: 'Lớp 12C', // Default
-        school_year: '2026-2027',
-        title: title || `LỊCH CÔNG TÁC TUẦN ${weekNumber}`,
+        id: weekId,
+        weekId: weekId,
+        weekNumber: parsedWeekNum,
+        startDate: weekInfo.startDateIso,
+        endDate: weekInfo.endDateIso,
+        academicYear: currentYear,
+        week_number: String(parsedWeekNum),
+        week_start_date: weekInfo.startDateIso,
+        week_end_date: weekInfo.endDateIso,
+        duty_week: `Lớp ${parsedWeekNum === 3 ? '12C' : parsedWeekNum === 4 ? '12B' : '12A'}`,
+        school_year: currentYear,
+        title: title || `LỊCH CÔNG TÁC TUẦN ${parsedWeekNum}`,
         header_text: 'SỞ GD&ĐT PHÚ THỌ - TRƯỜNG THPT SƠN LƯƠNG',
         days: daysMapped,
         footer: {

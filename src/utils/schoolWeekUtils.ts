@@ -42,16 +42,40 @@ export function parseStartYear(academicYear: string = '2026–2027'): number {
 
 /**
  * Lấy Thứ Hai đầu tiên của năm học (Tuần 01)
- * Đối với năm học 2026–2027: Thứ Hai ngày 31/08/2026 là bắt đầu Tuần 01
- * -> Tuần 03 sẽ rơi vào Thứ Hai ngày 14/09/2026 đến Chủ Nhật ngày 20/09/2026
+ * Đối với năm học 2026–2027:
+ * - Tuần 01: 07/09/2026 – 13/09/2026
+ * - Tuần 02: 14/09/2026 – 20/09/2026
+ * - Tuần 03: 21/09/2026 – 27/09/2026
+ * - Tuần 04: 28/09/2026 – 04/10/2026
+ * - Tuần 05: 05/10/2026 – 11/10/2026
  */
 export function getSchoolYearStartMonday(academicYear: string | number = '2026–2027'): Date {
   const startYear = typeof academicYear === 'number' ? academicYear : parseStartYear(academicYear);
-  const septFirst = new Date(startYear, 8, 1); // 1 tháng 9
-  // Thứ Hai của tuần chứa ngày 1/9
-  const monday = startOfWeek(septFirst, { weekStartsOn: 1 });
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+  if (startYear === 2026) {
+    const monday = new Date(2026, 8, 7); // Thứ Hai ngày 07/09/2026 (Tháng 9 là index 8)
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  }
+  // Cho các năm khác: Thứ Hai đầu tiên từ ngày 5/9 trở đi (sau ngày khai giảng)
+  const septFirst = new Date(startYear, 8, 1);
+  const firstMonday = startOfWeek(septFirst, { weekStartsOn: 1 });
+  if (firstMonday.getMonth() === 7 || firstMonday.getDate() < 4) {
+    const adjusted = addDays(firstMonday, 7);
+    adjusted.setHours(0, 0, 0, 0);
+    return adjusted;
+  }
+  firstMonday.setHours(0, 0, 0, 0);
+  return firstMonday;
+}
+
+/**
+ * Tạo weekId chuẩn hóa theo năm học và số tuần
+ * Ví dụ: 'week_2026_2027_w03', 'week_2026_2027_w05'
+ */
+export function generateWeekId(weekNumber: number | string, academicYear: string = '2026–2027'): string {
+  const normYear = academicYear.replace(/[^a-zA-Z0-9]/g, '_');
+  const num = parseInt(String(weekNumber), 10) || 1;
+  return `week_${normYear}_w${String(num).padStart(2, '0')}`;
 }
 
 /**
