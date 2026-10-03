@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './store/AuthContext';
 import { AppProvider } from './store/AppContext';
+import { UnsavedChangesProvider } from './store/UnsavedChangesContext';
 import Login from './pages/Login';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -138,7 +139,9 @@ export default function App() {
       <AuthProvider>
         <AppProvider>
           <BrowserRouter>
-            <AppRoutes />
+            <UnsavedChangesProvider>
+              <AppRoutes />
+            </UnsavedChangesProvider>
           </BrowserRouter>
         </AppProvider>
       </AuthProvider>

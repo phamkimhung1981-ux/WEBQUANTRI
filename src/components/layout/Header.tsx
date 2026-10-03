@@ -20,6 +20,7 @@ import { useAuth } from '../../store/AuthContext';
 import { useAppContext } from '../../store/AppContext';
 import Avatar from '../ui/Avatar';
 import AvatarModal from '../profile/AvatarModal';
+import BackToHomeButton from '../ui/BackToHomeButton';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -151,8 +152,12 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
           })}
         </nav>
 
-        {/* BÊN PHẢI: THÔNG BÁO, AVATAR, USER INFO, DROPDOWN */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* BÊN PHẢI: NÚT QUAY LẠI GIAO DIỆN CHÍNH (NẾU Ở MODULE CON), THÔNG BÁO, AVATAR, USER INFO */}
+        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+          {!isDashboard && (
+            <BackToHomeButton variant="header" className="hidden lg:inline-flex" />
+          )}
+
           {/* Thông báo */}
           <button 
             id="notifications-bell-btn"
