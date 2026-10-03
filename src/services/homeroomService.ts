@@ -175,6 +175,92 @@ export const homeroomService = {
   },
 
   // 2. LISTENERS FOR REAL-TIME SYNC
+  async getClasses(): Promise<ClassInfo[]> {
+    try {
+      const snap = await getDocs(collection(db, 'classes'));
+      if (!snap.empty) {
+        let classesList = snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
+
+        // Ensure 12I exists or has GVCN Hà Thị Thúy
+        const has12I = classesList.some(c => c.name.toUpperCase() === '12I' || c.id === 'class_12i');
+        if (!has12I) {
+          const class12I: ClassInfo = {
+            id: 'class_12i',
+            name: '12I',
+            grade: 12,
+            schoolYear: '2026–2027',
+            homeroomTeacherId: 't_hathithuy',
+            homeroomTeacherName: 'Hà Thị Thúy',
+            room: 'Phòng 309',
+            totalStudents: 40,
+            status: 'active'
+          };
+          classesList.push(class12I);
+          // Persist to Firestore asynchronously
+          try {
+            setDoc(doc(db, 'classes', 'class_12i'), sanitize(class12I));
+          } catch (e) {
+            // ignore
+          }
+        } else {
+          // If 12I has empty homeroomTeacherName, set to Hà Thị Thúy
+          classesList = classesList.map(c => {
+            if ((c.name.toUpperCase() === '12I' || c.id === 'class_12i') && (!c.homeroomTeacherName || c.homeroomTeacherName === '—')) {
+              const updated = { ...c, homeroomTeacherName: 'Hà Thị Thúy', homeroomTeacherId: 't_hathithuy' };
+              try {
+                updateDoc(doc(db, 'classes', c.id), { homeroomTeacherName: 'Hà Thị Thúy', homeroomTeacherId: 't_hathithuy' });
+              } catch (e) {
+                // ignore
+              }
+              return updated;
+            }
+            return c;
+          });
+        }
+
+        return classesList.sort((a, b) => a.name.localeCompare(b.name));
+      }
+    } catch (e) {
+      console.warn('Firestore getClasses error, fallback to defaults:', e);
+    }
+    return DEFAULT_CLASSES;
+  },
+
+  async getAssignments(): Promise<HomeroomAssignment[]> {
+    try {
+      const snap = await getDocs(collection(db, 'homeroom_assignments'));
+      if (!snap.empty) {
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
+      }
+    } catch (e) {
+      console.warn('Firestore getAssignments error:', e);
+    }
+    return [
+      {
+        id: 'assign_12i',
+        teacherId: 't_hathithuy',
+        teacherName: 'Hà Thị Thúy',
+        classId: 'class_12i',
+        className: '12I',
+        schoolYear: '2026–2027',
+        startDate: '2026-09-01',
+        status: 'active'
+      }
+    ];
+  },
+
+  async getStudents(): Promise<Student[]> {
+    try {
+      const snap = await getDocs(collection(db, 'students'));
+      if (!snap.empty) {
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      }
+    } catch (e) {
+      console.warn('Firestore getStudents error:', e);
+    }
+    return [];
+  },
+
   subscribeClasses(callback: (classes: ClassInfo[]) => void) {
     const q = collection(db, 'classes');
     return onSnapshot(q, (snapshot) => {

@@ -766,7 +766,8 @@ export const DEFAULT_CLASSES: ClassInfo[] = [
   { id: 'class_10a3', name: '10A3', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't3', homeroomTeacherName: 'Lê Thị C', room: 'Phòng 103', totalStudents: 35 },
   { id: 'class_11a1', name: '11A1', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't4', homeroomTeacherName: 'Phạm Văn D', room: 'Phòng 201', totalStudents: 40 },
   { id: 'class_11a2', name: '11A2', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't5', homeroomTeacherName: 'Hoàng Thị E', room: 'Phòng 202', totalStudents: 37 },
-  { id: 'class_12a1', name: '12A1', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't6', homeroomTeacherName: 'Đặng Văn F', room: 'Phòng 301', totalStudents: 42 }
+  { id: 'class_12a1', name: '12A1', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't6', homeroomTeacherName: 'Đặng Văn F', room: 'Phòng 301', totalStudents: 42 },
+  { id: 'class_12i', name: '12I', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't_hathithuy', homeroomTeacherName: 'Hà Thị Thúy', room: 'Phòng 309', totalStudents: 40 }
 ];
 
 export const SAMPLE_STUDENTS: Student[] = [

@@ -25,6 +25,8 @@ import KpiCatalog from './pages/KpiCatalog';
 import Homeroom from './pages/Homeroom';
 import DepartmentSchedule from './pages/DepartmentSchedule';
 import SchoolWorkSchedule from './pages/SchoolWorkSchedule';
+import YouthDiscipline from './pages/YouthDiscipline';
+import YouthDutySchedule from './pages/YouthDutySchedule';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -60,6 +62,14 @@ function AppRoutes() {
         <Route path="/monthly-kpi" element={<KpiCatalog />} />
         <Route path="/discipline" element={<Discipline />} />
         <Route path="/nen-nep" element={<Discipline />} />
+        <Route path="/youth-discipline" element={<YouthDiscipline />} />
+        <Route path="/doan-tn/nen-nep-hoc-sinh" element={<YouthDiscipline />} />
+        <Route path="/nen-nep-hoc-sinh" element={<YouthDiscipline />} />
+        <Route path="/doan-thanh-nien" element={<YouthDiscipline />} />
+        <Route path="/youth-duty-schedule" element={<YouthDutySchedule />} />
+        <Route path="/lich-truc-doan" element={<YouthDutySchedule />} />
+        <Route path="/lich-truc-doan-tn" element={<YouthDutySchedule />} />
+        <Route path="/doan-tn/lich-truc" element={<YouthDutySchedule />} />
         <Route path="/homeroom" element={<Homeroom />} />
         <Route path="/cong-tac-chu-nhiem" element={<Homeroom />} />
         <Route path="/chu-nhiem" element={<Homeroom />} />

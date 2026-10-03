@@ -413,6 +413,51 @@
         "updated_at": { "type": "string" }
       },
       "required": ["id", "department_id", "week_number", "school_year", "days"]
+    },
+    "youth_discipline_criteria": {
+      "title": "Youth Discipline Criterion",
+      "description": "Tiêu chí chấm điểm nền nếp của Đoàn Thanh niên",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "minusPoints": { "type": "number" },
+        "severity": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "category", "minusPoints"]
+    },
+    "youth_discipline_violations": {
+      "title": "Youth Discipline Violation",
+      "description": "Bản ghi vi phạm nề nếp học sinh do Đoàn TN ghi nhận",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolYear": { "type": "string" },
+        "weekNumber": { "type": "number" },
+        "violationDate": { "type": "string" },
+        "classId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "criterionId": { "type": "string" },
+        "minusPoints": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "schoolYear", "weekNumber", "classId", "criterionId", "minusPoints"]
+    },
+    "youth_discipline_weekly_locks": {
+      "title": "Youth Discipline Weekly Lock",
+      "description": "Trạng thái chốt khóa tuần thi đua nền nếp",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolYear": { "type": "string" },
+        "weekNumber": { "type": "number" },
+        "isLocked": { "type": "boolean" },
+        "lockedBy": { "type": "string" }
+      },
+      "required": ["id", "schoolYear", "weekNumber", "isLocked"]
     }
   }
 }
