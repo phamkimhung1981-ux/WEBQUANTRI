@@ -394,6 +394,25 @@
         "updated_at",
         "updated_by"
       ]
+    },
+    "schoolWorkSchedules": {
+      "title": "School Work Schedule",
+      "description": "Lịch giao việc toàn trường và tổ chuyên môn theo tuần",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "department_id": { "type": "string" },
+        "department_name": { "type": "string" },
+        "week_number": { "type": "number" },
+        "week_start_date": { "type": "string" },
+        "week_end_date": { "type": "string" },
+        "school_year": { "type": "string" },
+        "title": { "type": "string" },
+        "days": { "type": "array" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "department_id", "week_number", "school_year", "days"]
     }
   }
 }

@@ -17,7 +17,13 @@ import {
   Building2,
   Users,
   Check,
-  Upload
+  Upload,
+  UserCheck,
+  CalendarDays,
+  Sun,
+  Moon,
+  AlertCircle,
+  HelpCircle
 } from 'lucide-react';
 import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
@@ -59,20 +65,55 @@ export default function SchoolWorkSchedulePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isWordImportOpen, setIsWordImportOpen] = useState<boolean>(false);
 
-  // Modal item state
+  // Modal item state for Add / Edit task
   const [editingItem, setEditingItem] = useState<{
     dayId: string;
+    dayIndex: number;
     timeSlot: 'morning' | 'afternoon';
     item?: SchoolWorkItem;
   } | null>(null);
-  const [itemFormContent, setItemFormContent] = useState<string>('');
-  const [itemFormAssignee, setItemFormAssignee] = useState<string>('');
-  const [itemFormStatus, setItemFormStatus] = useState<string>('Chưa thực hiện');
 
-  // Permissions
-  const isAdmin = user?.role === 'BGH' || (user?.role || '').includes('HIỆU TRƯỞNG') || (user?.role || '').includes('HT') || (user?.role || '').includes('PHT');
-  const isHead = (user?.role || '').includes('TTCM') || (user?.position || '').toLowerCase().includes('tổ trưởng');
-  const canEdit = isAdmin || isHead;
+  // Form fields for editing task
+  const [formDayIndex, setFormDayIndex] = useState<number>(0);
+  const [formWeekNumber, setFormWeekNumber] = useState<number>(initialWeek);
+  const [formTimeSlot, setFormTimeSlot] = useState<'morning' | 'afternoon'>('morning');
+  const [formContent, setFormContent] = useState<string>('');
+  const [formAssignee, setFormAssignee] = useState<string>('');
+  const [formCompletionDate, setFormCompletionDate] = useState<string>('');
+  const [formLeaderInCharge, setFormLeaderInCharge] = useState<string>('');
+  const [formStatus, setFormStatus] = useState<string>('Chưa thực hiện');
+  const [formNote, setFormNote] = useState<string>('');
+
+  // Permissions (Hiệu trưởng, Phó Hiệu trưởng, BGH, ADMIN, TTCM / Tổ trưởng, Cán bộ quản lý)
+  const userRole = (user?.role || '').toUpperCase();
+  const userPosition = (user?.position || '').toUpperCase();
+  const userTitle = ((user as any)?.title || '').toUpperCase();
+
+  const isPrincipalOrVice = 
+    userRole.includes('HIỆU TRƯỞNG') || 
+    userRole.includes('PHÓ HIỆU TRƯỞNG') || 
+    userRole.includes('BGH') || 
+    userRole.includes('HT') || 
+    userRole.includes('PHT') ||
+    userPosition.includes('HIỆU TRƯỞNG') || 
+    userPosition.includes('PHÓ HIỆU TRƯỞNG') || 
+    userPosition.includes('BAN GIÁM HIỆU') ||
+    userTitle.includes('HIỆU TRƯỞNG');
+
+  const isAdmin = 
+    user?.id === 'admin' || 
+    user?.username === 'admin' || 
+    userRole === 'ADMIN' || 
+    userRole === 'QUAN_TRI' || 
+    userPosition.includes('QUẢN TRỊ') ||
+    isPrincipalOrVice;
+
+  const isHead = 
+    userRole.includes('TTCM') || 
+    userRole.includes('TỔ TRƯỞNG') || 
+    userPosition.includes('TỔ TRƯỞNG');
+
+  const canEdit = isAdmin || isPrincipalOrVice || isHead || userRole.includes('GIAO_VU') || userRole.includes('NHAN_SU');
 
   // All weeks info
   const allWeeks = useMemo(() => getAllWeeksInYear(selectedYear), [selectedYear]);
@@ -146,73 +187,211 @@ export default function SchoolWorkSchedulePage() {
     }
   };
 
-  // Open item modal
-  const openAddItemModal = (dayId: string, timeSlot: 'morning' | 'afternoon', item?: SchoolWorkItem) => {
-    setEditingItem({ dayId, timeSlot, item });
-    setItemFormContent(item ? item.content : '');
-    setItemFormAssignee(item ? (item.assignee || '') : '');
-    setItemFormStatus(item ? (item.status || 'Chưa thực hiện') : 'Chưa thực hiện');
+  // Open modal for Adding a new task
+  const openAddTaskModal = (dayId: string, dayIndex: number, timeSlot: 'morning' | 'afternoon') => {
+    const currentDay = schedule?.days[dayIndex];
+    setEditingItem({ dayId, dayIndex, timeSlot });
+    setFormDayIndex(dayIndex);
+    setFormWeekNumber(selectedWeek);
+    setFormTimeSlot(timeSlot);
+    setFormContent('');
+    setFormAssignee('');
+    setFormCompletionDate(currentDay?.completion_date || currentDay?.date_str || '');
+    setFormLeaderInCharge(currentDay?.duty_evaluator || '');
+    setFormStatus('Chưa thực hiện');
+    setFormNote('');
   };
 
-  const handleSaveItem = () => {
-    if (!editingItem || !schedule || !itemFormContent.trim()) return;
+  // Open modal for Editing an existing task
+  const openEditTaskModal = (dayId: string, dayIndex: number, timeSlot: 'morning' | 'afternoon', item: SchoolWorkItem) => {
+    const currentDay = schedule?.days[dayIndex];
+    setEditingItem({ dayId, dayIndex, timeSlot, item });
+    setFormDayIndex(dayIndex);
+    setFormWeekNumber(selectedWeek);
+    setFormTimeSlot(timeSlot);
+    setFormContent(item.content || '');
+    setFormAssignee(item.assignee || '');
+    setFormCompletionDate(item.completionDate || item.deadlineDate || currentDay?.completion_date || currentDay?.date_str || '');
+    setFormLeaderInCharge(item.leaderInCharge || currentDay?.duty_evaluator || '');
+    setFormStatus(item.status || 'Chưa thực hiện');
+    setFormNote(item.note || '');
+  };
 
-    const newDays = schedule.days.map(d => {
-      if (d.id !== editingItem.dayId) return d;
+  // Handle Save (Create or Update) task
+  const handleSaveItem = async () => {
+    if (!editingItem || !schedule || !formContent.trim()) {
+      showToast('Vui lòng nhập nội dung công việc');
+      return;
+    }
 
-      const updatedTasks = editingItem.timeSlot === 'morning' ? [...d.morning_tasks] : [...d.afternoon_tasks];
+    try {
+      setSaving(true);
 
-      if (editingItem.item) {
-        // Edit existing
-        const idx = updatedTasks.findIndex(t => t.id === editingItem.item!.id);
-        if (idx >= 0) {
-          updatedTasks[idx] = {
-            ...updatedTasks[idx],
-            content: itemFormContent.trim(),
-            assignee: itemFormAssignee.trim() || undefined,
-            status: itemFormStatus as any
+      const isEdit = !!editingItem.item;
+      const taskId = isEdit ? editingItem.item!.id : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      const updatedTask: SchoolWorkItem = {
+        id: taskId,
+        timeSlot: formTimeSlot,
+        content: formContent.trim(),
+        assignee: formAssignee.trim() || undefined,
+        deadlineDate: formCompletionDate.trim() || undefined,
+        completionDate: formCompletionDate.trim() || undefined,
+        leaderInCharge: formLeaderInCharge.trim() || undefined,
+        status: formStatus as any,
+        note: formNote.trim() || undefined
+      };
+
+      // Case 1: Same week
+      if (formWeekNumber === selectedWeek) {
+        const originalDayIndex = editingItem.dayIndex;
+        const originalTimeSlot = editingItem.timeSlot;
+        const targetDayIndex = formDayIndex;
+        const targetTimeSlot = formTimeSlot;
+
+        const newDays = schedule.days.map((day, dIdx) => {
+          let morningTasks = [...day.morning_tasks];
+          let afternoonTasks = [...day.afternoon_tasks];
+
+          // If this is the original day and it's an edit or we are moving away
+          if (dIdx === originalDayIndex && isEdit) {
+            if (originalTimeSlot === 'morning') {
+              morningTasks = morningTasks.filter(t => t.id !== taskId);
+            } else {
+              afternoonTasks = afternoonTasks.filter(t => t.id !== taskId);
+            }
+          }
+
+          // If this is the target day, insert the task
+          if (dIdx === targetDayIndex) {
+            if (targetTimeSlot === 'morning') {
+              // Add or replace
+              const existIdx = morningTasks.findIndex(t => t.id === taskId);
+              if (existIdx >= 0) {
+                morningTasks[existIdx] = updatedTask;
+              } else {
+                morningTasks.push(updatedTask);
+              }
+            } else {
+              const existIdx = afternoonTasks.findIndex(t => t.id === taskId);
+              if (existIdx >= 0) {
+                afternoonTasks[existIdx] = updatedTask;
+              } else {
+                afternoonTasks.push(updatedTask);
+              }
+            }
+
+            // Sync day-level completion date & duty evaluator if provided
+            return {
+              ...day,
+              morning_tasks: morningTasks,
+              afternoon_tasks: afternoonTasks,
+              completion_date: formCompletionDate.trim() || day.completion_date,
+              duty_evaluator: formLeaderInCharge.trim() || day.duty_evaluator
+            };
+          }
+
+          return {
+            ...day,
+            morning_tasks: morningTasks,
+            afternoon_tasks: afternoonTasks
           };
-        }
-      } else {
-        // Add new
-        updatedTasks.push({
-          id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          timeSlot: editingItem.timeSlot,
-          content: itemFormContent.trim(),
-          assignee: itemFormAssignee.trim() || undefined,
-          status: itemFormStatus as any
         });
+
+        const updatedSchedule: SchoolWorkSchedule = {
+          ...schedule,
+          days: newDays,
+          updated_at: new Date().toISOString()
+        };
+
+        setSchedule(updatedSchedule);
+        await schoolWorkScheduleService.saveSchedule(updatedSchedule);
+        showToast(isEdit ? 'Đã cập nhật công việc thành công!' : 'Đã thêm công việc mới thành công!');
+      } else {
+        // Case 2: Moved to a different week
+        // Remove from current schedule
+        const currentDays = schedule.days.map((day, dIdx) => {
+          if (dIdx === editingItem.dayIndex && isEdit) {
+            return {
+              ...day,
+              morning_tasks: editingItem.timeSlot === 'morning' ? day.morning_tasks.filter(t => t.id !== taskId) : day.morning_tasks,
+              afternoon_tasks: editingItem.timeSlot === 'afternoon' ? day.afternoon_tasks.filter(t => t.id !== taskId) : day.afternoon_tasks
+            };
+          }
+          return day;
+        });
+
+        const updatedCurrentSchedule: SchoolWorkSchedule = {
+          ...schedule,
+          days: currentDays,
+          updated_at: new Date().toISOString()
+        };
+        setSchedule(updatedCurrentSchedule);
+        await schoolWorkScheduleService.saveSchedule(updatedCurrentSchedule);
+
+        // Fetch target week and insert
+        const targetSchedule = await schoolWorkScheduleService.getSchedule(formWeekNumber, selectedYear, selectedDeptId);
+        const targetDays = targetSchedule.days.map((day, dIdx) => {
+          if (dIdx === formDayIndex) {
+            const mTasks = [...day.morning_tasks];
+            const aTasks = [...day.afternoon_tasks];
+            if (formTimeSlot === 'morning') {
+              mTasks.push(updatedTask);
+            } else {
+              aTasks.push(updatedTask);
+            }
+            return {
+              ...day,
+              morning_tasks: mTasks,
+              afternoon_tasks: aTasks,
+              completion_date: formCompletionDate.trim() || day.completion_date,
+              duty_evaluator: formLeaderInCharge.trim() || day.duty_evaluator
+            };
+          }
+          return day;
+        });
+
+        const updatedTargetSchedule: SchoolWorkSchedule = {
+          ...targetSchedule,
+          days: targetDays,
+          updated_at: new Date().toISOString()
+        };
+        await schoolWorkScheduleService.saveSchedule(updatedTargetSchedule);
+        showToast(`Đã chuyển công việc sang Tuần ${formWeekNumber} thành công!`);
       }
 
-      return {
-        ...d,
-        [editingItem.timeSlot === 'morning' ? 'morning_tasks' : 'afternoon_tasks']: updatedTasks
-      };
-    });
-
-    const updatedSchedule = { ...schedule, days: newDays };
-    setSchedule(updatedSchedule);
-    schoolWorkScheduleService.saveSchedule(updatedSchedule);
-    setEditingItem(null);
-    showToast('Đã cập nhật công việc!');
+      setEditingItem(null);
+    } catch (e) {
+      console.error('Error saving item:', e);
+      showToast('Lỗi khi lưu công việc vào cơ sở dữ liệu');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDeleteItem = (dayId: string, timeSlot: 'morning' | 'afternoon', itemId: string) => {
+  const handleDeleteItem = async (dayId: string, timeSlot: 'morning' | 'afternoon', itemId: string) => {
     if (!schedule) return;
-    const newDays = schedule.days.map(d => {
-      if (d.id !== dayId) return d;
-      return {
-        ...d,
-        [timeSlot === 'morning' ? 'morning_tasks' : 'afternoon_tasks']: (
-          timeSlot === 'morning' ? d.morning_tasks : d.afternoon_tasks
-        ).filter(t => t.id !== itemId)
-      };
-    });
+    if (!window.confirm('Bạn có chắc chắn muốn xóa công việc này?')) return;
 
-    const updatedSchedule = { ...schedule, days: newDays };
-    setSchedule(updatedSchedule);
-    schoolWorkScheduleService.saveSchedule(updatedSchedule);
-    showToast('Đã xóa công việc!');
+    try {
+      const newDays = schedule.days.map(d => {
+        if (d.id !== dayId) return d;
+        return {
+          ...d,
+          [timeSlot === 'morning' ? 'morning_tasks' : 'afternoon_tasks']: (
+            timeSlot === 'morning' ? d.morning_tasks : d.afternoon_tasks
+          ).filter(t => t.id !== itemId)
+        };
+      });
+
+      const updatedSchedule = { ...schedule, days: newDays, updated_at: new Date().toISOString() };
+      setSchedule(updatedSchedule);
+      await schoolWorkScheduleService.saveSchedule(updatedSchedule);
+      showToast('Đã xóa công việc!');
+    } catch (e) {
+      console.error(e);
+      showToast('Lỗi khi xóa công việc');
+    }
   };
 
   // Update field of day (completion_date, duty_evaluator)
@@ -224,7 +403,7 @@ export default function SchoolWorkSchedulePage() {
       }
       return d;
     });
-    const updated = { ...schedule, days: newDays };
+    const updated = { ...schedule, days: newDays, updated_at: new Date().toISOString() };
     setSchedule(updated);
     schoolWorkScheduleService.saveSchedule(updated);
   };
@@ -280,10 +459,37 @@ export default function SchoolWorkSchedulePage() {
   // Format date range text
   const dateRangeSubtitle = `(Từ ngày ${currentWeekInfo.startDateStr} đến ngày ${currentWeekInfo.endDateStr} năm 2026)`;
 
+  const dayNamesList = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+
+  const getStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'Hoàn thành tốt':
+        return <span className="inline-flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">⭐ Hoàn thành tốt</span>;
+      case 'Hoàn thành':
+        return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300">✓ Hoàn thành</span>;
+      case 'Đang thực hiện':
+        return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">⏳ Đang thực hiện</span>;
+      case 'Quá hạn':
+        return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300">⚠ Quá hạn</span>;
+      case 'Không thực hiện':
+        return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 border border-slate-300">✕ Không thực hiện</span>;
+      default:
+        return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">⏸ Chưa thực hiện</span>;
+    }
+  };
+
   return (
     <div className="p-3 sm:p-6 max-w-[1550px] mx-auto space-y-6 pb-20 font-sans">
-      <div className="flex items-center no-print">
+      <div className="flex items-center justify-between no-print">
         <BackButton />
+        {canEdit && (
+          <div className="flex items-center gap-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl">
+            <span>🛡️ Quyền quản lý:</span>
+            <span className="font-extrabold text-blue-700">
+              {isPrincipalOrVice ? 'Ban Giám hiệu / Hiệu trưởng' : isHead ? 'Tổ trưởng chuyên môn' : 'Quản trị viên'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* TOAST ALERT */}
@@ -408,7 +614,7 @@ export default function SchoolWorkSchedulePage() {
         </div>
       </div>
 
-      {/* MAIN DOCUMENT CONTAINER (MÔ PHỎNG CHUẨN MẪU FILE GỬI KÈM) */}
+      {/* MAIN DOCUMENT CONTAINER (CHUẨN FORM MẪU THPT SƠN LƯƠNG) */}
       <div className="bg-white rounded-[24px] border border-slate-200/90 shadow-lg p-6 sm:p-10 space-y-6 text-slate-900 print:p-0 print:border-none print:shadow-none">
         {/* 1. DOCUMENT HEADER */}
         <div className="border-b border-slate-200 pb-5 space-y-2">
@@ -501,7 +707,7 @@ export default function SchoolWorkSchedulePage() {
 
                       {/* CỘT 2: SÁNG - NỘI DUNG CÔNG VIỆC */}
                       <td className="py-3 px-4 border border-slate-700 align-top">
-                        <div className="space-y-2">
+                        <div className="space-y-2.5">
                           {day.morning_tasks.length === 0 ? (
                             <div className="text-slate-400 text-xs italic py-1">
                               —
@@ -510,40 +716,59 @@ export default function SchoolWorkSchedulePage() {
                             day.morning_tasks.map((task) => (
                               <div
                                 key={task.id}
-                                className="group relative p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50/80 border border-slate-300 transition-all text-xs space-y-1"
+                                className="group relative p-3 rounded-xl bg-slate-50 hover:bg-blue-50/90 border border-slate-300 hover:border-blue-300 transition-all text-xs space-y-1.5 shadow-2xs"
                               >
-                                <div className="flex items-start justify-between gap-1.5">
-                                  <p className="font-bold text-slate-900 leading-relaxed whitespace-pre-wrap break-words">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="font-bold text-slate-900 leading-relaxed whitespace-pre-wrap break-words flex-1">
                                     • {task.content}
                                   </p>
 
+                                  {/* ACTION BUTTONS (CHO PHÉP SỬA VÀ XÓA CÔNG VIỆC) */}
                                   {canEdit && (
-                                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity no-print shrink-0">
+                                    <div className="flex items-center gap-1.5 no-print shrink-0">
                                       <button
                                         type="button"
-                                        onClick={() => openAddItemModal(day.id, 'morning', task)}
-                                        className="p-1 hover:bg-blue-100 text-blue-600 rounded"
-                                        title="Sửa công việc"
+                                        onClick={() => openEditTaskModal(day.id, dIdx, 'morning', task)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-black text-blue-700 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-300 rounded-lg shadow-2xs transition-all cursor-pointer"
+                                        title="Nhấn để sửa thông tin công việc này"
                                       >
                                         <Edit2 size={12} />
+                                        <span>Sửa</span>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteItem(day.id, 'morning', task.id)}
-                                        className="p-1 hover:bg-rose-100 text-rose-600 rounded"
+                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                         title="Xóa công việc"
                                       >
-                                        <Trash2 size={12} />
+                                        <Trash2 size={13} />
                                       </button>
                                     </div>
                                   )}
                                 </div>
 
-                                {task.assignee && (
-                                  <div className="text-[11px] font-bold text-blue-900">
-                                    👤 Thực hiện: {task.assignee}
-                                  </div>
-                                )}
+                                {/* Metadata Badges */}
+                                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                  {getStatusBadge(task.status)}
+
+                                  {task.assignee && (
+                                    <span className="text-[11px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                                      👤 {task.assignee}
+                                    </span>
+                                  )}
+
+                                  {task.leaderInCharge && (
+                                    <span className="text-[10.5px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                                      👑 LĐ: {task.leaderInCharge}
+                                    </span>
+                                  )}
+
+                                  {task.note && (
+                                    <span className="text-[10.5px] italic text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                      📝 {task.note}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             ))
                           )}
@@ -551,10 +776,10 @@ export default function SchoolWorkSchedulePage() {
                           {canEdit && (
                             <button
                               type="button"
-                              onClick={() => openAddItemModal(day.id, 'morning')}
-                              className="text-[11px] font-extrabold text-blue-700 hover:text-blue-900 flex items-center gap-1 hover:underline pt-0.5 no-print cursor-pointer"
+                              onClick={() => openAddTaskModal(day.id, dIdx, 'morning')}
+                              className="text-[11.5px] font-black text-blue-700 hover:text-blue-900 flex items-center gap-1.5 hover:underline pt-1 no-print cursor-pointer bg-blue-50/50 hover:bg-blue-100/70 px-2.5 py-1.5 rounded-lg border border-dashed border-blue-300 w-full justify-center transition-colors"
                             >
-                              <Plus size={13} /> + Thêm việc buổi sáng
+                              <Plus size={14} /> Thêm việc buổi sáng
                             </button>
                           )}
                         </div>
@@ -562,7 +787,7 @@ export default function SchoolWorkSchedulePage() {
 
                       {/* CỘT 3: CHIỀU - NỘI DUNG CÔNG VIỆC */}
                       <td className="py-3 px-4 border border-slate-700 align-top">
-                        <div className="space-y-2">
+                        <div className="space-y-2.5">
                           {day.afternoon_tasks.length === 0 ? (
                             <div className="text-slate-400 text-xs italic py-1">
                               —
@@ -571,40 +796,59 @@ export default function SchoolWorkSchedulePage() {
                             day.afternoon_tasks.map((task) => (
                               <div
                                 key={task.id}
-                                className="group relative p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50/80 border border-slate-300 transition-all text-xs space-y-1"
+                                className="group relative p-3 rounded-xl bg-slate-50 hover:bg-blue-50/90 border border-slate-300 hover:border-blue-300 transition-all text-xs space-y-1.5 shadow-2xs"
                               >
-                                <div className="flex items-start justify-between gap-1.5">
-                                  <p className="font-bold text-slate-900 leading-relaxed whitespace-pre-wrap break-words">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="font-bold text-slate-900 leading-relaxed whitespace-pre-wrap break-words flex-1">
                                     • {task.content}
                                   </p>
 
+                                  {/* ACTION BUTTONS (CHO PHÉP SỬA VÀ XÓA CÔNG VIỆC) */}
                                   {canEdit && (
-                                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity no-print shrink-0">
+                                    <div className="flex items-center gap-1.5 no-print shrink-0">
                                       <button
                                         type="button"
-                                        onClick={() => openAddItemModal(day.id, 'afternoon', task)}
-                                        className="p-1 hover:bg-blue-100 text-blue-600 rounded"
-                                        title="Sửa công việc"
+                                        onClick={() => openEditTaskModal(day.id, dIdx, 'afternoon', task)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-black text-blue-700 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-300 rounded-lg shadow-2xs transition-all cursor-pointer"
+                                        title="Nhấn để sửa thông tin công việc này"
                                       >
                                         <Edit2 size={12} />
+                                        <span>Sửa</span>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteItem(day.id, 'afternoon', task.id)}
-                                        className="p-1 hover:bg-rose-100 text-rose-600 rounded"
+                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                         title="Xóa công việc"
                                       >
-                                        <Trash2 size={12} />
+                                        <Trash2 size={13} />
                                       </button>
                                     </div>
                                   )}
                                 </div>
 
-                                {task.assignee && (
-                                  <div className="text-[11px] font-bold text-blue-900">
-                                    👤 Thực hiện: {task.assignee}
-                                  </div>
-                                )}
+                                {/* Metadata Badges */}
+                                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                  {getStatusBadge(task.status)}
+
+                                  {task.assignee && (
+                                    <span className="text-[11px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                                      👤 {task.assignee}
+                                    </span>
+                                  )}
+
+                                  {task.leaderInCharge && (
+                                    <span className="text-[10.5px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                                      👑 LĐ: {task.leaderInCharge}
+                                    </span>
+                                  )}
+
+                                  {task.note && (
+                                    <span className="text-[10.5px] italic text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                      📝 {task.note}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             ))
                           )}
@@ -612,10 +856,10 @@ export default function SchoolWorkSchedulePage() {
                           {canEdit && (
                             <button
                               type="button"
-                              onClick={() => openAddItemModal(day.id, 'afternoon')}
-                              className="text-[11px] font-extrabold text-blue-700 hover:text-blue-900 flex items-center gap-1 hover:underline pt-0.5 no-print cursor-pointer"
+                              onClick={() => openAddTaskModal(day.id, dIdx, 'afternoon')}
+                              className="text-[11.5px] font-black text-blue-700 hover:text-blue-900 flex items-center gap-1.5 hover:underline pt-1 no-print cursor-pointer bg-blue-50/50 hover:bg-blue-100/70 px-2.5 py-1.5 rounded-lg border border-dashed border-blue-300 w-full justify-center transition-colors"
                             >
-                              <Plus size={13} /> + Thêm việc buổi chiều
+                              <Plus size={14} /> Thêm việc buổi chiều
                             </button>
                           )}
                         </div>
@@ -693,87 +937,248 @@ export default function SchoolWorkSchedulePage() {
         </div>
       </div>
 
-      {/* MODAL THÊM / CHỈNH SỬA CÔNG VIỆC */}
+      {/* MODAL CHỈNH SỬA / THÊM CÔNG VIỆC ĐẦY ĐỦ CÁC TRƯỜNG */}
       {editingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50 flex items-center justify-between">
-              <div>
-                <h3 className="font-extrabold text-slate-900 text-base">
-                  {editingItem.item ? 'Chỉnh sửa nội dung công việc' : '+ Thêm công việc mới'}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Buổi: <strong className="text-blue-700">{editingItem.timeSlot === 'morning' ? 'Sáng' : 'Chiều'}</strong>
-                </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-6">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                  <Edit2 size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base sm:text-lg">
+                    {editingItem.item ? '✏️ Chỉnh sửa công việc trong lịch' : '➕ Thêm công việc mới'}
+                  </h3>
+                  <p className="text-xs text-blue-100 mt-0.5">
+                    Cập nhật chi tiết ngày, buổi, nội dung, người thực hiện và tiến độ
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}
-                className="p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-white"
+                className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-colors cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Row 1: Ngày/Thứ + Tuần + Buổi Sáng/Chiều */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Ngày / Thứ */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <CalendarDays size={14} className="text-blue-600" />
+                    <span>Ngày / Thứ <span className="text-rose-500">*</span></span>
+                  </label>
+                  <select
+                    value={formDayIndex}
+                    onChange={e => setFormDayIndex(Number(e.target.value))}
+                    className="w-full p-2.5 text-xs sm:text-sm font-bold text-slate-900 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none cursor-pointer"
+                  >
+                    {dayNamesList.map((dName, idx) => {
+                      const dayObj = schedule?.days[idx];
+                      return (
+                        <option key={dName} value={idx}>
+                          {dName} {dayObj?.date_str ? `(${dayObj.date_str})` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Tuần */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <span>📅</span>
+                    <span>Tuần <span className="text-rose-500">*</span></span>
+                  </label>
+                  <select
+                    value={formWeekNumber}
+                    onChange={e => setFormWeekNumber(Number(e.target.value))}
+                    className="w-full p-2.5 text-xs sm:text-sm font-bold text-slate-900 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none cursor-pointer"
+                  >
+                    {allWeeks.map(w => (
+                      <option key={w.weekNumber} value={w.weekNumber}>
+                        {w.weekLabel}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Buổi Sáng / Chiều */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    {formTimeSlot === 'morning' ? <Sun size={14} className="text-amber-500" /> : <Moon size={14} className="text-indigo-500" />}
+                    <span>Buổi thực hiện <span className="text-rose-500">*</span></span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setFormTimeSlot('morning')}
+                      className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                        formTimeSlot === 'morning'
+                          ? 'bg-amber-400 text-slate-950 shadow-xs font-black'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Sun size={13} /> Sáng
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormTimeSlot('afternoon')}
+                      className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                        formTimeSlot === 'afternoon'
+                          ? 'bg-blue-600 text-white shadow-xs font-black'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Moon size={13} /> Chiều
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Nội dung công việc (Bắt buộc) */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Nội dung công việc <span className="text-rose-500">*</span>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span>Nội dung công việc <span className="text-rose-500">*</span></span>
+                  <span className="text-[11px] font-normal text-slate-400">Có thể xuống dòng nhiều ý</span>
                 </label>
                 <textarea
                   rows={3}
-                  value={itemFormContent}
-                  onChange={e => setItemFormContent(e.target.value)}
-                  placeholder="Nhập nội dung công việc phân công..."
-                  className="w-full p-3 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
+                  value={formContent}
+                  onChange={e => setFormContent(e.target.value)}
+                  placeholder="Nhập chi tiết nội dung công việc phân công..."
+                  className="w-full p-3 text-xs sm:text-sm text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none leading-relaxed"
                 />
               </div>
 
+              {/* Row 3: Người/bộ phận thực hiện */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Người / Đơn vị thực hiện
+                  Người / Bộ phận thực hiện
                 </label>
                 <input
                   type="text"
-                  value={itemFormAssignee}
-                  onChange={e => setItemFormAssignee(e.target.value)}
-                  placeholder="VD: Toàn thể CBGVNV / Tổ Toán - Lý / Lớp 12C / Đ/c Nam..."
-                  className="w-full p-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
+                  value={formAssignee}
+                  onChange={e => setFormAssignee(e.target.value)}
+                  placeholder="VD: Toàn thể CBGVNV / BGH, Đoàn trường / Tổ Toán - Lý / Lớp 12C..."
+                  className="w-full p-2.5 text-xs sm:text-sm text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
                 />
+                {/* Gợi ý người thực hiện */}
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {[
+                    'Toàn thể CBGVNV',
+                    'BGH, Đoàn trường',
+                    'Tổ Toán - Lý - Tin - CN',
+                    'Tổ Hóa - Sinh - GDQPAN - NN',
+                    'Tổ Văn - Sử - Địa - GDKT&PL - AN',
+                    'Tổ Văn phòng',
+                    'GVCN 12C'
+                  ].map(assigneeTag => (
+                    <button
+                      key={assigneeTag}
+                      type="button"
+                      onClick={() => setFormAssignee(assigneeTag)}
+                      className="text-[10px] font-semibold px-2 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 rounded-md border border-slate-200 transition-colors cursor-pointer"
+                    >
+                      + {assigneeTag}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Trạng thái
-                </label>
-                <select
-                  value={itemFormStatus}
-                  onChange={e => setItemFormStatus(e.target.value)}
-                  className="w-full p-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none cursor-pointer"
-                >
-                  <option value="Chưa thực hiện">Chưa thực hiện</option>
-                  <option value="Đang thực hiện">Đang thực hiện</option>
-                  <option value="Hoàn thành">Hoàn thành</option>
-                  <option value="Hoàn thành tốt">Hoàn thành tốt ⭐</option>
-                  <option value="Quá hạn">Quá hạn ⚠</option>
-                </select>
+              {/* Row 4: Ngày hoàn thành & Lãnh đạo phụ trách/trực */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Ngày hoàn thành */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Ngày hoàn thành
+                  </label>
+                  <input
+                    type="text"
+                    value={formCompletionDate}
+                    onChange={e => setFormCompletionDate(e.target.value)}
+                    placeholder="VD: 21/09/2026 hoặc 21/09"
+                    className="w-full p-2.5 text-xs sm:text-sm text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
+                  />
+                </div>
+
+                {/* Lãnh đạo phụ trách / trực */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Lãnh đạo phụ trách / Trực
+                  </label>
+                  <input
+                    type="text"
+                    value={formLeaderInCharge}
+                    onChange={e => setFormLeaderInCharge(e.target.value)}
+                    placeholder="VD: Hiệu trưởng / Phó Hiệu trưởng / Đ/c Nam..."
+                    className="w-full p-2.5 text-xs sm:text-sm text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Row 5: Trạng thái & Ghi chú */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Trạng thái */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Trạng thái công việc
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={e => setFormStatus(e.target.value)}
+                    className="w-full p-2.5 text-xs sm:text-sm font-bold border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none cursor-pointer"
+                  >
+                    <option value="Chưa thực hiện">Chưa thực hiện</option>
+                    <option value="Đang thực hiện">Đang thực hiện ⏳</option>
+                    <option value="Hoàn thành">Hoàn thành ✓</option>
+                    <option value="Hoàn thành tốt">Hoàn thành tốt ⭐</option>
+                    <option value="Quá hạn">Quá hạn ⚠</option>
+                    <option value="Không thực hiện">Không thực hiện ✕</option>
+                  </select>
+                </div>
+
+                {/* Ghi chú */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Ghi chú / Yêu cầu thêm
+                  </label>
+                  <input
+                    type="text"
+                    value={formNote}
+                    onChange={e => setFormNote(e.target.value)}
+                    placeholder="Ghi chú thêm về yêu cầu hoặc lưu ý..."
+                    className="w-full p-2.5 text-xs sm:text-sm text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-100"
+                className="px-4 py-2.5 text-xs sm:text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                Hủy
+                Hủy bỏ
               </button>
+
               <button
                 type="button"
                 onClick={handleSaveItem}
-                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-colors"
+                disabled={saving || !formContent.trim()}
+                className="px-5 py-2.5 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer font-sans"
               >
-                Lưu công việc
+                <Save size={16} />
+                <span>{editingItem.item ? 'Lưu thay đổi' : 'Tạo công việc'}</span>
               </button>
             </div>
           </div>

@@ -4,7 +4,9 @@ export interface SchoolWorkItem {
   content: string;
   assignee?: string;
   deadlineDate?: string;
-  status?: 'Chưa thực hiện' | 'Đang thực hiện' | 'Hoàn thành' | 'Hoàn thành tốt' | 'Quá hạn';
+  completionDate?: string;
+  status?: 'Chưa thực hiện' | 'Đang thực hiện' | 'Hoàn thành' | 'Hoàn thành tốt' | 'Quá hạn' | 'Không thực hiện';
+  leaderInCharge?: string;
   note?: string;
 }
 

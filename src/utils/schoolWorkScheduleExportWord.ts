@@ -169,22 +169,26 @@ export async function exportSchoolWorkScheduleToWord(schedule: SchoolWorkSchedul
     // Morning paragraphs
     const morningParas = (day.morning_tasks && day.morning_tasks.length > 0)
       ? day.morning_tasks.map(t => new DocxParagraph({
+          spacing: { after: 60 },
           children: [
             new DocxTextRun({ text: `- ${t.content}`, font: 'Times New Roman', size: 22 }),
-            ...(t.assignee ? [new DocxTextRun({ text: ` (${t.assignee})`, italics: true, font: 'Times New Roman', size: 20, color: '4B5563' })] : [])
+            ...(t.assignee ? [new DocxTextRun({ text: ` (${t.assignee})`, italics: true, font: 'Times New Roman', size: 20, color: '1E3A8A' })] : []),
+            ...(t.leaderInCharge ? [new DocxTextRun({ text: ` [LĐ: ${t.leaderInCharge}]`, italics: true, font: 'Times New Roman', size: 19, color: '92400E' })] : [])
           ]
         }))
-      : [new DocxParagraph({ children: [new DocxTextRun({ text: '', font: 'Times New Roman', size: 22 })] })];
+      : [new DocxParagraph({ children: [new DocxTextRun({ text: '—', font: 'Times New Roman', size: 20, color: '9CA3AF' })] })];
 
     // Afternoon paragraphs
     const afternoonParas = (day.afternoon_tasks && day.afternoon_tasks.length > 0)
       ? day.afternoon_tasks.map(t => new DocxParagraph({
+          spacing: { after: 60 },
           children: [
             new DocxTextRun({ text: `- ${t.content}`, font: 'Times New Roman', size: 22 }),
-            ...(t.assignee ? [new DocxTextRun({ text: ` (${t.assignee})`, italics: true, font: 'Times New Roman', size: 20, color: '4B5563' })] : [])
+            ...(t.assignee ? [new DocxTextRun({ text: ` (${t.assignee})`, italics: true, font: 'Times New Roman', size: 20, color: '1E3A8A' })] : []),
+            ...(t.leaderInCharge ? [new DocxTextRun({ text: ` [LĐ: ${t.leaderInCharge}]`, italics: true, font: 'Times New Roman', size: 19, color: '92400E' })] : [])
           ]
         }))
-      : [new DocxParagraph({ children: [new DocxTextRun({ text: '', font: 'Times New Roman', size: 22 })] })];
+      : [new DocxParagraph({ children: [new DocxTextRun({ text: '—', font: 'Times New Roman', size: 20, color: '9CA3AF' })] })];
 
     tableRows.push(
       new DocxTableRow({

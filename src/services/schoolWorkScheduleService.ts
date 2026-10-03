@@ -1,6 +1,6 @@
 import { collection, doc, getDocs, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { SchoolWorkSchedule, SchoolWorkDay } from '../types/schoolWorkSchedule';
+import { SchoolWorkSchedule, SchoolWorkDay, SchoolWorkItem } from '../types/schoolWorkSchedule';
 import { getWeekInfoByNumber } from '../utils/schoolWeekUtils';
 
 const COLLECTION_NAME = 'schoolWorkSchedules';
@@ -285,6 +285,42 @@ export const schoolWorkScheduleService = {
     } catch (e) {
       console.warn('Firestore saveSchedule error, data saved locally:', e);
     }
+  },
+
+  async updateTaskItem(
+    schedule: SchoolWorkSchedule,
+    dayId: string,
+    timeSlot: 'morning' | 'afternoon',
+    taskItem: SchoolWorkItem
+  ): Promise<SchoolWorkSchedule> {
+    const newDays = schedule.days.map(day => {
+      if (day.id !== dayId) return day;
+
+      const tasks = timeSlot === 'morning' ? [...day.morning_tasks] : [...day.afternoon_tasks];
+      const existingIdx = tasks.findIndex(t => t.id === taskItem.id);
+
+      if (existingIdx >= 0) {
+        tasks[existingIdx] = { ...tasks[existingIdx], ...taskItem };
+      } else {
+        tasks.push(taskItem);
+      }
+
+      return {
+        ...day,
+        [timeSlot === 'morning' ? 'morning_tasks' : 'afternoon_tasks']: tasks,
+        ...(taskItem.completionDate ? { completion_date: taskItem.completionDate } : {}),
+        ...(taskItem.leaderInCharge && !day.duty_evaluator ? { duty_evaluator: taskItem.leaderInCharge } : {})
+      };
+    });
+
+    const updated: SchoolWorkSchedule = {
+      ...schedule,
+      days: newDays,
+      updated_at: new Date().toISOString()
+    };
+
+    await this.saveSchedule(updated);
+    return updated;
   },
 
   async getAllSchedules(): Promise<SchoolWorkSchedule[]> {
