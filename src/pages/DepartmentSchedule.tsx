@@ -41,7 +41,7 @@ import {
 import DepartmentScheduleWordUploadModal from '../components/departmentSchedule/DepartmentScheduleWordUploadModal';
 import DepartmentSchedulePrintModal from '../components/departmentSchedule/DepartmentSchedulePrintModal';
 import { PRESET_DEPARTMENTS } from './Tasks';
-import { getWeekInfoByNumber, getAllWeeksInYear } from '../utils/schoolWeekUtils';
+import { getWeekInfoByNumber, getAllWeeksInYear, getWeekDayDates, WeekDayDateItem } from '../utils/schoolWeekUtils';
 import AutoResizeTextarea from '../components/ui/AutoResizeTextarea';
 
 export default function DepartmentSchedule() {
@@ -112,6 +112,11 @@ export default function DepartmentSchedule() {
     return getWeekInfoByNumber(selectedWeek, '2026-2027');
   }, [selectedWeek]);
 
+  // Danh sách 7 ngày trong tuần được tính trực tiếp từ mốc Thứ Hai của tuần đang chọn
+  const currentWeekDays = useMemo(() => {
+    return getWeekDayDates(selectedWeek, '2026-2027');
+  }, [selectedWeek]);
+
   // Show Toast
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -148,7 +153,9 @@ export default function DepartmentSchedule() {
     );
 
     if (existing) {
-      setSchedule(existing);
+      // Chuẩn hóa và gắn ngày thực tế của tuần đang chọn (sửa tận gốc nếu dữ liệu cũ lưu sai ngày)
+      const normalized = departmentScheduleService.normalizeScheduleForWeek(existing, selectedWeek, '2026-2027');
+      setSchedule(normalized);
     } else {
       // Create fresh blank schedule
       const blank = departmentScheduleService.createBlankSchedule(
@@ -164,17 +171,38 @@ export default function DepartmentSchedule() {
     setSearchParams({ dept: selectedDeptId, week: String(selectedWeek) }, { replace: true });
   }, [selectedDeptId, selectedWeek, allSchedules, loading, currentDeptConfig]);
 
-  // Handle cell edit
-  const handleUpdateDay = (dayIndex: number, field: keyof DepartmentScheduleDayItem, value: any) => {
+  // Handle cell edit by date ISO (Liên kết dữ liệu với ngày thực tế)
+  const handleUpdateDay = (dateIso: string, field: keyof DepartmentScheduleDayItem, value: any) => {
     if (!schedule) return;
 
     const newDays = [...schedule.days];
-    newDays[dayIndex] = {
-      ...newDays[dayIndex],
-      [field]: value
-    };
+    let dayIndex = newDays.findIndex(d => d.date === dateIso);
 
-    const updatedSchedule = {
+    if (dayIndex >= 0) {
+      newDays[dayIndex] = {
+        ...newDays[dayIndex],
+        [field]: value
+      };
+    } else {
+      // Nếu chưa có phần tử ngày này thì tạo mới gắn đúng ngày thực tế
+      const wDay = currentWeekDays.find(w => w.dateIso === dateIso);
+      if (wDay) {
+        newDays.push({
+          id: `day_${Date.now()}`,
+          dayOfWeek: wDay.dayOfWeek,
+          date: dateIso,
+          dateDisplay: wDay.dateLabel,
+          morningTasks: field === 'morningTasks' ? value : '',
+          afternoonTasks: field === 'afternoonTasks' ? value : '',
+          dutyLeaderOrEvaluation: field === 'dutyLeaderOrEvaluation' ? value : '',
+          notes: field === 'notes' ? value : '',
+          assignedTeachers: [],
+          status: 'pending'
+        });
+      }
+    }
+
+    const updatedSchedule: DepartmentWeeklySchedule = {
       ...schedule,
       days: newDays,
       updatedAt: new Date().toISOString()
@@ -191,17 +219,19 @@ export default function DepartmentSchedule() {
     if (!schedule) return;
     setSaving(true);
     try {
-      await departmentScheduleService.saveSchedule(schedule);
+      const normalized = departmentScheduleService.normalizeScheduleForWeek(schedule, selectedWeek, '2026-2027');
+      await departmentScheduleService.saveSchedule(normalized);
+      setSchedule(normalized);
       
       // Update local state list
       setAllSchedules(prev => {
-        const idx = prev.findIndex(s => s.id === schedule.id);
+        const idx = prev.findIndex(s => s.id === normalized.id || (s.departmentId === normalized.departmentId && s.weekNumber === normalized.weekNumber));
         if (idx >= 0) {
           const updated = [...prev];
-          updated[idx] = schedule;
+          updated[idx] = normalized;
           return updated;
         }
-        return [schedule, ...prev];
+        return [normalized, ...prev];
       });
 
       showToast('Đã lưu lịch giao việc thành công!');
@@ -215,12 +245,13 @@ export default function DepartmentSchedule() {
 
   // Handle imported schedule from Word Modal
   const handleWordScheduleSaved = async (imported: DepartmentWeeklySchedule) => {
-    await departmentScheduleService.saveSchedule(imported);
-    setAllSchedules(prev => [imported, ...prev.filter(s => s.id !== imported.id)]);
-    setSelectedDeptId(imported.departmentId);
-    setSelectedWeek(imported.weekNumber);
-    setSchedule(imported);
-    showToast(`Đã nạp thành công lịch tuần ${imported.weekNumber} từ file Word!`);
+    const normalized = departmentScheduleService.normalizeScheduleForWeek(imported, imported.weekNumber, '2026-2027');
+    await departmentScheduleService.saveSchedule(normalized);
+    setAllSchedules(prev => [normalized, ...prev.filter(s => s.id !== normalized.id)]);
+    setSelectedDeptId(normalized.departmentId);
+    setSelectedWeek(normalized.weekNumber);
+    setSchedule(normalized);
+    showToast(`Đã nạp thành công lịch tuần ${normalized.weekNumber} từ file Word!`);
   };
 
   // Handle BGH Approval
@@ -240,11 +271,12 @@ export default function DepartmentSchedule() {
   };
 
   // Add bullet to day cell
-  const handleAddBullet = (dayIdx: number, field: 'morningTasks' | 'afternoonTasks') => {
+  const handleAddBullet = (dateIso: string, field: 'morningTasks' | 'afternoonTasks') => {
     if (!schedule) return;
-    const currentText = schedule.days[dayIdx][field] || '';
+    const targetDay = schedule.days?.find(d => d.date === dateIso);
+    const currentText = targetDay ? targetDay[field] || '' : '';
     const newText = currentText ? `${currentText}\n- ` : '- ';
-    handleUpdateDay(dayIdx, field, newText);
+    handleUpdateDay(dateIso, field, newText);
   };
 
   return (
@@ -530,81 +562,102 @@ export default function DepartmentSchedule() {
 
               {/* Table Body */}
               <tbody className="divide-y divide-slate-300 bg-white">
-                {schedule?.days.map((day, idx) => (
-                  <tr key={day.id || idx} className="hover:bg-blue-50/20 transition-colors">
-                    
-                    {/* Col 1: Thứ, ngày */}
-                    <td className="px-3 py-3 border-r border-slate-300 font-extrabold text-slate-800 text-center align-middle bg-slate-50/70 w-36">
-                      <div className="text-xs uppercase">{day.dayOfWeek}</div>
-                      <div className="text-[11px] text-blue-600 font-bold mt-0.5">
-                        {day.date ? day.date.split('-').reverse().slice(0, 2).join('/') : ''}
-                      </div>
-                    </td>
+                {currentWeekDays.map((wDay, idx) => {
+                  const day = schedule?.days?.find(d => d.date === wDay.dateIso)
+                           || schedule?.days?.find(d => d.dayOfWeek?.trim().toLowerCase() === wDay.dayOfWeek.trim().toLowerCase())
+                           || schedule?.days?.[idx]
+                           || {
+                             id: `day_${idx}`,
+                             dayOfWeek: wDay.dayOfWeek,
+                             date: wDay.dateIso,
+                             dateDisplay: wDay.dateLabel,
+                             morningTasks: '',
+                             afternoonTasks: '',
+                             dutyLeaderOrEvaluation: '',
+                             notes: '',
+                             assignedTeachers: [],
+                             status: 'pending'
+                           };
 
-                    {/* Col 2: Sáng - Nội dung công việc */}
-                    <td className="p-2.5 border-r border-slate-300 align-top group relative">
-                      <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          type="button"
-                          onClick={() => handleAddBullet(idx, 'morningTasks')}
-                          className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus size={11} /> Thêm dòng việc
-                        </button>
-                      </div>
-                      <AutoResizeTextarea
-                        minHeight={64}
-                        value={day.morningTasks || ''}
-                        onChange={(e) => handleUpdateDay(idx, 'morningTasks', e.target.value)}
-                        placeholder="Nội dung công việc buổi sáng..."
-                        className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none leading-relaxed"
-                      />
-                    </td>
+                  return (
+                    <tr key={`week_${selectedWeek}_${wDay.dateIso}`} className="hover:bg-blue-50/20 transition-colors">
+                      
+                      {/* Col 1: Thứ, ngày - Tính trực tiếp từ tuần đang chọn */}
+                      <td className="px-3 py-3 border-r border-slate-300 font-extrabold text-slate-800 text-center align-middle bg-slate-50/70 w-36">
+                        <div className="text-xs uppercase tracking-tight">{wDay.dayOfWeek}</div>
+                        <div className="text-xs text-blue-600 font-extrabold mt-0.5">
+                          {wDay.dateDisplayShort}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-medium">
+                          {wDay.dateDisplayFull}
+                        </div>
+                      </td>
 
-                    {/* Col 3: Chiều - Nội dung công việc */}
-                    <td className="p-2.5 border-r border-slate-300 align-top group relative">
-                      <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          type="button"
-                          onClick={() => handleAddBullet(idx, 'afternoonTasks')}
-                          className="text-[10px] text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus size={11} /> Thêm dòng việc
-                        </button>
-                      </div>
-                      <AutoResizeTextarea
-                        minHeight={64}
-                        value={day.afternoonTasks || ''}
-                        onChange={(e) => handleUpdateDay(idx, 'afternoonTasks', e.target.value)}
-                        placeholder="Nội dung công việc buổi chiều..."
-                        className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none leading-relaxed"
-                      />
-                    </td>
+                      {/* Col 2: Sáng - Nội dung công việc */}
+                      <td className="p-2.5 border-r border-slate-300 align-top group relative">
+                        <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => handleAddBullet(wDay.dateIso, 'morningTasks')}
+                            className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus size={11} /> Thêm dòng việc
+                          </button>
+                        </div>
+                        <AutoResizeTextarea
+                          minHeight={64}
+                          value={day.morningTasks || ''}
+                          onChange={(e) => handleUpdateDay(wDay.dateIso, 'morningTasks', e.target.value)}
+                          placeholder="Nội dung công việc buổi sáng..."
+                          className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none leading-relaxed"
+                        />
+                      </td>
 
-                    {/* Col 4: Lãnh đạo trực/đánh giá */}
-                    <td className="p-2.5 border-r border-slate-300 align-top w-44">
-                      <AutoResizeTextarea
-                        minHeight={64}
-                        value={day.dutyLeaderOrEvaluation || ''}
-                        onChange={(e) => handleUpdateDay(idx, 'dutyLeaderOrEvaluation', e.target.value)}
-                        placeholder="Lãnh đạo trực / đánh giá kết quả..."
-                        className="w-full text-xs text-slate-700 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 outline-none text-center leading-relaxed"
-                      />
-                    </td>
+                      {/* Col 3: Chiều - Nội dung công việc */}
+                      <td className="p-2.5 border-r border-slate-300 align-top group relative">
+                        <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => handleAddBullet(wDay.dateIso, 'afternoonTasks')}
+                            className="text-[10px] text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus size={11} /> Thêm dòng việc
+                          </button>
+                        </div>
+                        <AutoResizeTextarea
+                          minHeight={64}
+                          value={day.afternoonTasks || ''}
+                          onChange={(e) => handleUpdateDay(wDay.dateIso, 'afternoonTasks', e.target.value)}
+                          placeholder="Nội dung công việc buổi chiều..."
+                          className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none leading-relaxed"
+                        />
+                      </td>
 
-                    {/* Col 5: Ghi chú */}
-                    <td className="p-2.5 align-top w-32">
-                      <AutoResizeTextarea
-                        minHeight={64}
-                        value={day.notes || ''}
-                        onChange={(e) => handleUpdateDay(idx, 'notes', e.target.value)}
-                        placeholder="Ghi chú thêm..."
-                        className="w-full text-xs text-slate-600 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-slate-400 outline-none text-center leading-relaxed"
-                      />
-                    </td>
+                      {/* Col 4: Lãnh đạo trực/đánh giá */}
+                      <td className="p-2.5 border-r border-slate-300 align-top w-44">
+                        <AutoResizeTextarea
+                          minHeight={64}
+                          value={day.dutyLeaderOrEvaluation || ''}
+                          onChange={(e) => handleUpdateDay(wDay.dateIso, 'dutyLeaderOrEvaluation', e.target.value)}
+                          placeholder="Lãnh đạo trực / đánh giá kết quả..."
+                          className="w-full text-xs text-slate-700 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 outline-none text-center leading-relaxed"
+                        />
+                      </td>
 
-                  </tr>
-                ))}
+                      {/* Col 5: Ghi chú */}
+                      <td className="p-2.5 align-top w-32">
+                        <AutoResizeTextarea
+                          minHeight={64}
+                          value={day.notes || ''}
+                          onChange={(e) => handleUpdateDay(wDay.dateIso, 'notes', e.target.value)}
+                          placeholder="Ghi chú thêm..."
+                          className="w-full text-xs text-slate-600 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-slate-400 outline-none text-center leading-relaxed"
+                        />
+                      </td>
+
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

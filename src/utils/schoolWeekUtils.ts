@@ -113,6 +113,55 @@ export function getWeekInfoByNumber(weekNumber: number, academicYear: string = '
   };
 }
 
+export interface WeekDayDateItem {
+  dayOfWeek: string;
+  dayIndex: number;
+  dateIso: string;
+  dateDisplayShort: string;
+  dateDisplayFull: string;
+  dateLabel: string;
+}
+
+/**
+ * Quy đổi ngày theo tuần được chọn:
+ * - THỨ HAI = startDate + 0 ngày
+ * - THỨ BA = startDate + 1 ngày
+ * - THỨ TƯ = startDate + 2 ngày
+ * - THỨ NĂM = startDate + 3 ngày
+ * - THỨ SÁU = startDate + 4 ngày
+ * - THỨ BẢY = startDate + 5 ngày
+ * - CHỦ NHẬT = startDate + 6 ngày
+ */
+export function getWeekDayDates(weekNumber: number, academicYear: string = '2026–2027'): WeekDayDateItem[] {
+  const weekInfo = getWeekInfoByNumber(weekNumber, academicYear);
+  const startMonday = weekInfo.startDate;
+
+  const dayNames = [
+    'Thứ Hai',
+    'Thứ Ba',
+    'Thứ Tư',
+    'Thứ Năm',
+    'Thứ Sáu',
+    'Thứ Bảy',
+    'Chủ Nhật'
+  ];
+
+  return dayNames.map((dayOfWeek, idx) => {
+    const d = addDays(startMonday, idx);
+    const dateIso = format(d, 'yyyy-MM-dd');
+    const dateDisplayShort = format(d, 'dd/MM');
+    const dateDisplayFull = format(d, 'dd/MM/yyyy');
+    return {
+      dayOfWeek,
+      dayIndex: idx,
+      dateIso,
+      dateDisplayShort,
+      dateDisplayFull,
+      dateLabel: `${dayOfWeek}, ${dateDisplayFull}`
+    };
+  });
+}
+
 /**
  * Lấy danh sách toàn bộ 45 tuần trong năm học
  */
