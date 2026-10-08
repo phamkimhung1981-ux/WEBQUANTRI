@@ -191,6 +191,14 @@ export function getCurrentSchoolWeekInfo(referenceDate: Date = new Date(), acade
 }
 
 /**
+ * Trả về số tuần (1..45) cho một ngày bất kỳ trong năm học
+ */
+export function getWeekNumberFromDate(date: Date | string, academicYear: string = '2026–2027'): number {
+  const d = typeof date === 'string' ? (safeParseDate(date) || new Date(date)) : date;
+  return getCurrentSchoolWeekInfo(d, academicYear).weekNumber;
+}
+
+/**
  * Tự động xác định Quá hạn khi:
  * Ngày hiện tại > Hạn hoàn thành và công việc chưa hoàn thành.
  */

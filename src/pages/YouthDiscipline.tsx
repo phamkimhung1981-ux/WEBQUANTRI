@@ -67,7 +67,7 @@ import {
   DEFAULT_YOUTH_SETTINGS
 } from '../lib/youthDisciplineData';
 import { ClassInfo, Student, HomeroomAssignment } from '../types/homeroom';
-import { ACADEMIC_YEARS, getAllWeeksInYear, getWeekInfoByNumber } from '../utils/schoolWeekUtils';
+import { ACADEMIC_YEARS, getAllWeeksInYear, getWeekInfoByNumber, getWeekNumberFromDate } from '../utils/schoolWeekUtils';
 import { exportYouthDisciplineToExcel, exportYouthDisciplineToWord } from '../utils/youthDisciplineExport';
 
 export default function YouthDisciplinePage() {
@@ -422,7 +422,20 @@ export default function YouthDisciplinePage() {
     }
   };
   const modalClassStudents = useMemo(() => {
-    let list = !formVioClassId ? [] : students.filter(s => s.classId === formVioClassId || s.className === formVioClassId);
+    if (!formVioClassId) return [];
+    const targetCls = classes.find(c => c.id === formVioClassId || c.name === formVioClassId);
+    const normC = ((targetCls?.name) || (targetCls?.id) || formVioClassId).replace(/[^a-z0-9]/gi, '').toLowerCase();
+
+    let list = students.filter(s => {
+      if (s.classId === formVioClassId) return true;
+      if (targetCls && s.classId === targetCls.id) return true;
+      if (targetCls && s.className && targetCls.name && s.className.toLowerCase().trim() === targetCls.name.toLowerCase().trim()) return true;
+      const normS = (s.className || s.classId || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+      return normS && normS === normC;
+    });
+
+    list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'));
+
     if (editingViolation && editingViolation.studentId && editingViolation.studentId !== 'ALL_CLASS' && !list.some(s => s.id === editingViolation.studentId)) {
       list = [
         {
@@ -438,7 +451,7 @@ export default function YouthDisciplinePage() {
       ];
     }
     return list;
-  }, [students, formVioClassId, editingViolation]);
+  }, [students, classes, formVioClassId, editingViolation]);
 
   // Filtered violations according to user's selections
   const filteredViolations = useMemo(() => {
@@ -719,10 +732,13 @@ export default function YouthDisciplinePage() {
   const openNewViolationModal = () => {
     setEditingViolation(null);
     const todayStr = new Date().toISOString().split('T')[0];
+    const computedWeek = getWeekNumberFromDate(todayStr, selectedYear);
+    const defaultWeek = selectedWeek > 0 ? selectedWeek : computedWeek;
+
     setFormVioDate(todayStr);
     setFormVioTime('07:15');
     setFormVioPeriod('Sáng');
-    setFormVioWeek(selectedWeek > 0 ? selectedWeek : 3);
+    setFormVioWeek(defaultWeek);
     setFormVioTargetMode('single');
     setFormVioContent('');
     setFormVioLocation('Cổng trường');
@@ -730,13 +746,28 @@ export default function YouthDisciplinePage() {
     setFormVioNotes('');
     setFormVioEvidenceUrl('');
 
-    if (classes.length > 0) {
-      setFormVioClassId(classes[0].id);
-      const firstClassStudents = students.filter(s => s.classId === classes[0].id);
-      if (firstClassStudents.length > 0) {
-        setFormVioStudentId(firstClassStudents[0].id);
-        setFormVioSelectedStudentIds([firstClassStudents[0].id]);
-      }
+    const targetClassId = (selectedClassId && selectedClassId !== 'All') 
+      ? selectedClassId 
+      : (classes.length > 0 ? classes[0].id : '');
+
+    setFormVioClassId(targetClassId);
+
+    const targetCls = classes.find(c => c.id === targetClassId || c.name === targetClassId);
+    const normC = ((targetCls?.name) || (targetCls?.id) || targetClassId).replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const classStus = students.filter(s => {
+      if (!targetCls) return false;
+      if (s.classId === targetCls.id) return true;
+      if (targetCls.name && s.className && targetCls.name.toLowerCase().trim() === s.className.toLowerCase().trim()) return true;
+      const normS = (s.className || s.classId || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+      return normS && normS === normC;
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'));
+
+    if (classStus.length > 0) {
+      setFormVioStudentId(classStus[0].id);
+      setFormVioSelectedStudentIds([classStus[0].id]);
+    } else {
+      setFormVioStudentId('');
+      setFormVioSelectedStudentIds([]);
     }
 
     if (criteria.length > 0) {
@@ -771,46 +802,56 @@ export default function YouthDisciplinePage() {
   // Handle saving violation form
   const handleSaveViolation = async () => {
     const selectedCriterion = criteria.find(c => c.id === formVioCriterionId);
-    const targetClass = classes.find(c => c.id === formVioClassId);
+    const targetClass = classes.find(c => c.id === formVioClassId || c.name === formVioClassId);
 
-    if (!selectedCriterion || !targetClass) {
-      showToast('Vui lòng chọn tiêu chí và lớp học');
+    if (!targetClass) {
+      showToast('Vui lòng chọn lớp học');
+      return;
+    }
+
+    if (!selectedCriterion) {
+      showToast('Vui lòng chọn tiêu chí vi phạm');
+      return;
+    }
+
+    if (!formVioDate) {
+      showToast('Vui lòng chọn ngày vi phạm');
       return;
     }
 
     const monthNum = new Date(formVioDate).getMonth() + 1;
-    const effectiveWeek = Number(formVioWeek) > 0 ? Number(formVioWeek) : (selectedWeek > 0 ? selectedWeek : 3);
+    const effectiveWeek = Number(formVioWeek) > 0 ? Number(formVioWeek) : getWeekNumberFromDate(formVioDate, selectedYear);
 
     try {
       if (editingViolation) {
         // Edit single record
-        const targetStudent = students.find(s => s.id === formVioStudentId);
+        const targetStudent = students.find(s => s.id === formVioStudentId) || modalClassStudents.find(s => s.id === formVioStudentId);
         const updatedRecord: YouthViolationRecord = {
           ...editingViolation,
           schoolYear: selectedYear,
           weekNumber: effectiveWeek,
           monthNumber: monthNum,
           violationDate: formVioDate,
-          violationTime: formVioTime,
-          periodSlot: formVioPeriod,
+          violationTime: formVioTime || '07:15',
+          periodSlot: formVioPeriod || 'Sáng',
           classId: targetClass.id,
           className: targetClass.name,
-          studentId: formVioTargetMode === 'whole_class' ? 'ALL_CLASS' : (targetStudent?.id || 'ALL_CLASS'),
+          studentId: formVioTargetMode === 'whole_class' ? 'ALL_CLASS' : (targetStudent?.id || formVioStudentId || 'ALL_CLASS'),
           studentName: formVioTargetMode === 'whole_class' ? `Tập thể ${targetClass.name}` : (targetStudent?.name || `Tập thể ${targetClass.name}`),
           studentCode: targetStudent?.code || '',
           isWholeClass: formVioTargetMode === 'whole_class',
           criterionId: selectedCriterion.id,
-          criterionCode: selectedCriterion.code,
+          criterionCode: selectedCriterion.code || '',
           criterionName: selectedCriterion.name,
           category: selectedCriterion.category,
           categoryName: selectedCriterion.categoryName,
-          severity: selectedCriterion.severity,
-          minusPoints: Number(formVioMinusPoints),
-          location: formVioLocation,
+          severity: selectedCriterion.severity || 'Nhẹ',
+          minusPoints: Number(formVioMinusPoints) || 0,
+          location: formVioLocation?.trim() || 'Cổng trường',
           content: formVioContent.trim() || selectedCriterion.name,
-          evidenceUrl: formVioEvidenceUrl.trim() || undefined,
-          recordedByName: formVioRecordedByName.trim() || 'Cán bộ Đoàn',
-          notes: formVioNotes.trim() || undefined
+          evidenceUrl: formVioEvidenceUrl.trim() || '',
+          recordedByName: formVioRecordedByName.trim() || user?.name || 'Cán bộ Đoàn',
+          notes: formVioNotes.trim() || ''
         };
 
         await youthDisciplineService.saveViolation(updatedRecord, effectiveRole);
@@ -824,124 +865,137 @@ export default function YouthDisciplinePage() {
             weekNumber: effectiveWeek,
             monthNumber: monthNum,
             violationDate: formVioDate,
-            violationTime: formVioTime,
-            periodSlot: formVioPeriod,
+            violationTime: formVioTime || '07:15',
+            periodSlot: formVioPeriod || 'Sáng',
             classId: targetClass.id,
             className: targetClass.name,
             studentId: 'ALL_CLASS',
             studentName: `Tập thể ${targetClass.name}`,
+            studentCode: '',
             isWholeClass: true,
             criterionId: selectedCriterion.id,
-            criterionCode: selectedCriterion.code,
+            criterionCode: selectedCriterion.code || '',
             criterionName: selectedCriterion.name,
             category: selectedCriterion.category,
             categoryName: selectedCriterion.categoryName,
-            severity: selectedCriterion.severity,
-            minusPoints: Number(formVioMinusPoints),
-            location: formVioLocation,
+            severity: selectedCriterion.severity || 'Nhẹ',
+            minusPoints: Number(formVioMinusPoints) || 0,
+            location: formVioLocation?.trim() || 'Cổng trường',
             content: formVioContent.trim() || selectedCriterion.name,
-            evidenceUrl: formVioEvidenceUrl.trim() || undefined,
+            evidenceUrl: formVioEvidenceUrl.trim() || '',
             recordedBy: user?.id || 'can_bo_doan',
-            recordedByName: formVioRecordedByName.trim() || 'Cán bộ Đoàn',
+            recordedByName: formVioRecordedByName.trim() || user?.name || 'Cán bộ Đoàn',
             recordedByRole: effectiveRole,
             status: 'CHO_XAC_NHAN',
-            notes: formVioNotes.trim() || undefined,
+            notes: formVioNotes.trim() || '',
             createdAt: new Date().toISOString()
           };
-          console.log("VIOLATION DATA BEFORE INSERT:", newRecord);
-          const res = await youthDisciplineService.saveViolation(newRecord, effectiveRole);
-          console.log("INSERT RESULT:", res);
+          await youthDisciplineService.saveViolation(newRecord, effectiveRole);
         } else if (formVioTargetMode === 'multiple') {
           if (formVioSelectedStudentIds.length === 0) {
-            showToast('Vui lòng chọn ít nhất 1 học sinh');
+            showToast('Vui lòng chọn ít nhất 1 học sinh vi phạm');
             return;
           }
           for (const sId of formVioSelectedStudentIds) {
-            const stu = students.find(s => s.id === sId);
+            const stu = students.find(s => s.id === sId) || modalClassStudents.find(s => s.id === sId);
+            if (!stu) continue;
             const newRecord: YouthViolationRecord = {
               id: '',
               schoolYear: selectedYear,
               weekNumber: effectiveWeek,
               monthNumber: monthNum,
               violationDate: formVioDate,
-              violationTime: formVioTime,
-              periodSlot: formVioPeriod,
+              violationTime: formVioTime || '07:15',
+              periodSlot: formVioPeriod || 'Sáng',
               classId: targetClass.id,
               className: targetClass.name,
-              studentId: sId,
-              studentName: stu?.name || 'Học sinh',
-              studentCode: stu?.code || '',
+              studentId: stu.id,
+              studentName: stu.name,
+              studentCode: stu.code || '',
               criterionId: selectedCriterion.id,
-              criterionCode: selectedCriterion.code,
+              criterionCode: selectedCriterion.code || '',
               criterionName: selectedCriterion.name,
               category: selectedCriterion.category,
               categoryName: selectedCriterion.categoryName,
-              severity: selectedCriterion.severity,
-              minusPoints: Number(formVioMinusPoints),
-              location: formVioLocation,
+              severity: selectedCriterion.severity || 'Nhẹ',
+              minusPoints: Number(formVioMinusPoints) || 0,
+              location: formVioLocation?.trim() || 'Cổng trường',
               content: formVioContent.trim() || selectedCriterion.name,
-              evidenceUrl: formVioEvidenceUrl.trim() || undefined,
+              evidenceUrl: formVioEvidenceUrl.trim() || '',
               recordedBy: user?.id || 'can_bo_doan',
-              recordedByName: formVioRecordedByName.trim() || 'Cán bộ Đoàn',
+              recordedByName: formVioRecordedByName.trim() || user?.name || 'Cán bộ Đoàn',
               recordedByRole: effectiveRole,
               status: 'CHO_XAC_NHAN',
-              notes: formVioNotes.trim() || undefined,
+              notes: formVioNotes.trim() || '',
               createdAt: new Date().toISOString()
             };
-            console.log("VIOLATION DATA BEFORE INSERT:", newRecord);
-            const res = await youthDisciplineService.saveViolation(newRecord, effectiveRole);
-            console.log("INSERT RESULT:", res);
+            await youthDisciplineService.saveViolation(newRecord, effectiveRole);
           }
         } else {
-          const targetStudent = students.find(s => s.id === formVioStudentId);
+          // Single mode
+          const targetStudent = students.find(s => s.id === formVioStudentId) || modalClassStudents.find(s => s.id === formVioStudentId);
+          if (!targetStudent) {
+            showToast('Vui lòng chọn học sinh vi phạm từ danh sách');
+            return;
+          }
           const newRecord: YouthViolationRecord = {
             id: '',
             schoolYear: selectedYear,
             weekNumber: effectiveWeek,
             monthNumber: monthNum,
             violationDate: formVioDate,
-            violationTime: formVioTime,
-            periodSlot: formVioPeriod,
+            violationTime: formVioTime || '07:15',
+            periodSlot: formVioPeriod || 'Sáng',
             classId: targetClass.id,
             className: targetClass.name,
-            studentId: targetStudent?.id || (students.length > 0 ? students[0].id : 'STU_GEN'),
-            studentName: targetStudent?.name || (students.length > 0 ? students[0].name : 'Học sinh'),
-            studentCode: targetStudent?.code || '',
+            studentId: targetStudent.id,
+            studentName: targetStudent.name,
+            studentCode: targetStudent.code || '',
             criterionId: selectedCriterion.id,
-            criterionCode: selectedCriterion.code,
+            criterionCode: selectedCriterion.code || '',
             criterionName: selectedCriterion.name,
             category: selectedCriterion.category,
             categoryName: selectedCriterion.categoryName,
-            severity: selectedCriterion.severity,
-            minusPoints: Number(formVioMinusPoints),
-            location: formVioLocation,
+            severity: selectedCriterion.severity || 'Nhẹ',
+            minusPoints: Number(formVioMinusPoints) || 0,
+            location: formVioLocation?.trim() || 'Cổng trường',
             content: formVioContent.trim() || selectedCriterion.name,
-            evidenceUrl: formVioEvidenceUrl.trim() || undefined,
+            evidenceUrl: formVioEvidenceUrl.trim() || '',
             recordedBy: user?.id || 'can_bo_doan',
-            recordedByName: formVioRecordedByName.trim() || 'Cán bộ Đoàn',
+            recordedByName: formVioRecordedByName.trim() || user?.name || 'Cán bộ Đoàn',
             recordedByRole: effectiveRole,
             status: 'CHO_XAC_NHAN',
-            notes: formVioNotes.trim() || undefined,
+            notes: formVioNotes.trim() || '',
             createdAt: new Date().toISOString()
           };
-          console.log("VIOLATION DATA BEFORE INSERT:", newRecord);
-          const res = await youthDisciplineService.saveViolation(newRecord, effectiveRole);
-          console.log("INSERT RESULT:", res);
+          await youthDisciplineService.saveViolation(newRecord, effectiveRole);
         }
         showToast('Đã ghi nhận vi phạm nền nếp thành công!');
       }
 
       setIsViolationModalOpen(false);
-      setActiveTab('violations');
 
+      // Invalidate & reload data
       const updatedList = await youthDisciplineService.getViolations({
         schoolYear: selectedYear
       });
-      console.log("VIOLATIONS AFTER INSERT:", updatedList);
       setViolations(updatedList);
+
+      // Reset filters so the record is guaranteed visible immediately
+      if (selectedWeek > 0 && selectedWeek !== effectiveWeek) {
+        setSelectedWeek(0); // Show all weeks
+      }
+      if (selectedClassId !== 'All' && selectedClassId !== targetClass.id) {
+        setSelectedClassId('All');
+      }
+      setSelectedDate('');
+      setSearchTerm('');
+      setActiveTab('violations');
+
       await loadAllData();
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi lưu vi phạm');
+      console.error('Lỗi khi ghi nhận vi phạm:', err);
+      alert(err.message || 'Lỗi khi lưu vi phạm vào cơ sở dữ liệu. Vui lòng kiểm tra lại.');
     }
   };
 
@@ -2864,7 +2918,14 @@ export default function YouthDisciplinePage() {
                   <input
                     type="date"
                     value={formVioDate}
-                    onChange={e => setFormVioDate(e.target.value)}
+                    onChange={e => {
+                      const newDate = e.target.value;
+                      setFormVioDate(newDate);
+                      if (newDate) {
+                        const autoWeek = getWeekNumberFromDate(newDate, selectedYear);
+                        setFormVioWeek(autoWeek);
+                      }
+                    }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none"
                   />
                 </div>
@@ -2917,11 +2978,24 @@ export default function YouthDisciplinePage() {
                   <select
                     value={formVioClassId}
                     onChange={e => {
-                      setFormVioClassId(e.target.value);
-                      const classStus = students.filter(s => s.classId === e.target.value);
+                      const newClassId = e.target.value;
+                      setFormVioClassId(newClassId);
+                      const targetCls = classes.find(c => c.id === newClassId || c.name === newClassId);
+                      const normC = ((targetCls?.name) || (targetCls?.id) || newClassId).replace(/[^a-z0-9]/gi, '').toLowerCase();
+                      const classStus = students.filter(s => {
+                        if (s.classId === newClassId) return true;
+                        if (targetCls && s.classId === targetCls.id) return true;
+                        if (targetCls && s.className && targetCls.name && s.className.toLowerCase().trim() === targetCls.name.toLowerCase().trim()) return true;
+                        const normS = (s.className || s.classId || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+                        return normS && normS === normC;
+                      }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'));
+
                       if (classStus.length > 0) {
                         setFormVioStudentId(classStus[0].id);
                         setFormVioSelectedStudentIds([classStus[0].id]);
+                      } else {
+                        setFormVioStudentId('');
+                        setFormVioSelectedStudentIds([]);
                       }
                     }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-black text-blue-900 outline-none cursor-pointer"
@@ -2982,11 +3056,15 @@ export default function YouthDisciplinePage() {
                     onChange={e => setFormVioStudentId(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none cursor-pointer"
                   >
-                    {modalClassStudents.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} (Mã: {s.code || '—'})
-                      </option>
-                    ))}
+                    {modalClassStudents.length === 0 ? (
+                      <option value="">(Chưa có học sinh trong lớp này)</option>
+                    ) : (
+                      modalClassStudents.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} (Mã: {s.code || '—'})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
               ) : formVioTargetMode === 'multiple' ? (

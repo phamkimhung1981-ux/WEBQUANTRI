@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Megaphone,
   RotateCcw,
+  ListOrdered,
   X
 } from 'lucide-react';
 import {
@@ -69,7 +70,7 @@ import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from 
 import { useAuth } from '../store/AuthContext';
 import { useAppContext } from '../store/AppContext';
 import BackButton from '../components/ui/BackButton';
-import { ALL_MONTH_OPTIONS, isWeekInMonth, getWeeksForMonth } from '../utils/schoolWeekUtils';
+import { ALL_MONTH_OPTIONS, isWeekInMonth, getWeeksForMonth, getCurrentSchoolWeekInfo } from '../utils/schoolWeekUtils';
 
 // Import Modals
 import StudentProfileModal from '../components/homeroom/StudentProfileModal';
@@ -732,6 +733,78 @@ export default function Homeroom() {
     setSelectedStudentForAssessment(student || null);
     setAssessmentInitialSelectedIds(initialIds);
     setIsTeacherAssessmentModalOpen(true);
+  };
+
+  const handleOpenRecordViolationModalForStudent = async (st: Student) => {
+    setSelectedStudentForNewViolation(st);
+    setFormNewVioDate(new Date().toISOString().split('T')[0]);
+    setFormNewVioContent('');
+    try {
+      const critList = await youthDisciplineService.getCriteria();
+      setYouthCriteriaList(critList);
+      if (critList.length > 0) {
+        setSelectedCriterionIdForNewVio(critList[0].id);
+        setFormNewVioMinusPoints(critList[0].minusPoints || 2);
+        setFormNewVioContent(critList[0].name);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setIsRecordViolationModalOpen(true);
+  };
+
+  const handleSaveNewViolationFromHomeroom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudentForNewViolation || !selectedClass) return;
+    const crit = youthCriteriaList.find(c => c.id === selectedCriterionIdForNewVio);
+    if (!crit) {
+      alert('Vui lòng chọn tiêu chí vi phạm');
+      return;
+    }
+    try {
+      const wInfo = getCurrentSchoolWeekInfo(new Date(formNewVioDate), selectedSchoolYear);
+      const effectiveWeek = wInfo.weekNumber;
+      const monthNum = new Date(formNewVioDate).getMonth() + 1;
+
+      const record: YouthViolationRecord = {
+        id: '',
+        schoolYear: selectedSchoolYear,
+        weekNumber: effectiveWeek,
+        monthNumber: monthNum,
+        violationDate: formNewVioDate,
+        violationTime: '07:15',
+        periodSlot: 'Sáng',
+        classId: selectedClass.id,
+        className: selectedClass.name,
+        studentId: selectedStudentForNewViolation.id,
+        studentName: selectedStudentForNewViolation.fullName || selectedStudentForNewViolation.name,
+        studentCode: selectedStudentForNewViolation.code || '',
+        criterionId: crit.id,
+        criterionCode: crit.code || '',
+        criterionName: crit.name,
+        category: crit.category,
+        categoryName: crit.categoryName,
+        severity: crit.severity,
+        minusPoints: Number(formNewVioMinusPoints) || 0,
+        location: 'Lớp học',
+        content: formNewVioContent.trim() || crit.name,
+        recordedBy: user?.id || 'gvcn',
+        recordedByName: user?.name || 'GVCN',
+        recordedByRole: 'GVCN',
+        status: 'CHO_XAC_NHAN',
+        createdAt: new Date().toISOString()
+      };
+
+      await youthDisciplineService.saveViolation(record, 'GVCN');
+      setIsRecordViolationModalOpen(false);
+
+      // Invalidate youth violations
+      const updatedVios = await youthDisciplineService.getViolations({ schoolYear: selectedSchoolYear });
+      setYouthViolations(updatedVios);
+      alert('Đã ghi nhận vi phạm cho học sinh thành công!');
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi lưu vi phạm');
+    }
   };
 
   const handleSaveTeacherAssessment = async (assessmentPayload: Partial<TeacherAssessment>) => {

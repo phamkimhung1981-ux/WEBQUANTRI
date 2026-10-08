@@ -151,7 +151,7 @@ export const studentViolationService = {
     violations: YouthViolationRecord[] = []
   ): { totalDeduction: number; violations: YouthViolationRecord[] } {
     const studentObj: Student = typeof student === 'string'
-      ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: '' }
+      ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: 'Nam', dob: '' }
       : student;
 
     const startYear = parseStartYear(schoolYear);
@@ -193,7 +193,7 @@ export const studentViolationService = {
     violations: YouthViolationRecord[] = []
   ): { totalDeduction: number; violations: YouthViolationRecord[] } {
     const studentObj: Student = typeof student === 'string'
-      ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: '' }
+      ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: 'Nam', dob: '' }
       : student;
 
     const wInfo = getWeekInfoByNumber(weekNumber, schoolYear);
@@ -222,7 +222,7 @@ export const studentViolationService = {
     violations: YouthViolationRecord[] = []
   ): { totalDeduction: number; violations: YouthViolationRecord[] } {
     const studentObj: Student = typeof student === 'string'
-      ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: '' }
+      ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: 'Nam', dob: '' }
       : student;
 
     const yearlyViolations = violations.filter(v => {
@@ -383,7 +383,7 @@ export const studentViolationService = {
       const wAssessment = teacherAssessments.find(a =>
         (a.studentId === student.id || (a.studentCode && student.code && a.studentCode === student.code)) &&
         (a.schoolYear || '').replace(/[\u2010-\u2015]/g, '-').trim() === academicYear.replace(/[\u2010-\u2015]/g, '-').trim() &&
-        (Number(a.weekNumber) === w || a.period === `Tuần ${String(w).padStart(2, '0')}`)
+        (Number((a as any).weekNumber) === w || (a as any).period === `Tuần ${String(w).padStart(2, '0')}`)
       );
 
       let rating = 'Chưa đánh giá';

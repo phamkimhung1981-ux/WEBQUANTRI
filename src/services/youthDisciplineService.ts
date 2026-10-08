@@ -139,6 +139,56 @@ const CACHE_KEYS = {
   AUDIT_LOGS: 'youth_discipline_cached_audit_logs'
 };
 
+const safeStorage = {
+  getItem(key: string): string | null {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        return window.localStorage.getItem(key);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  },
+  setItem(key: string, value: string): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch (e) {
+        // ignore
+      }
+    }
+  },
+  removeItem(key: string): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+};
+
+export function cleanFirestoreData<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (value === null) {
+      result[key] = null;
+    } else if (Array.isArray(value)) {
+      result[key] = value.map(item => (typeof item === 'object' && item !== null ? cleanFirestoreData(item) : item));
+    } else if (typeof value === 'object') {
+      result[key] = cleanFirestoreData(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 let isSeeded = false;
 
 export const youthDisciplineService = {
@@ -154,25 +204,25 @@ export const youthDisciplineService = {
         for (const crit of DEFAULT_YOUTH_CRITERIA) {
           await setDoc(doc(db, COLLECTIONS.CRITERIA, crit.id), crit);
         }
-        localStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(DEFAULT_YOUTH_CRITERIA));
+        safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(DEFAULT_YOUTH_CRITERIA));
       }
 
       // 1.2 Settings
       const setSnap = await getDoc(doc(db, COLLECTIONS.SETTINGS, DEFAULT_YOUTH_SETTINGS.id));
       if (!setSnap.exists()) {
         await setDoc(doc(db, COLLECTIONS.SETTINGS, DEFAULT_YOUTH_SETTINGS.id), DEFAULT_YOUTH_SETTINGS);
-        localStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
+        safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
       }
 
       // 1.3 Clean up any old sample violations if present
       await this.cleanupSampleViolations();
     } catch (e) {
       console.warn('YouthDiscipline seed error (using local storage fallback):', e);
-      if (!localStorage.getItem(CACHE_KEYS.CRITERIA)) {
-        localStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(DEFAULT_YOUTH_CRITERIA));
+      if (!safeStorage.getItem(CACHE_KEYS.CRITERIA)) {
+        safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(DEFAULT_YOUTH_CRITERIA));
       }
-      if (!localStorage.getItem(CACHE_KEYS.SETTINGS)) {
-        localStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
+      if (!safeStorage.getItem(CACHE_KEYS.SETTINGS)) {
+        safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
       }
     }
   },
@@ -191,12 +241,12 @@ export const youthDisciplineService = {
           }
         }
       }
-      const cached = localStorage.getItem(CACHE_KEYS.VIOLATIONS);
+      const cached = safeStorage.getItem(CACHE_KEYS.VIOLATIONS);
       if (cached) {
         try {
           const list: YouthViolationRecord[] = JSON.parse(cached);
           const filtered = list.filter(v => !v.id.startsWith('yv_sample_'));
-          localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(filtered));
+          safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(filtered));
         } catch (err) {
           console.error(err);
         }
@@ -213,14 +263,14 @@ export const youthDisciplineService = {
       if (!snap.empty) {
         const list = snap.docs.map(d => d.data() as YouthDisciplineCriterion);
         list.sort((a, b) => (a.order || 0) - (b.order || 0));
-        localStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
+        safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
         return list;
       }
     } catch (e) {
       console.warn('Cannot fetch youth criteria from Firestore, using cache:', e);
     }
 
-    const cached = localStorage.getItem(CACHE_KEYS.CRITERIA);
+    const cached = safeStorage.getItem(CACHE_KEYS.CRITERIA);
     if (cached) {
       try {
         return JSON.parse(cached);
@@ -249,7 +299,7 @@ export const youthDisciplineService = {
     } else {
       current.push(item);
     }
-    localStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(current));
 
     // Save Firestore
     try {
@@ -275,7 +325,7 @@ export const youthDisciplineService = {
     const current = await this.getCriteria();
     const target = current.find(c => c.id === id);
     const filtered = current.filter(c => c.id !== id);
-    localStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(filtered));
+    safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(filtered));
 
     try {
       await deleteDoc(doc(db, COLLECTIONS.CRITERIA, id));
@@ -310,42 +360,106 @@ export const youthDisciplineService = {
     status?: string;
   }): Promise<YouthViolationRecord[]> {
     let list: YouthViolationRecord[] = [];
+    let firestoreSuccess = false;
 
-    // 1. Read local cache first
-    let cachedList: YouthViolationRecord[] = [];
-    const cached = localStorage.getItem(CACHE_KEYS.VIOLATIONS);
-    if (cached) {
-      try {
-        cachedList = JSON.parse(cached) || [];
-      } catch (err) {
-        console.error('Error parsing cached violations:', err);
-      }
-    }
-
-    // 2. Fetch Firestore documents
-    let firestoreList: YouthViolationRecord[] = [];
+    // 1. Fetch Firestore documents
     try {
       const snap = await getDocs(collection(db, COLLECTIONS.VIOLATIONS));
-      if (!snap.empty) {
-        firestoreList = snap.docs.map(d => d.data() as YouthViolationRecord);
-      }
+      firestoreSuccess = true;
+      list = snap.docs.map(d => {
+        const raw = d.data();
+        const stdId = raw.studentId || raw.student_id || '';
+        const stdName = raw.studentName || raw.student_name || '';
+        const stdCode = raw.studentCode || raw.student_code || '';
+        const clsId = raw.classId || raw.class_id || '';
+        const clsName = raw.className || raw.class_name || '';
+        const vDate = raw.violationDate || raw.violation_date || '';
+        const vTime = raw.violationTime || raw.violation_time || '07:15';
+        const pSlot = raw.periodSlot || raw.period_slot || 'Sáng';
+        const critId = raw.criterionId || raw.criterion_id || '';
+        const critCode = raw.criterionCode || raw.criterion_code || '';
+        const critName = raw.criterionName || raw.criterion_name || '';
+        const cat = raw.category || 'CHUYEN_CAN';
+        const catName = raw.categoryName || raw.category_name || 'Chuyên cần';
+        const sev = raw.severity || 'Nhẹ';
+        const minus = Math.abs(Number(raw.minusPoints ?? raw.minus_points ?? 0));
+        const loc = raw.location || '';
+        const cnt = raw.content || critName || '';
+        const recBy = raw.recordedBy || raw.recorded_by || '';
+        const recByName = raw.recordedByName || raw.recorded_by_name || 'Cán bộ ghi nhận';
+        const recByRole = raw.recordedByRole || raw.recorded_by_role || 'CAN_BO_DOAN';
+        const stat = raw.status || 'CHO_XAC_NHAN';
+        const cAt = raw.createdAt || raw.created_at || new Date().toISOString();
+        const uAt = raw.updatedAt || raw.updated_at || new Date().toISOString();
+
+        return {
+          id: d.id,
+          schoolYear: raw.schoolYear || raw.school_year || '2026–2027',
+          weekNumber: Number(raw.weekNumber ?? raw.week_number ?? 1),
+          monthNumber: Number(raw.monthNumber ?? raw.month_number ?? 1),
+          violationDate: vDate,
+          violationTime: vTime,
+          periodSlot: pSlot,
+          classId: clsId,
+          className: clsName,
+          studentId: stdId,
+          studentName: stdName,
+          studentCode: stdCode,
+          isWholeClass: Boolean(raw.isWholeClass ?? raw.is_whole_class ?? false),
+          criterionId: critId,
+          criterionCode: critCode,
+          criterionName: critName,
+          category: cat,
+          categoryName: catName,
+          severity: sev,
+          minusPoints: minus,
+          location: loc,
+          content: cnt,
+          evidenceUrl: raw.evidenceUrl || raw.evidence_url || '',
+          evidenceName: raw.evidenceName || raw.evidence_name || '',
+          recordedBy: recBy,
+          recordedByName: recByName,
+          recordedByRole: recByRole,
+          confirmedBy: raw.confirmedBy || raw.confirmed_by || '',
+          confirmedByName: raw.confirmedByName || raw.confirmed_by_name || '',
+          confirmedAt: raw.confirmedAt || raw.confirmed_at || '',
+          status: stat,
+          notes: raw.notes || '',
+          teacherComment: raw.teacherComment || raw.teacher_comment || '',
+          youthComment: raw.youthComment || raw.youth_comment || '',
+          createdAt: cAt,
+          updatedAt: uAt,
+          student_id: stdId,
+          student_name: stdName,
+          student_code: stdCode,
+          class_id: clsId,
+          class_name: clsName,
+          violation_date: vDate,
+          violation_time: vTime,
+          minus_points: minus,
+          recorded_by: recBy,
+          recorded_by_name: recByName,
+          created_at: cAt
+        } as unknown as YouthViolationRecord;
+      });
+
+      // Update local storage cache with live DB records
+      safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
     } catch (e) {
-      console.warn('Firestore getViolations error, falling back to cache:', e);
+      console.warn('Firestore getViolations query error, falling back to cache:', e);
     }
 
-    // 3. Merge firestoreList & cachedList by item ID
-    const map = new Map<string, YouthViolationRecord>();
-    for (const item of firestoreList) {
-      if (item && item.id) map.set(item.id, item);
-    }
-    for (const item of cachedList) {
-      if (item && item.id && !map.has(item.id)) {
-        map.set(item.id, item);
+    // 2. Fall back to local cache if Firestore query failed
+    if (!firestoreSuccess) {
+      const cached = safeStorage.getItem(CACHE_KEYS.VIOLATIONS);
+      if (cached) {
+        try {
+          list = JSON.parse(cached) || [];
+        } catch (err) {
+          console.error('Error parsing cached violations:', err);
+        }
       }
     }
-
-    list = Array.from(map.values());
-    localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
 
     // Apply filtering
     if (filters) {
@@ -364,10 +478,10 @@ export const youthDisciplineService = {
         list = list.filter(v => Number(v.monthNumber) === Number(filters.monthNumber));
       }
       if (filters.classId && filters.classId !== 'All') {
-        list = list.filter(v => v.classId === filters.classId);
+        list = list.filter(v => v.classId === filters.classId || (v as any).class_id === filters.classId || v.className === filters.classId);
       }
       if (filters.studentId && filters.studentId !== 'All') {
-        list = list.filter(v => v.studentId === filters.studentId);
+        list = list.filter(v => v.studentId === filters.studentId || (v as any).student_id === filters.studentId);
       }
       if (filters.date) {
         list = list.filter(v => v.violationDate === filters.date);
@@ -390,13 +504,116 @@ export const youthDisciplineService = {
   ): Promise<YouthViolationRecord> {
     const isNew = !violation.id || violation.id === '';
     const id = isNew ? `yv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}` : violation.id;
-    
+
+    // Resolve accurate student, class, and date fields
+    const resolvedStudentId = violation.studentId || (violation as any).student_id || 'ALL_CLASS';
+    const resolvedStudentName = violation.studentName || (violation as any).student_name || 'Học sinh';
+    const resolvedStudentCode = violation.studentCode || (violation as any).student_code || '';
+    const resolvedClassId = violation.classId || (violation as any).class_id || '';
+    const resolvedClassName = violation.className || (violation as any).class_name || '';
+    const resolvedViolationDate = violation.violationDate || (violation as any).violation_date || new Date().toISOString().split('T')[0];
+    const resolvedViolationTime = violation.violationTime || (violation as any).violation_time || '07:15';
+    const resolvedPeriodSlot = violation.periodSlot || (violation as any).period_slot || 'Sáng';
+    const resolvedMinusPoints = Math.abs(Number(violation.minusPoints ?? (violation as any).minus_points ?? 0));
+    const nowIso = new Date().toISOString();
+    const resolvedCreatedAt = violation.createdAt || (violation as any).created_at || nowIso;
+    const resolvedUpdatedAt = nowIso;
+    const resolvedRecordedBy = violation.recordedBy || (violation as any).recorded_by || auth.currentUser?.uid || 'can_bo_doan';
+    const resolvedRecordedByName = violation.recordedByName || (violation as any).recorded_by_name || 'Cán bộ ghi nhận';
+    const resolvedRecordedByRole = violation.recordedByRole || (violation as any).recorded_by_role || performedByRole;
+    const resolvedStatus = violation.status || 'CHO_XAC_NHAN';
+    const isWholeClass = Boolean(violation.isWholeClass || (violation as any).is_whole_class || resolvedStudentId === 'ALL_CLASS');
+
     const record: YouthViolationRecord = {
       ...violation,
       id,
-      updatedAt: new Date().toISOString(),
-      createdAt: violation.createdAt || new Date().toISOString()
+      schoolYear: violation.schoolYear || '2026–2027',
+      weekNumber: Number(violation.weekNumber) || 1,
+      monthNumber: Number(violation.monthNumber) || 1,
+      violationDate: resolvedViolationDate,
+      violationTime: resolvedViolationTime,
+      periodSlot: resolvedPeriodSlot,
+      classId: resolvedClassId,
+      className: resolvedClassName,
+      studentId: resolvedStudentId,
+      studentName: resolvedStudentName,
+      studentCode: resolvedStudentCode,
+      isWholeClass,
+      criterionId: violation.criterionId,
+      criterionCode: violation.criterionCode || '',
+      criterionName: violation.criterionName,
+      category: violation.category,
+      categoryName: violation.categoryName,
+      severity: violation.severity || 'Nhẹ',
+      minusPoints: resolvedMinusPoints,
+      location: violation.location?.trim() || 'Cổng trường',
+      content: violation.content?.trim() || violation.criterionName || '',
+      evidenceUrl: violation.evidenceUrl?.trim() || '',
+      recordedBy: resolvedRecordedBy,
+      recordedByName: resolvedRecordedByName,
+      recordedByRole: resolvedRecordedByRole,
+      status: resolvedStatus,
+      notes: violation.notes?.trim() || '',
+      createdAt: resolvedCreatedAt,
+      updatedAt: resolvedUpdatedAt
     };
+
+    // Prepare complete DB document containing both camelCase and snake_case properties
+    // with NO undefined values
+    const dbPayload = cleanFirestoreData({
+      id,
+      schoolYear: record.schoolYear,
+      school_year: record.schoolYear,
+      weekNumber: record.weekNumber,
+      week_number: record.weekNumber,
+      monthNumber: record.monthNumber,
+      month_number: record.monthNumber,
+      violationDate: resolvedViolationDate,
+      violation_date: resolvedViolationDate,
+      violationTime: resolvedViolationTime,
+      violation_time: resolvedViolationTime,
+      periodSlot: resolvedPeriodSlot,
+      period_slot: resolvedPeriodSlot,
+      classId: resolvedClassId,
+      class_id: resolvedClassId,
+      className: resolvedClassName,
+      class_name: resolvedClassName,
+      studentId: resolvedStudentId,
+      student_id: resolvedStudentId,
+      studentName: resolvedStudentName,
+      student_name: resolvedStudentName,
+      studentCode: resolvedStudentCode,
+      student_code: resolvedStudentCode,
+      isWholeClass,
+      is_whole_class: isWholeClass,
+      criterionId: record.criterionId,
+      criterion_id: record.criterionId,
+      criterionCode: record.criterionCode || '',
+      criterion_code: record.criterionCode || '',
+      criterionName: record.criterionName,
+      criterion_name: record.criterionName,
+      category: record.category,
+      categoryName: record.categoryName,
+      category_name: record.categoryName,
+      severity: record.severity,
+      minusPoints: resolvedMinusPoints,
+      minus_points: resolvedMinusPoints,
+      location: record.location,
+      content: record.content,
+      evidenceUrl: record.evidenceUrl,
+      recordedBy: resolvedRecordedBy,
+      recorded_by: resolvedRecordedBy,
+      recordedByName: resolvedRecordedByName,
+      recorded_by_name: resolvedRecordedByName,
+      recordedByRole: resolvedRecordedByRole,
+      recorded_by_role: resolvedRecordedByRole,
+      status: resolvedStatus,
+      notes: record.notes,
+      createdAt: resolvedCreatedAt,
+      created_at: resolvedCreatedAt,
+      updatedAt: resolvedUpdatedAt,
+      updated_at: resolvedUpdatedAt
+    });
 
     // Check weekly lock status before modifying
     const lock = await this.getWeeklyLock(record.schoolYear, record.weekNumber);
@@ -404,7 +621,15 @@ export const youthDisciplineService = {
       throw new Error(`Tuần ${record.weekNumber} đã được chốt kết quả. Vui lòng liên hệ Bí thư Đoàn hoặc BGH để mở khóa.`);
     }
 
-    // Update local cache
+    // 1. SAVE TO FIRESTORE DATABASE - CRITICAL: Must not swallow database error!
+    try {
+      await setDoc(doc(db, COLLECTIONS.VIOLATIONS, id), dbPayload, { merge: true });
+    } catch (e: any) {
+      console.error('Lỗi khi INSERT vi phạm vào Firestore database:', e);
+      throw new Error(`Lỗi lưu vào cơ sở dữ liệu: ${e?.message || 'Không thể lưu bản ghi vi phạm'}`);
+    }
+
+    // 2. Update local cache
     const current = await this.getViolations();
     const existingIdx = current.findIndex(v => v.id === id);
     if (existingIdx >= 0) {
@@ -412,26 +637,24 @@ export const youthDisciplineService = {
     } else {
       current.unshift(record);
     }
-    localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
 
-    // Save Firestore
+    // 3. Add Audit Log
     try {
-      await setDoc(doc(db, COLLECTIONS.VIOLATIONS, id), record, { merge: true });
-    } catch (e) {
-      console.warn('Firestore saveViolation error, saved in cache:', e);
+      await this.addAuditLog({
+        action: isNew ? 'CREATE' : 'UPDATE',
+        entityType: 'VIOLATION',
+        entityId: id,
+        performedBy: record.recordedBy || 'user',
+        performedByName: record.recordedByName || 'Cán bộ ghi nhận',
+        performedByRole,
+        timestamp: new Date().toISOString(),
+        summary: `${isNew ? 'Ghi nhận' : 'Cập nhật'} vi phạm nền nếp lớp ${record.className}: ${record.studentName} - ${record.criterionName} (-${record.minusPoints}đ)`,
+        newData: record
+      });
+    } catch (auditErr) {
+      console.warn('Lỗi ghi audit log:', auditErr);
     }
-
-    await this.addAuditLog({
-      action: isNew ? 'CREATE' : 'UPDATE',
-      entityType: 'VIOLATION',
-      entityId: id,
-      performedBy: record.recordedBy || 'user',
-      performedByName: record.recordedByName || 'Cán bộ ghi nhận',
-      performedByRole,
-      timestamp: new Date().toISOString(),
-      summary: `${isNew ? 'Ghi nhận' : 'Cập nhật'} vi phạm nền nếp lớp ${record.className}: ${record.studentName} - ${record.criterionName} (-${record.minusPoints}đ)`,
-      newData: record
-    });
 
     return record;
   },
@@ -446,27 +669,32 @@ export const youthDisciplineService = {
       }
     }
 
-    const filtered = current.filter(v => v.id !== id);
-    localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(filtered));
-
     try {
       await deleteDoc(doc(db, COLLECTIONS.VIOLATIONS, id));
-    } catch (e) {
-      console.warn('Firestore deleteViolation error:', e);
+    } catch (e: any) {
+      console.error('Firestore deleteViolation error:', e);
+      throw new Error(`Lỗi khi xóa bản ghi trong cơ sở dữ liệu: ${e?.message || ''}`);
     }
 
+    const filtered = current.filter(v => v.id !== id);
+    safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(filtered));
+
     if (target) {
-      await this.addAuditLog({
-        action: 'DELETE',
-        entityType: 'VIOLATION',
-        entityId: id,
-        performedBy: auth.currentUser?.uid || 'user',
-        performedByName,
-        performedByRole,
-        timestamp: new Date().toISOString(),
-        summary: `Xóa bản ghi vi phạm lớp ${target.className}: ${target.studentName} - ${target.criterionName}`,
-        previousData: target
-      });
+      try {
+        await this.addAuditLog({
+          action: 'DELETE',
+          entityType: 'VIOLATION',
+          entityId: id,
+          performedBy: auth.currentUser?.uid || 'user',
+          performedByName,
+          performedByRole,
+          timestamp: new Date().toISOString(),
+          summary: `Xóa bản ghi vi phạm lớp ${target.className}: ${target.studentName} - ${target.criterionName}`,
+          previousData: target
+        });
+      } catch (err) {
+        console.warn('Audit log error:', err);
+      }
     }
   },
 
@@ -482,8 +710,6 @@ export const youthDisciplineService = {
     const deletedItems = current.filter(v => idSet.has(v.id));
     const remaining = current.filter(v => !idSet.has(v.id));
 
-    localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(remaining));
-
     // Delete in Firestore
     for (const id of ids) {
       try {
@@ -493,17 +719,23 @@ export const youthDisciplineService = {
       }
     }
 
-    await this.addAuditLog({
-      action: 'DELETE',
-      entityType: 'VIOLATION',
-      entityId: `batch_${Date.now()}`,
-      performedBy: auth.currentUser?.uid || 'user',
-      performedByName,
-      performedByRole,
-      timestamp: new Date().toISOString(),
-      summary: `${reasonDescription} (Đã xóa ${deletedItems.length} bản ghi)`,
-      previousData: deletedItems.map(d => ({ id: d.id, student: d.studentName, class: d.className, crit: d.criterionName }))
-    });
+    safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(remaining));
+
+    try {
+      await this.addAuditLog({
+        action: 'DELETE',
+        entityType: 'VIOLATION',
+        entityId: `batch_${Date.now()}`,
+        performedBy: auth.currentUser?.uid || 'user',
+        performedByName,
+        performedByRole,
+        timestamp: new Date().toISOString(),
+        summary: `${reasonDescription} (Đã xóa ${deletedItems.length} bản ghi)`,
+        previousData: deletedItems.map(d => ({ id: d.id, student: d.studentName, class: d.className, crit: d.criterionName }))
+      });
+    } catch (err) {
+      console.warn('Audit log error:', err);
+    }
 
     return deletedItems.length;
   },
@@ -560,7 +792,7 @@ export const youthDisciplineService = {
     target.confirmedAt = new Date().toISOString();
     target.updatedAt = new Date().toISOString();
 
-    localStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
 
     try {
       await updateDoc(doc(db, COLLECTIONS.VIOLATIONS, id), {
@@ -600,7 +832,7 @@ export const youthDisciplineService = {
       console.warn('Firestore getDailyCheckSheet error:', e);
     }
 
-    const cached = localStorage.getItem(`${CACHE_KEYS.DAILY_CHECKS}_${sheetId}`);
+    const cached = safeStorage.getItem(`${CACHE_KEYS.DAILY_CHECKS}_${sheetId}`);
     if (cached) {
       try {
         return JSON.parse(cached);
@@ -615,7 +847,7 @@ export const youthDisciplineService = {
     const sheetId = sheet.id || `check_${sheet.schoolYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${sheet.weekNumber}_${sheet.checkDate}_${sheet.session}`;
     const payload = { ...sheet, id: sheetId, updatedAt: new Date().toISOString() };
 
-    localStorage.setItem(`${CACHE_KEYS.DAILY_CHECKS}_${sheetId}`, JSON.stringify(payload));
+    safeStorage.setItem(`${CACHE_KEYS.DAILY_CHECKS}_${sheetId}`, JSON.stringify(payload));
 
     try {
       await setDoc(doc(db, COLLECTIONS.DAILY_CHECKS, sheetId), payload, { merge: true });
@@ -648,7 +880,7 @@ export const youthDisciplineService = {
       console.warn('Firestore getWeeklyLock error:', e);
     }
 
-    const cached = localStorage.getItem(`${CACHE_KEYS.LOCKS}_${lockId}`);
+    const cached = safeStorage.getItem(`${CACHE_KEYS.LOCKS}_${lockId}`);
     if (cached) {
       try {
         return JSON.parse(cached);
@@ -685,7 +917,7 @@ export const youthDisciplineService = {
       snapshotSummary
     };
 
-    localStorage.setItem(`${CACHE_KEYS.LOCKS}_${lockId}`, JSON.stringify(payload));
+    safeStorage.setItem(`${CACHE_KEYS.LOCKS}_${lockId}`, JSON.stringify(payload));
 
     try {
       await setDoc(doc(db, COLLECTIONS.WEEKLY_LOCKS, lockId), payload, { merge: true });
@@ -728,7 +960,7 @@ export const youthDisciplineService = {
       unlockReason: reason
     };
 
-    localStorage.setItem(`${CACHE_KEYS.LOCKS}_${lockId}`, JSON.stringify(payload));
+    safeStorage.setItem(`${CACHE_KEYS.LOCKS}_${lockId}`, JSON.stringify(payload));
 
     try {
       await setDoc(doc(db, COLLECTIONS.WEEKLY_LOCKS, lockId), payload, { merge: true });
@@ -757,14 +989,14 @@ export const youthDisciplineService = {
       const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, DEFAULT_YOUTH_SETTINGS.id));
       if (snap.exists()) {
         const data = snap.data() as YouthDisciplineSettings;
-        localStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(data));
+        safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(data));
         return data;
       }
     } catch (e) {
       console.warn('Firestore getSettings error:', e);
     }
 
-    const cached = localStorage.getItem(CACHE_KEYS.SETTINGS);
+    const cached = safeStorage.getItem(CACHE_KEYS.SETTINGS);
     if (cached) {
       try {
         return JSON.parse(cached);
@@ -776,7 +1008,7 @@ export const youthDisciplineService = {
   },
 
   async saveSettings(settings: YouthDisciplineSettings, performedByRole: string = 'ADMIN'): Promise<void> {
-    localStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(settings));
+    safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(settings));
     try {
       await setDoc(doc(db, COLLECTIONS.SETTINGS, settings.id), settings, { merge: true });
     } catch (e) {
@@ -804,7 +1036,7 @@ export const youthDisciplineService = {
     // Update local cache
     const current = await this.getAuditLogs(100);
     current.unshift(fullLog);
-    localStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(current.slice(0, 100)));
+    safeStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(current.slice(0, 100)));
 
     try {
       await setDoc(doc(db, COLLECTIONS.AUDIT_LOGS, id), fullLog);
@@ -819,14 +1051,14 @@ export const youthDisciplineService = {
       const snap = await getDocs(q);
       if (!snap.empty) {
         const logs = snap.docs.map(d => d.data() as YouthAuditLog);
-        localStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(logs));
+        safeStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(logs));
         return logs;
       }
     } catch (e) {
       console.warn('Firestore getAuditLogs error, using cache:', e);
     }
 
-    const cached = localStorage.getItem(CACHE_KEYS.AUDIT_LOGS);
+    const cached = safeStorage.getItem(CACHE_KEYS.AUDIT_LOGS);
     if (cached) {
       try {
         return JSON.parse(cached);
