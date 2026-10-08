@@ -1319,6 +1319,17 @@ export async function exportViolationsListToWord(
               }),
               new DocxParagraph({
                 alignment: DocxAlignmentType.CENTER,
+                children: [
+                  new DocxTextRun({
+                    text: '(BÍ THƯ ĐOÀN)',
+                    bold: true,
+                    font: 'Times New Roman',
+                    size: 19
+                  })
+                ]
+              }),
+              new DocxParagraph({
+                alignment: DocxAlignmentType.CENTER,
                 spacing: { after: 720 },
                 children: [
                   new DocxTextRun({
@@ -1333,13 +1344,7 @@ export async function exportViolationsListToWord(
                 alignment: DocxAlignmentType.CENTER,
                 children: [
                   new DocxTextRun({
-                    text:
-                      reporterName &&
-                      reporterName !== 'TRƯỜNG THPT SƠN LƯƠNG' &&
-                      reporterName !== 'Ban Chấp hành Đoàn trường' &&
-                      reporterName !== 'Cán bộ phụ trách'
-                        ? reporterName
-                        : '',
+                    text: 'Bí thư Đoàn',
                     bold: true,
                     font: 'Times New Roman',
                     size: 20
@@ -1680,7 +1685,7 @@ export function exportViolationsListToExcel(
   ]);
   rows.push([
     '',
-    '(Ký và ghi rõ họ tên)',
+    '(BÍ THƯ ĐOÀN)',
     '',
     '',
     '',
@@ -1691,7 +1696,7 @@ export function exportViolationsListToExcel(
   ]);
   rows.push([
     '',
-    '',
+    '(Ký và ghi rõ họ tên)',
     '',
     '',
     '',
@@ -1699,6 +1704,19 @@ export function exportViolationsListToExcel(
     '',
     '',
     '(Ký, ghi rõ họ tên và đóng dấu)'
+  ]);
+  rows.push([]);
+  rows.push([]);
+  rows.push([
+    '',
+    'Bí thư Đoàn',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    ''
   ]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);

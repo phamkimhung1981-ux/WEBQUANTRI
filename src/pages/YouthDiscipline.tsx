@@ -1391,7 +1391,7 @@ export default function YouthDisciplinePage() {
           violationDate: selectedDate,
           searchTerm: searchTerm.trim()
         },
-        user?.name || ''
+        'Bí thư Đoàn'
       );
 
       showToast('Đã xuất danh sách học sinh vi phạm ra file Word thành công.', 'success');
