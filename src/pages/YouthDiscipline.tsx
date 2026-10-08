@@ -68,7 +68,12 @@ import {
 } from '../lib/youthDisciplineData';
 import { ClassInfo, Student, HomeroomAssignment } from '../types/homeroom';
 import { ACADEMIC_YEARS, getAllWeeksInYear, getWeekInfoByNumber, getWeekNumberFromDate } from '../utils/schoolWeekUtils';
-import { exportYouthDisciplineToExcel, exportYouthDisciplineToWord } from '../utils/youthDisciplineExport';
+import {
+  exportYouthDisciplineToExcel,
+  exportYouthDisciplineToWord,
+  exportViolationsListToWord,
+  exportViolationsListToExcel
+} from '../utils/youthDisciplineExport';
 
 export default function YouthDisciplinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -112,6 +117,7 @@ export default function YouthDisciplinePage() {
   const [auditLogs, setAuditLogs] = useState<YouthAuditLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
   // Classification Configurations State
   const [classifications, setClassifications] = useState<YouthClassificationConfig[]>([]);
   const [isClassifModalOpen, setIsClassifModalOpen] = useState<boolean>(false);
@@ -219,8 +225,9 @@ export default function YouthDisciplinePage() {
   const canLockWeek = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'BAN_GIAM_HIEU';
   const canEditViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'CAN_BO_DOAN' || effectiveRole === 'GVCN';
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMessage(msg);
+    setToastType(type);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -1351,6 +1358,82 @@ export default function YouthDisciplinePage() {
     showToast('Đã xuất file Word (.docx) chuẩn mẫu thành công!');
   };
 
+  // Export actual list of student violations directly to Word (.docx) based on current filters
+  const handleExportViolationsWord = async () => {
+    if (!filteredViolations || filteredViolations.length === 0) {
+      showToast('Không có học sinh vi phạm phù hợp với điều kiện lọc.', 'error');
+      return;
+    }
+
+    try {
+      const targetClass = selectedClassId !== 'All' ? classes.find((c) => c.id === selectedClassId) : null;
+      const targetClassName = targetClass ? targetClass.name : (selectedClassId !== 'All' ? selectedClassId : 'Tất cả');
+
+      const targetCategoryInfo = YOUTH_DISCIPLINE_CATEGORIES.find((c) => c.id === selectedCategory);
+      const targetCategoryName = targetCategoryInfo ? targetCategoryInfo.name : (selectedCategory !== 'All' ? selectedCategory : 'Tất cả');
+
+      const weekDateRange =
+        selectedWeek > 0 && currentWeekInfo
+          ? `${currentWeekInfo.startDateStr} - ${currentWeekInfo.endDateStr}`
+          : undefined;
+
+      await exportViolationsListToWord(
+        filteredViolations,
+        {
+          schoolYear: selectedYear,
+          weekNumber: selectedWeek,
+          monthNumber: selectedMonth,
+          weekDateRange,
+          grade: selectedGrade,
+          className: targetClassName,
+          severity: selectedSeverity,
+          categoryName: targetCategoryName,
+          violationDate: selectedDate,
+          searchTerm: searchTerm.trim()
+        },
+        user?.name || ''
+      );
+
+      showToast('Đã xuất danh sách học sinh vi phạm ra file Word thành công.', 'success');
+    } catch (err: any) {
+      console.error('Error exporting violations list to Word:', err);
+      showToast('Có lỗi xảy ra khi xuất danh sách học sinh vi phạm ra file Word.', 'error');
+    }
+  };
+
+  // Export actual list of student violations directly to Excel (.xlsx) based on current filters
+  const handleExportViolationsExcel = () => {
+    if (!filteredViolations || filteredViolations.length === 0) {
+      showToast('Không có học sinh vi phạm phù hợp với điều kiện lọc.', 'error');
+      return;
+    }
+
+    try {
+      const targetClass = selectedClassId !== 'All' ? classes.find((c) => c.id === selectedClassId) : null;
+      const targetClassName = targetClass ? targetClass.name : (selectedClassId !== 'All' ? selectedClassId : 'Tất cả');
+
+      const targetCategoryInfo = YOUTH_DISCIPLINE_CATEGORIES.find((c) => c.id === selectedCategory);
+      const targetCategoryName = targetCategoryInfo ? targetCategoryInfo.name : (selectedCategory !== 'All' ? selectedCategory : 'Tất cả');
+
+      exportViolationsListToExcel(filteredViolations, {
+        schoolYear: selectedYear,
+        weekNumber: selectedWeek,
+        monthNumber: selectedMonth,
+        grade: selectedGrade,
+        className: targetClassName,
+        severity: selectedSeverity,
+        categoryName: targetCategoryName,
+        violationDate: selectedDate,
+        searchTerm: searchTerm.trim()
+      });
+
+      showToast('Đã xuất danh sách học sinh vi phạm ra file Excel thành công.', 'success');
+    } catch (err: any) {
+      console.error('Error exporting violations list to Excel:', err);
+      showToast('Có lỗi xảy ra khi xuất danh sách học sinh vi phạm ra file Excel.', 'error');
+    }
+  };
+
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 pb-24 font-sans text-slate-900">
       {/* 1. TOP HEADER & BACK BUTTON */}
@@ -1388,8 +1471,18 @@ export default function YouthDisciplinePage() {
 
       {/* TOAST ALERT */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-4">
-          <CheckCircle2 size={20} className="text-emerald-400 shrink-0" />
+        <div
+          className={`fixed bottom-6 right-6 z-50 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border animate-in fade-in slide-in-from-bottom-4 ${
+            toastType === 'error'
+              ? 'bg-rose-950/95 border-rose-600 text-rose-100 shadow-rose-950/50'
+              : 'bg-slate-900 border-slate-700 text-white'
+          }`}
+        >
+          {toastType === 'error' ? (
+            <AlertCircle size={20} className="text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle2 size={20} className="text-emerald-400 shrink-0" />
+          )}
           <span className="text-xs sm:text-sm font-bold">{toastMessage}</span>
         </div>
       )}
@@ -1442,9 +1535,19 @@ export default function YouthDisciplinePage() {
 
             <button
               type="button"
-              onClick={handleExportWord}
+              onClick={() => {
+                if (activeTab === 'violations') {
+                  handleExportViolationsWord();
+                } else {
+                  handleExportWord();
+                }
+              }}
               className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-400/40"
-              title="Xuất bảng tổng hợp nề nếp ra file Word (.docx)"
+              title={
+                activeTab === 'violations'
+                  ? 'Xuất danh sách học sinh vi phạm ra file Word (.docx)'
+                  : 'Xuất bảng tổng hợp nề nếp ra file Word (.docx)'
+              }
             >
               <FileText size={16} />
               <span className="hidden sm:inline">Xuất Word</span>
@@ -1452,9 +1555,19 @@ export default function YouthDisciplinePage() {
 
             <button
               type="button"
-              onClick={handleExportExcel}
+              onClick={() => {
+                if (activeTab === 'violations') {
+                  handleExportViolationsExcel();
+                } else {
+                  handleExportExcel();
+                }
+              }}
               className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-400/40"
-              title="Xuất dữ liệu nề nếp ra Excel (.xlsx)"
+              title={
+                activeTab === 'violations'
+                  ? 'Xuất danh sách học sinh vi phạm ra file Excel (.xlsx)'
+                  : 'Xuất dữ liệu nề nếp ra Excel (.xlsx)'
+              }
             >
               <FileSpreadsheet size={16} />
               <span className="hidden sm:inline">Xuất Excel</span>
@@ -1906,6 +2019,28 @@ export default function YouthDisciplinePage() {
                   <span>Xóa danh sách...</span>
                 </button>
               )}
+
+              {/* XUẤT WORD DANH SÁCH HỌC SINH VI PHẠM */}
+              <button
+                type="button"
+                onClick={handleExportViolationsWord}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-500/40"
+                title="Xuất danh sách học sinh vi phạm ra file Word (.docx) theo bộ lọc hiện tại"
+              >
+                <FileText size={14} />
+                <span>Xuất Word</span>
+              </button>
+
+              {/* XUẤT EXCEL DANH SÁCH HỌC SINH VI PHẠM */}
+              <button
+                type="button"
+                onClick={handleExportViolationsExcel}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-500/40"
+                title="Xuất danh sách học sinh vi phạm ra file Excel (.xlsx) theo bộ lọc hiện tại"
+              >
+                <FileSpreadsheet size={14} />
+                <span>Xuất Excel</span>
+              </button>
 
               <button
                 type="button"
@@ -2566,8 +2701,8 @@ export default function YouthDisciplinePage() {
               {
                 title: 'Báo cáo chi tiết theo lớp',
                 desc: 'Danh sách vi phạm theo từng lớp học và học sinh vi phạm',
-                actionWord: handleExportWord,
-                actionExcel: handleExportExcel
+                actionWord: handleExportViolationsWord,
+                actionExcel: handleExportViolationsExcel
               },
               {
                 title: 'Báo cáo các lỗi phổ biến',
