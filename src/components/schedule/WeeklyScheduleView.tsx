@@ -6,6 +6,10 @@ import {
 import { WeeklySchedule, ScheduleDay, ScheduleEvent } from '../../types/schedule';
 import { exportScheduleToWord } from './WordExportUtil';
 import { getWeekInfoByNumber } from '../../utils/schoolWeekUtils';
+import { useAuth } from '../../store/AuthContext';
+import { isAdminUser } from '../../lib/moduleData';
+import { homeroomService } from '../../services/homeroomService';
+import { ClassInfo } from '../../types/homeroom';
 
 interface WeeklyScheduleViewProps {
   schedule: WeeklySchedule;
@@ -22,6 +26,9 @@ export default function WeeklyScheduleView({
   onBackToList,
   onTriggerOcr
 }: WeeklyScheduleViewProps) {
+  const { user } = useAuth();
+  const canManage = isAdminUser(user) || user?.role === 'TTCM' || user?.role === 'ttcm' || user?.role === 'GIAO_VU' || user?.role === 'manager' || user?.role === 'BGH' || user?.role === 'admin' || user?.role === 'ADMIN' || (user?.position || '').toLowerCase().includes('hiệu trưởng') || (user?.position || '').toLowerCase().includes('tổ trưởng') || (user?.position || '').toLowerCase().includes('quản lý') || (user?.position || '').toLowerCase().includes('bgh');
+
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editForm, setEditForm] = useState<WeeklySchedule>(schedule);
   const [showOriginalImageModal, setShowOriginalImageModal] = useState<boolean>(false);
@@ -29,10 +36,49 @@ export default function WeeklyScheduleView({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Duty Class Edit Modal State
+  const [isDutyModalOpen, setIsDutyModalOpen] = useState<boolean>(false);
+  const [selectedDutyClass, setSelectedDutyClass] = useState<string>(schedule.duty_week || '');
+  const [classList, setClassList] = useState<ClassInfo[]>([]);
+  const [isSavingDuty, setIsSavingDuty] = useState<boolean>(false);
+
   // Sync editForm when schedule prop changes
   React.useEffect(() => {
     setEditForm(schedule);
+    setSelectedDutyClass(schedule.duty_week || '');
   }, [schedule]);
+
+  const handleOpenDutyModal = async () => {
+    setSelectedDutyClass(schedule.duty_week || '');
+    setIsDutyModalOpen(true);
+    if (classList.length === 0) {
+      try {
+        const fetched = await homeroomService.getClasses();
+        setClassList(fetched);
+      } catch (err) {
+        console.error('Error fetching classes:', err);
+      }
+    }
+  };
+
+  const handleSaveDutyClass = async () => {
+    try {
+      setIsSavingDuty(true);
+      setErrorMsg(null);
+      const updated: WeeklySchedule = {
+        ...schedule,
+        duty_week: selectedDutyClass.trim() || 'Lớp 12A',
+        updated_at: new Date().toISOString()
+      };
+      await onUpdateSchedule(updated);
+      setIsDutyModalOpen(false);
+    } catch (err: any) {
+      console.error('Error saving duty class:', err);
+      setErrorMsg(err?.message || 'Lỗi khi lưu lớp trực tuần. Vui lòng thử lại.');
+    } finally {
+      setIsSavingDuty(false);
+    }
+  };
 
   const handleExportWord = async () => {
     try {
@@ -200,8 +246,18 @@ export default function WeeklyScheduleView({
             {schedule.title || `LỊCH CÔNG TÁC TUẦN ${schedule.week_number}`}
           </span>
           {schedule.duty_week && (
-            <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 rounded-full font-bold text-xs">
-              Trực tuần: {schedule.duty_week}
+            <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 rounded-full font-bold text-xs inline-flex items-center gap-1.5">
+              <span>Trực tuần: {schedule.duty_week}</span>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={handleOpenDutyModal}
+                  className="p-0.5 text-blue-700 hover:text-blue-900 hover:bg-blue-200/60 rounded-full transition-colors cursor-pointer"
+                  title="Sửa lớp trực tuần"
+                >
+                  <Edit3 size={12} />
+                </button>
+              )}
             </span>
           )}
         </div>
@@ -316,8 +372,19 @@ export default function WeeklyScheduleView({
               (Từ ngày {weekInfo.startDateStr} đến ngày {weekInfo.endDateStr})
             </span>
             {schedule.duty_week && (
-              <span className="font-bold not-italic font-serif text-slate-900">
-                | Trực tuần: {schedule.duty_week}
+              <span className="font-bold not-italic font-serif text-slate-900 inline-flex items-center gap-1.5">
+                <span>| Trực tuần: {schedule.duty_week}</span>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={handleOpenDutyModal}
+                    className="print:hidden p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 text-xs font-sans font-bold"
+                    title="Sửa lớp trực tuần"
+                  >
+                    <Edit3 size={14} />
+                    <span className="hidden sm:inline">Sửa</span>
+                  </button>
+                )}
               </span>
             )}
           </div>
@@ -517,6 +584,87 @@ export default function WeeklyScheduleView({
                   <img src={imgUrl} alt={`Ảnh minh chứng ${i + 1}`} className="max-w-full rounded shadow-lg border border-slate-800" />
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DUTY CLASS EDIT MODAL */}
+      {isDutyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 max-w-md w-full space-y-4 animate-in zoom-in-95 font-sans">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5 text-blue-900">
+                <div className="p-2 bg-blue-100 rounded-xl text-blue-700">
+                  <Edit3 size={20} />
+                </div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Chỉnh sửa lớp trực tuần (Tuần {schedule.week_number})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDutyModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs sm:text-sm">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-slate-700">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Tuần công tác:</span>
+                  <span className="font-bold text-slate-900">Tuần {schedule.week_number} ({schedule.title || `LỊCH CÔNG TÁC TUẦN ${schedule.week_number}`})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Thời gian:</span>
+                  <span className="font-bold text-slate-900">{weekInfo.startDateStr} đến {weekInfo.endDateStr}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Lớp trực hiện tại:</span>
+                  <span className="font-bold text-blue-700">{schedule.duty_week || 'Chưa phân công'}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 mb-1.5">
+                  Chọn lớp trực tuần mới <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={selectedDutyClass}
+                  onChange={e => setSelectedDutyClass(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="">-- Chọn lớp trực tuần --</option>
+                  {classList.map(cls => (
+                    <option key={cls.id} value={cls.name}>
+                      Lớp {cls.name} (Khối {cls.grade} - {cls.schoolYear})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Danh sách được lấy trực tiếp từ hệ thống quản lý lớp học của nhà trường.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsDutyModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isSavingDuty}
+                onClick={handleSaveDutyClass}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs transition-colors cursor-pointer shadow-md flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Save size={14} /> {isSavingDuty ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
             </div>
           </div>
         </div>
