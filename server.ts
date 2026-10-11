@@ -112,111 +112,117 @@ async function startServer() {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
 
-  // Multer configuration using memory storage (safer in serverless and containers)
+  // Multer configuration using memory storage (safer in serverless, containers, and cloud)
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 }, // Max 10MB limit (Requirement 1)
-    fileFilter: (req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
-      const ext = path.extname(file.originalname).toLowerCase();
-      const allowedExts = ['.jpg', '.jpeg', '.png', '.webp'];
-      
-      if (allowedTypes.includes(file.mimetype) || allowedExts.includes(ext)) {
-        cb(null, true);
-      } else {
-        cb(new Error('Chỉ cho phép tải lên hình ảnh định dạng JPG, JPEG, PNG, hoặc WEBP.'));
-      }
-    }
+    limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
   });
 
-  // Serve the uploads directory statically (Requirement 4)
+  // Serve the uploads directory statically
   app.use('/uploads', express.static(uploadDir));
 
-  // Endpoint to handle Image Upload with fallback (Requirement 3, 4, 5, 6)
-  app.post('/api/upload-image', upload.single('image'), (req, res) => {
+  // Shared upload handler for /api/upload-image and /api/upload
+  const handleFileUploadRequest = (req: any, res: any) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ success: false, error: 'Vui lòng cung cấp một file hình ảnh lịch công tác.' });
-      }
+      const files = req.files as Express.Multer.File[];
+      const file = (files && files.length > 0 ? files[0] : req.file) as Express.Multer.File | undefined;
 
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
-      const filename = 'schedule-' + uniqueSuffix + ext;
-      const filePath = path.join(uploadDir, filename);
-
-      // Save file buffer to public/uploads
-      fs.writeFileSync(filePath, req.file.buffer);
-
-      // Double check that file is saved on disk (Requirement 5)
-      if (!fs.existsSync(filePath)) {
-        throw new Error('Lỗi đồng bộ lưu trữ: Tệp tin chưa được lưu trên máy chủ.');
-      }
-
-      const imageUrl = `/uploads/${filename}`;
-      const base64Data = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype;
-
-      return res.json({
-        success: true,
-        url: imageUrl,
-        filename: filename,
-        originalName: req.file.originalname,
-        size: req.file.size,
-        mimeType: mimeType,
-        base64: `data:${mimeType};base64,${base64Data}`
-      });
-
-    } catch (innerErr: any) {
-      console.error('Error writing file or handling upload payload:', innerErr);
-      
-      // Robust Fallback: If disk write is completely blocked, return inline base64 URL so it works seamlessly!
-      if (req.file) {
-        const mimeType = req.file.mimetype || 'image/jpeg';
-        const base64Data = req.file.buffer.toString('base64');
-        const base64Url = `data:${mimeType};base64,${base64Data}`;
-        
-        return res.json({
-          success: true,
-          url: base64Url,
-          filename: 'schedule-fallback-' + Date.now() + '.jpg',
-          originalName: req.file.originalname,
-          size: req.file.size,
-          mimeType: mimeType,
-          base64: base64Url
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          error: 'Vui lòng cung cấp tệp tin tải lên (trong trường "image", "file" hoặc "document").'
         });
       }
-      
-      return res.status(500).json({ success: false, error: innerErr.message || 'Lỗi xử lý tệp tin trên máy chủ.' });
+
+      const mimeType = file.mimetype || 'application/octet-stream';
+      const base64Data = file.buffer.toString('base64');
+      const base64Url = `data:${mimeType};base64,${base64Data}`;
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      const ext = path.extname(file.originalname).toLowerCase() || '.bin';
+      const safeOrigName = file.originalname ? file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_') : 'file';
+      const filename = `upload-${uniqueSuffix}-${safeOrigName}`;
+
+      // Optionally try saving to uploads folder if accessible
+      let diskUrl = base64Url;
+      try {
+        const filePath = path.join(uploadDir, filename);
+        fs.writeFileSync(filePath, file.buffer);
+        if (fs.existsSync(filePath)) {
+          diskUrl = `/uploads/${filename}`;
+        }
+      } catch (diskErr) {
+        // Ephemeral or read-only filesystem; base64Url works as reliable fallback
+        console.warn('Could not write file to disk, using data URL fallback:', diskErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        url: base64Url,
+        diskUrl: diskUrl,
+        filename: filename,
+        originalName: file.originalname || filename,
+        size: file.size,
+        mimeType: mimeType,
+        base64: base64Url
+      });
+    } catch (innerErr: any) {
+      console.error('Error handling upload payload:', innerErr);
+      return res.status(500).json({
+        success: false,
+        error: innerErr.message || 'Lỗi xử lý tệp tin trên máy chủ.'
+      });
     }
-  }, (err: any, req: any, res: any, next: any) => {
+  };
+
+  const uploadErrorHandler = (err: any, req: any, res: any, next: any) => {
     console.error('Multer upload middleware error handler caught:', err);
-    return res.status(400).json({
+    const isSizeError = err.code === 'LIMIT_FILE_SIZE' || (err.message && err.message.includes('large'));
+    return res.status(isSizeError ? 413 : 400).json({
       success: false,
-      error: err.message || 'Lỗi tải tệp tin lên. Đảm bảo kích thước tệp < 10MB và định dạng là JPG/PNG/WEBP.'
+      error: isSizeError ? 'Dung lượng tệp vượt quá giới hạn cho phép (25MB).' : (err.message || 'Lỗi tải tệp tin lên.')
+    });
+  };
+
+  // GET health checks for upload endpoints (prevent 404 on browser navigation / GET checks)
+  app.get(['/api/upload-image', '/api/upload', '/api/upload-file'], (req, res) => {
+    res.json({
+      success: true,
+      status: 'READY',
+      endpoint: req.path,
+      message: 'Upload API is operational. Send a POST request with multipart/form-data.'
     });
   });
+
+  // Endpoints to handle Image & Document Upload
+  app.post('/api/upload-image', upload.any(), handleFileUploadRequest, uploadErrorHandler);
+  app.post('/api/upload', upload.any(), handleFileUploadRequest, uploadErrorHandler);
+  app.post('/api/upload-file', upload.any(), handleFileUploadRequest, uploadErrorHandler);
 
   // API Endpoint for OCR / AI Parsing of Schedule Images
   app.post('/api/ocr-schedule', async (req, res) => {
     try {
       const { images, model } = req.body; // Array of { data: string (base64), mimeType: string }
 
-      let requestedModel = model || OCR_MODEL_PRIMARY;
-      
-      // Map legacy/unavailable models to primary
-      if (requestedModel === 'gemini-2.5-flash') {
-        requestedModel = OCR_MODEL_PRIMARY;
+      let userRequestedModel = model;
+      if (userRequestedModel === 'gemini-2.5-flash') {
+        userRequestedModel = OCR_MODEL_PRIMARY;
       }
 
-      // Realtime log debug (Requirement 1)
+      // Candidate models for automatic cascading fallback to prevent 503/429
+      const candidateModels = [
+        userRequestedModel,
+        OCR_MODEL_PRIMARY,
+        OCR_MODEL_FALLBACK,
+        'gemini-3.1-flash-lite',
+        'gemini-flash-latest'
+      ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
       console.log('--------------------------');
-      console.log('OCR MODEL:');
-      console.log(requestedModel);
-      console.log('OCR ENDPOINT:');
-      console.log('/api/ocr-schedule');
+      console.log('OCR ENDPOINT: /api/ocr-schedule');
+      console.log('CANDIDATE MODELS:', candidateModels.join(' -> '));
       console.log('--------------------------');
 
-      // Check API Key existence and validation (Requirement 3)
+      // Check API Key existence and validation
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim().length === 0) {
         return res.status(401).json({ 
@@ -263,101 +269,137 @@ async function startServer() {
         });
       }
 
-      // Specialized Requirement 9 Prompt for School Weekly Schedule
+      // Specialized Prompt for Vietnamese High School Weekly Schedule (THPT Sơn Lương)
       parts.push({
-        text: `Hãy đọc chính xác nội dung lịch công tác trong ảnh.
+        text: `Hãy đọc chính xác nội dung lịch công tác trong ảnh của Trường THPT Sơn Lương.
+Đọc bảng lịch tuần gồm các cột:
+1. Thứ/ Ngày tháng (Thứ 2 đến Chủ nhật, ngày/tháng)
+2. BUỔI SÁNG (Các công việc buổi sáng)
+3. BUỔI CHIỀU (Các công việc buổi chiều)
+4. Trực LĐ (Người trực lãnh đạo: Ông Sáng, Ông Hòa, Ông Hùng...)
 
-Đây là bảng lịch công tác của Trường THPT Sơn Lương.
+Hãy nhận diện đầy đủ:
+- Tiêu đề (Ví dụ: LỊCH CÔNG TÁC TUẦN 6)
+- Số tuần (Ví dụ: 6)
+- Khoảng thời gian (Ví dụ: 12/10 đến 16/10)
+- Lớp trực tuần (Ví dụ: 12G từ phần 'Trực tuần: 12G')
+- Thời gian làm việc (từ phần Lưu ý cuối trang)
+- Người ký / Hiệu trưởng (ở cuối văn bản)
+- Nơi nhận (ở góc dưới bên trái)
+- Nhận diện chữ màu đỏ hoặc ô được tô nổi bật (is_highlight = true).
+- Giữ nguyên các dòng nội dung công việc buổi sáng và buổi chiều.
+- Cột Trực LĐ ghi đúng tên người trực lãnh đạo vào 'duty_leader'. Không gộp tên người trực lãnh đạo vào nội dung công việc.
 
-Hãy nhận diện:
-- tiêu đề
-- tuần
-- khoảng thời gian
-- thứ
-- ngày
-- thời gian
-- nội dung công việc
-- địa điểm
-- người thực hiện/phụ trách
-- ghi chú
-
-Giữ nguyên thứ tự các dòng trong bảng.
-
-Không tự suy đoán nội dung bị mờ hoặc không nhìn thấy.
-
-Nếu một ô không đọc được, để chuỗi rỗng.
-
-Kết quả trả về JSON hợp lệ theo cấu trúc:
-
-{
-  "title": "",
-  "week": "",
-  "date_range": "",
-  "items": [
-    {
-      "day": "",
-      "date": "",
-      "time": "",
-      "content": "",
-      "location": "",
-      "person_in_charge": "",
-      "note": ""
-    }
-  ]
-}
-
-Chỉ trả về JSON, không thêm markdown.`
+Chỉ trả về JSON theo schema.`
       });
 
-      const response = await ai.models.generateContent({
-        model: requestedModel,
-        contents: { parts },
-        config: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING, description: "Tiêu đề lịch công tác" },
-              week: { type: Type.STRING, description: "Số tuần (ví dụ: '3')" },
-              date_range: { type: Type.STRING, description: "Khoảng thời gian (ví dụ: '21/9 - 27/9')" },
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    day: { type: Type.STRING, description: "Thứ trong tuần (Thứ Hai, Thứ Ba...)" },
-                    date: { type: Type.STRING, description: "Ngày (ví dụ: '21/09')" },
-                    time: { type: Type.STRING, description: "Thời gian / buổi (ví dụ: 'Sáng', 'Chiều', '7h30')" },
-                    content: { type: Type.STRING, description: "Nội dung công việc cụ thể" },
-                    location: { type: Type.STRING, description: "Địa điểm" },
-                    person_in_charge: { type: Type.STRING, description: "Người thực hiện/phụ trách/trực" },
-                    note: { type: Type.STRING, description: "Ghi chú" }
-                  },
-                  required: ["day", "content"]
-                }
-              }
-            },
-            required: ["title", "items"]
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING, description: "Tiêu đề lịch công tác (ví dụ: LỊCH CÔNG TÁC TUẦN 6)" },
+          week: { type: Type.STRING, description: "Số tuần (ví dụ: '6')" },
+          week_number: { type: Type.STRING, description: "Số tuần (ví dụ: '6')" },
+          date_range: { type: Type.STRING, description: "Khoảng thời gian (ví dụ: '12/10 đến 16/10')" },
+          duty_week: { type: Type.STRING, description: "Lớp trực tuần (ví dụ: '12G')" },
+          working_time: { type: Type.STRING, description: "Thời gian làm việc theo phần Lưu ý cuối trang" },
+          principal_name: { type: Type.STRING, description: "Họ tên Hiệu trưởng ký tên ở cuối trang" },
+          recipients: { type: Type.STRING, description: "Nơi nhận cuối trang" },
+          days: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                day_of_week: { type: Type.STRING, description: "Thứ trong tuần (Thứ 2, Thứ 3, Thứ 4, Thứ 5, Thứ 6, Thứ 7, Chủ nhật)" },
+                date: { type: Type.STRING, description: "Ngày tháng (ví dụ: '12/10')" },
+                morning_events: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      text: { type: Type.STRING, description: "Nội dung công việc buổi sáng" },
+                      is_highlight: { type: Type.BOOLEAN, description: "true nếu chữ màu đỏ hoặc ô được tô màu nổi bật" }
+                    },
+                    required: ["text"]
+                  }
+                },
+                afternoon_events: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      text: { type: Type.STRING, description: "Nội dung công việc buổi chiều" },
+                      is_highlight: { type: Type.BOOLEAN, description: "true nếu chữ màu đỏ hoặc ô được tô màu nổi bật" }
+                    },
+                    required: ["text"]
+                  }
+                },
+                duty_leader: { type: Type.STRING, description: "Người trực lãnh đạo từ cột Trực LĐ (ví dụ: Ông Sáng, Ông Hòa, Ông Hùng)" }
+              },
+              required: ["day_of_week", "date", "morning_events", "afternoon_events"]
+            }
+          },
+          items: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                day: { type: Type.STRING, description: "Thứ trong tuần" },
+                date: { type: Type.STRING, description: "Ngày" },
+                time: { type: Type.STRING, description: "Buổi (Sáng, Chiều)" },
+                content: { type: Type.STRING, description: "Nội dung" },
+                person_in_charge: { type: Type.STRING, description: "Người phụ trách / Trực LĐ" }
+              },
+              required: ["day", "content"]
+            }
+          }
+        },
+        required: ["title", "days"]
+      };
+
+      let parsedData: any = null;
+      let lastModelError: any = null;
+
+      // Try candidates sequentially with smart retry/fallback
+      for (const modelToTry of candidateModels) {
+        try {
+          console.log(`[OCR SERVER] Executing generateContent with model: ${modelToTry}`);
+          const response = await ai.models.generateContent({
+            model: modelToTry,
+            contents: { parts },
+            config: {
+              temperature: 0.1,
+              responseMimeType: 'application/json',
+              responseSchema
+            }
+          });
+
+          const rawText = response.text || '{}';
+          let cleanText = rawText.trim();
+          if (cleanText.startsWith('```json')) {
+            cleanText = cleanText.substring(7);
+          } else if (cleanText.startsWith('```')) {
+            cleanText = cleanText.substring(3);
+          }
+          if (cleanText.endsWith('```')) {
+            cleanText = cleanText.substring(0, cleanText.length - 3);
+          }
+          cleanText = cleanText.trim();
+
+          parsedData = JSON.parse(cleanText);
+          console.log(`[OCR SERVER] Model ${modelToTry} SUCCESS!`);
+          break;
+        } catch (mErr: any) {
+          console.warn(`[OCR SERVER] Model ${modelToTry} failed:`, mErr.status || mErr.message);
+          lastModelError = mErr;
+          if (mErr.status === 401) {
+            throw mErr;
           }
         }
-      });
-
-      const rawText = response.text || '{}';
-      
-      // Clean up markdown block wrapper for JSON parsing (Requirement 10)
-      let cleanText = rawText.trim();
-      if (cleanText.startsWith('```json')) {
-        cleanText = cleanText.substring(7);
-      } else if (cleanText.startsWith('```')) {
-        cleanText = cleanText.substring(3);
       }
-      if (cleanText.endsWith('```')) {
-        cleanText = cleanText.substring(0, cleanText.length - 3);
-      }
-      cleanText = cleanText.trim();
 
-      const parsedData = JSON.parse(cleanText);
+      if (!parsedData) {
+        throw lastModelError || new Error('Không thể nhận diện hình ảnh sau khi thử tất cả các model AI.');
+      }
 
       return res.json({ success: true, data: parsedData });
     } catch (err: any) {

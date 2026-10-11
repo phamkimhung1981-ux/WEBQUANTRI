@@ -24,7 +24,15 @@ import {
   FileCheck,
   CheckSquare,
   Square,
-  Clock
+  Clock,
+  History,
+  Send,
+  RotateCcw,
+  AlertTriangle,
+  ArrowRight,
+  CornerDownLeft,
+  ShieldAlert,
+  Check
 } from 'lucide-react';
 import { 
   KpiVcForm, 
@@ -32,7 +40,8 @@ import {
   KpiVcCriterion, 
   KpiVcCriteriaGroup, 
   KpiVcScoreItem,
-  KpiVcFormStatus
+  KpiVcFormStatus,
+  KpiVcFormHistory
 } from '../../types/kpiVc';
 import { Teacher, Department } from '../../types';
 import { 
@@ -47,6 +56,8 @@ import {
   resolveVcClassification,
   createCriteriaSnapshot,
   initializeVcScoreItems,
+  getVcStatusMeta,
+  VcStatusMeta,
   DEFAULT_VC_GROUPS,
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
@@ -178,6 +189,21 @@ export default function KpiVcDocumentModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Workflow Simulator & Modals State
+  const [simulatedRole, setSimulatedRole] = useState<'AUTO' | 'TEACHER' | 'TTCM' | 'BGH' | 'ADMIN'>('AUTO');
+  const [isAuditHistoryOpen, setIsAuditHistoryOpen] = useState<boolean>(false);
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState<boolean>(false);
+  const [returnTarget, setReturnTarget] = useState<'TEACHER' | 'TTCM'>('TEACHER');
+  const [returnReason, setReturnReason] = useState<string>('');
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    confirmColor?: 'blue' | 'purple' | 'emerald' | 'amber' | 'rose';
+    onConfirm: () => void;
+  } | null>(null);
 
   const lastInitializedKey = useRef<string | null>(null);
 
@@ -356,7 +382,7 @@ export default function KpiVcDocumentModal({
           if (found) {
             return {
               ...defItem,
-              selfScore: typeof found.selfScore === 'number' ? found.selfScore : defItem.maxScore,
+              selfScore: typeof found.selfScore === 'number' ? found.selfScore : null,
               note: found.note || '',
               ttcmScore: found.ttcmScore !== undefined ? found.ttcmScore : null,
               ttcmComment: found.ttcmComment || '',
@@ -377,10 +403,11 @@ export default function KpiVcDocumentModal({
           const hadMaxTtcm = typeof it.ttcmScore === 'number' && it.ttcmScore >= it.maxScore;
           const hadMaxMgr = typeof it.managerScore === 'number' && it.managerScore >= it.maxScore;
           const newMax = crit.maxScore;
+          const selfScoreVal = typeof it.selfScore === 'number' ? (hadMaxSelf ? newMax : Math.min(newMax, it.selfScore)) : null;
           return {
             ...it,
             maxScore: newMax,
-            selfScore: hadMaxSelf ? newMax : Math.min(newMax, it.selfScore ?? newMax),
+            selfScore: selfScoreVal,
             ttcmScore: typeof it.ttcmScore === 'number' ? (hadMaxTtcm ? newMax : Math.min(newMax, it.ttcmScore)) : it.ttcmScore,
             managerScore: typeof it.managerScore === 'number' ? (hadMaxMgr ? newMax : Math.min(newMax, it.managerScore)) : it.managerScore,
           };
@@ -388,11 +415,12 @@ export default function KpiVcDocumentModal({
         return it;
       });
       
+      const loadedTotals = calculateVcTotals(itemsToUse);
       setScoreItems(itemsToUse);
-      setSelfClassification(form.selfClassification || resolveVcClassification(form.totalScore));
+      setSelfClassification(form.selfClassification || (loadedTotals.isCompleted ? resolveVcClassification(form.totalScore) : 'Chưa hoàn thành tự đánh giá'));
       setSelfDate(form.selfDate || todayStr);
       setSelfComment(form.selfComment || '');
-      setLeaderClassification(form.leaderClassification || form.selfClassification || 'Hoàn thành tốt nhiệm vụ');
+      setLeaderClassification(form.leaderClassification || '');
       setLeaderComment(form.leaderComment || '');
       setLeaderDate(form.leaderDate || todayStr);
       setLeaderSignName(form.leaderSignName || form.evaluatorName || (matchedEvalId ? (teachers.find(t => t.id === matchedEvalId)?.name || '') : ''));
@@ -433,11 +461,10 @@ export default function KpiVcDocumentModal({
       const initialItems = initializeVcScoreItems(initialCriteria);
       setScoreItems(initialItems);
 
-      const initTotals = calculateVcTotals(initialItems);
-      setSelfClassification(resolveVcClassification(initTotals.totalScore));
+      setSelfClassification('Chưa tự đánh giá');
       setSelfDate(todayStr);
       setSelfComment('');
-      setLeaderClassification('Hoàn thành tốt nhiệm vụ');
+      setLeaderClassification('');
       setLeaderComment('');
       setLeaderDate(todayStr);
       setManagerGeneralComment('');
@@ -556,7 +583,7 @@ export default function KpiVcDocumentModal({
     setLeaderSignName('');
   };
 
-  const handleSelfScoreChange = (criterionId: string, value: number, selectedLevelCode?: string) => {
+  const handleSelfScoreChange = (criterionId: string, value: number | null, selectedLevelCode?: string) => {
     setScoreItems(prev => {
       const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
       if (existingIdx >= 0) {
@@ -580,7 +607,7 @@ export default function KpiVcDocumentModal({
     });
   };
 
-  const handleTtcmScoreChange = (criterionId: string, value: number) => {
+  const handleTtcmScoreChange = (criterionId: string, value: number | null) => {
     setScoreItems(prev => {
       const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
       if (existingIdx >= 0) {
@@ -595,7 +622,7 @@ export default function KpiVcDocumentModal({
           ...prev,
           {
             criterionId,
-            selfScore: 0,
+            selfScore: null,
             ttcmScore: value
           }
         ];
@@ -618,7 +645,7 @@ export default function KpiVcDocumentModal({
           ...prev,
           {
             criterionId,
-            selfScore: 0,
+            selfScore: null,
             note
           }
         ];
@@ -626,7 +653,7 @@ export default function KpiVcDocumentModal({
     });
   };
 
-  const handleManagerScoreChange = (criterionId: string, value: number) => {
+  const handleManagerScoreChange = (criterionId: string, value: number | null) => {
     setScoreItems(prev => {
       const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
       if (existingIdx >= 0) {
@@ -641,7 +668,7 @@ export default function KpiVcDocumentModal({
           ...prev,
           {
             criterionId,
-            selfScore: 0,
+            selfScore: null,
             managerScore: value
           }
         ];
@@ -758,19 +785,19 @@ export default function KpiVcDocumentModal({
           criteriaSnapshot: snapshot,
           items: initialItems,
 
-          groupScores: { group_I: 15, group_II: 15, group_III: 70 },
+          groupScores: {},
           ttcmGroupScores: {},
           managerGroupScores: {},
-          totalScore: 100,
+          totalScore: 0,
           ttcmTotalScore: null,
           managerTotalScore: null,
           maxTotalScore: 100,
 
-          // Tự đánh giá
-          selfClassification: 'Hoàn thành tốt nhiệm vụ',
-          selfDate: selfDate || new Date().toLocaleDateString('vi-VN'),
-          selfSignName: teacherObj.name || '',
-          selfComment: evaluationNote || '',
+          // Tự đánh giá: Chưa tự đánh giá khi mới tạo phiếu
+          selfClassification: 'Chưa tự đánh giá',
+          selfDate: '',
+          selfSignName: '',
+          selfComment: '',
 
           // Cấp 1: Tổ trưởng chuyên môn
           hasTtcmEval,
@@ -807,7 +834,7 @@ export default function KpiVcDocumentModal({
           managerGeneralComment: '',
           managerEvaluatedAt: null,
 
-          status: isDraft ? 'draft' : 'self_evaluated',
+          status: 'draft',
           createdBy: actor.name
         };
 
@@ -834,88 +861,17 @@ export default function KpiVcDocumentModal({
     }
   };
 
-  // --- SINGLE FORM SAVE (FOR EDIT / EVAL MODES) ---
-  const handleSingleSave = async (finalStatus: KpiVcFormStatus) => {
-    if (!form) return;
-    if (canEditSelf && !selectedEvaluatorId) {
-      setErrorMsg("Vui lòng chọn cán bộ quản lý đánh giá.");
-      const el = document.getElementById('kpi-vc-document-modal');
-      if (el) el.scrollTop = 0;
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      setErrorMsg(null);
-      setSuccessMsg(null);
-
-      const actor = {
-        id: user?.id || 'admin',
-        name: user?.name || 'Quản trị viên',
-        role: user?.role
-      };
-
-      const formId = form.id;
-      const evaluatorObj = selectedEvaluatorId ? (teachers.find(t => t.id === selectedEvaluatorId) || null) : null;
-      const evaluatorNameResolved = evaluatorObj?.name || '';
-      const evaluatorRoleResolved = evaluatorObj ? resolveVcTeacherPosition(evaluatorObj, departments) : '';
-      const evaluatorIdResolved = selectedEvaluatorId || '';
-
-      const updatePayload: Partial<KpiVcForm> = {
-        employeeId: form.employeeId,
-        employeeName: form.employeeName,
-        periodId: form.periodId,
-        periodName: form.periodName,
-        academicYear: form.academicYear,
-        position: form.position || resolvedPosition,
-        department: form.department || resolvedDepartment,
-        items: scoreItems,
-        groupScores,
-        ttcmGroupScores,
-        managerGroupScores,
-        totalScore,
-        ttcmTotalScore: hasAnyTtcmScore ? ttcmTotalScore : null,
-        managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
-        selfClassification: selfClassification || 'Hoàn thành tốt nhiệm vụ',
-        selfDate: selfDate || new Date().toLocaleDateString('vi-VN'),
-        selfComment: selfComment || '',
-        ttcmClassification: ttcmClassification || form.ttcmClassification || 'Hoàn thành tốt nhiệm vụ',
-        ttcmComment: ttcmComment || form.ttcmComment || '',
-        ttcmDate: ttcmDate || form.ttcmDate || new Date().toLocaleDateString('vi-VN'),
-        ttcmEvaluatorName: form.ttcmEvaluatorName || ttcmEvaluatorName || user?.name || '',
-        ttcmStatus: hasAnyTtcmScore ? 'evaluated' : (form.ttcmStatus || 'pending'),
-        ttcmEvaluatedAt: hasAnyTtcmScore ? (form.ttcmEvaluatedAt || new Date().toISOString()) : form.ttcmEvaluatedAt,
-        leaderClassification: leaderClassification || form.leaderClassification || 'Hoàn thành tốt nhiệm vụ',
-        leaderComment: leaderComment || form.leaderComment || '',
-        leaderDate: leaderDate || form.leaderDate || new Date().toLocaleDateString('vi-VN'),
-        leaderSignName: leaderSignName || form.bghEvaluatorName || form.evaluatorName || evaluatorNameResolved,
-        bghClassification: leaderClassification || form.bghClassification || 'Hoàn thành tốt nhiệm vụ',
-        bghComment: leaderComment || form.bghComment || '',
-        bghDate: leaderDate || form.bghDate || new Date().toLocaleDateString('vi-VN'),
-        bghStatus: hasAnyManagerScore ? 'evaluated' : (form.bghStatus || 'pending'),
-        bghTotalScore: hasAnyManagerScore ? managerTotalScore : (form.bghTotalScore ?? null),
-        managerGeneralComment: managerGeneralComment || form.managerGeneralComment || '',
-        evaluatorId: evaluatorIdResolved,
-        evaluatorName: evaluatorNameResolved,
-        evaluatorRole: evaluatorRoleResolved,
-        managerEvaluatedAt: hasAnyManagerScore ? (form.managerEvaluatedAt || new Date().toISOString()) : form.managerEvaluatedAt,
-        status: finalStatus
-      };
-
-      await updateVcForm(formId, updatePayload, actor);
-      setSuccessMsg(finalStatus === 'completed' ? 'Đã hoàn thành và chốt lưu phiếu đánh giá thành công!' : 'Đã cập nhật phiếu đánh giá thành công!');
-      
-      if (onSaved) onSaved(formId);
-      setTimeout(() => {
-        onClose();
-      }, 1000);
-    } catch (err: any) {
-      console.error('Error saving VC form:', err);
-      setErrorMsg(err.message || 'Lỗi khi lưu phiếu đánh giá.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  // =========================================================================
+  // QUY TRÌNH CHẤM ĐIỂM 3 CẤP TUẦN TỰ (GIÁO VIÊN -> TTCM -> BGH)
+  // =========================================================================
+  const formStatus: KpiVcFormStatus = form?.status || 'draft';
+  const isDraftOrReturned = formStatus === 'draft' || formStatus === 'returned';
+  const isSubmittedToTtcm = formStatus === 'submitted' || formStatus === 'self_evaluated';
+  const isEvaluatedByTtcm = formStatus === 'ttcm_evaluated';
+  const isCompleted = formStatus === 'completed';
+  const isLocked = formStatus === 'locked';
+  const isReadOnly = mode === 'view' || isLocked;
+  const statusMeta = getVcStatusMeta(formStatus);
 
   // READ ONLY & PERMISSIONS CHECK FOR SINGLE FORM
   const isTtcmForThisForm = useMemo(() => {
@@ -943,11 +899,67 @@ export default function KpiVcDocumentModal({
     return false;
   }, [user, form, isAdmin]);
 
-  const isLocked = form?.status === 'locked';
-  const isReadOnly = mode === 'view' || isLocked;
-  const canEditSelf = (mode === 'create' || mode === 'edit' || mode === 'self_eval') && !isLocked;
-  const canEditTtcm = (mode === 'create' || mode === 'edit' || mode === 'ttcm_eval' || isTtcmForThisForm) && !isLocked;
-  const canEditManager = (mode === 'create' || mode === 'edit' || mode === 'leader_eval' || isBghForThisForm) && !isLocked;
+  // VAI TRÒ THỰC THI (CHO PHÉP ROLE SIMULATOR ĐỂ THỬ NGHIỆM TIỆN LỢI)
+  const effectiveRole = useMemo<'TEACHER' | 'TTCM' | 'BGH' | 'ADMIN'>(() => {
+    if (simulatedRole !== 'AUTO') return simulatedRole;
+    if (isAdmin) return 'ADMIN';
+    if (isBghForThisForm) return 'BGH';
+    if (isTtcmForThisForm) return 'TTCM';
+    return 'TEACHER';
+  }, [simulatedRole, isAdmin, isBghForThisForm, isTtcmForThisForm]);
+
+  // Kiểm tra hoàn thành tự chấm: tất cả tiêu chí đều phải có điểm tự chấm hợp lệ (kể cả 0 điểm)
+  const missingSelfCriteria = useMemo(() => {
+    if (!scoreItems || scoreItems.length === 0) return [];
+    return scoreItems.filter(it => typeof it.selfScore !== 'number' || it.selfScore === null || isNaN(it.selfScore));
+  }, [scoreItems]);
+  const isSelfComplete = missingSelfCriteria.length === 0;
+
+  // Kiểm tra hoàn thành TTCM đánh giá: tất cả tiêu chí đều phải có điểm TTCM hợp lệ (kể cả 0 điểm)
+  const missingTtcmCriteria = useMemo(() => {
+    if (!scoreItems || scoreItems.length === 0) return [];
+    return scoreItems.filter(it => typeof it.ttcmScore !== 'number' || it.ttcmScore === null || isNaN(it.ttcmScore));
+  }, [scoreItems]);
+  const isTtcmComplete = missingTtcmCriteria.length === 0;
+
+  // RÀNG BUỘC CHẶT CHẼ THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ:
+  // (1) Giáo viên tự chấm điểm và gửi phiếu:
+  //     Chỉ mở khi đang ở Cấp 1 (Chưa tự chấm / Yêu cầu tự chấm lại), đúng quyền Giáo viên / Admin
+  const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && 
+    (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN') && 
+    mode !== 'view';
+
+  // (2) TTCM chỉ được xem, đánh giá và chấm điểm sau khi giáo viên đã hoàn thành và gửi phiếu tự chấm:
+  //     Chỉ mở khi đang ở Cấp 2 (Chờ TTCM), đúng quyền TTCM / Admin
+  const canEditTtcm = !isLocked && !isCompleted && isSubmittedToTtcm && 
+    (effectiveRole === 'TTCM' || effectiveRole === 'ADMIN') && 
+    mode !== 'view';
+
+  // (3) BGH chỉ được chấm sau khi TTCM đã hoàn thành, xác nhận và gửi kết quả:
+  //     Chỉ mở khi đang ở Cấp 3 (Chờ BGH), đúng quyền BGH / Admin
+  const canEditManager = !isLocked && !isCompleted && isEvaluatedByTtcm && 
+    (effectiveRole === 'BGH' || effectiveRole === 'ADMIN') && 
+    mode !== 'view';
+
+  // Lý do khóa cấp TTCM
+  const lockReasonTtcm = useMemo(() => {
+    if (isDraftOrReturned) return 'Khóa: Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm';
+    if (isEvaluatedByTtcm) return 'Đã khóa: TTCM đã hoàn tất và gửi kết quả lên BGH';
+    if (isCompleted) return 'Đã khóa: Phiếu đánh giá đã hoàn thành chốt kết quả';
+    if (isLocked) return 'Đã khóa: Phiếu đang bị khóa bảo mật';
+    if (effectiveRole !== 'TTCM' && effectiveRole !== 'ADMIN') return 'Khóa: Cần quyền Tổ trưởng chuyên môn';
+    return '';
+  }, [isDraftOrReturned, isEvaluatedByTtcm, isCompleted, isLocked, effectiveRole]);
+
+  // Lý do khóa cấp BGH
+  const lockReasonManager = useMemo(() => {
+    if (isDraftOrReturned) return 'Khóa: Đang chờ giáo viên gửi phiếu tự chấm';
+    if (isSubmittedToTtcm) return 'Khóa: Đang chờ TTCM hoàn thành, xác nhận và gửi kết quả';
+    if (isCompleted) return 'Đã khóa: Ban Giám hiệu đã phê duyệt hoàn tất';
+    if (isLocked) return 'Đã khóa: Phiếu đang bị khóa bảo mật';
+    if (effectiveRole !== 'BGH' && effectiveRole !== 'ADMIN') return 'Khóa: Cần quyền Ban Giám hiệu';
+    return '';
+  }, [isDraftOrReturned, isSubmittedToTtcm, isCompleted, isLocked, effectiveRole]);
 
   const canChangeEvaluator = useMemo(() => {
     if (isLocked) return false;
@@ -955,6 +967,287 @@ export default function KpiVcDocumentModal({
     if (!form || form.status === 'draft') return true;
     return false;
   }, [form, isAdmin, isLocked]);
+
+  // HÀM XỬ LÝ CHUYỂN TRẠNG THÁI VÀ GHI AUDIT TRAIL LỊCH SỬ CHỈNH SỬA
+  const executeFormTransition = async (
+    targetStatus: KpiVcFormStatus,
+    actionTitle: string,
+    actionComment?: string,
+    successAlert?: string
+  ) => {
+    if (!form) return;
+
+    try {
+      setIsSubmitting(true);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+
+      const actor = {
+        id: user?.id || 'admin',
+        name: user?.name || (effectiveRole === 'BGH' ? 'Ban Giám hiệu' : effectiveRole === 'TTCM' ? 'Tổ trưởng chuyên môn' : form.employeeName),
+        role: effectiveRole === 'ADMIN' ? 'Quản trị viên' : effectiveRole === 'BGH' ? 'Ban Giám hiệu' : effectiveRole === 'TTCM' ? 'Tổ trưởng CM' : 'Giáo viên'
+      };
+
+      const formId = form.id;
+      const evaluatorObj = selectedEvaluatorId ? (teachers.find(t => t.id === selectedEvaluatorId) || null) : null;
+      const evaluatorNameResolved = evaluatorObj?.name || '';
+      const evaluatorRoleResolved = evaluatorObj ? resolveVcTeacherPosition(evaluatorObj, departments) : '';
+      const evaluatorIdResolved = selectedEvaluatorId || '';
+
+      const now = new Date().toISOString();
+      const todayStr = new Date().toLocaleDateString('vi-VN');
+
+      const prevStatus = form.status || 'draft';
+      const prevScore = targetStatus === 'submitted'
+        ? form.totalScore
+        : targetStatus === 'ttcm_evaluated'
+          ? form.ttcmTotalScore
+          : form.managerTotalScore;
+
+      const newScore = targetStatus === 'submitted'
+        ? totalScore
+        : targetStatus === 'ttcm_evaluated'
+          ? ttcmTotalScore
+          : managerTotalScore;
+
+      // Tạo bản ghi lịch sử chỉnh sửa
+      const newHistoryEntry: KpiVcFormHistory = {
+        id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role || 'Cán bộ',
+        action: actionTitle,
+        previousStatus: prevStatus,
+        newStatus: targetStatus,
+        previousScore: prevScore ?? null,
+        newScore: newScore ?? null,
+        comment: actionComment || (
+          targetStatus === 'submitted' ? (selfComment || 'Đã hoàn thành tự chấm điểm và gửi phiếu.') :
+          targetStatus === 'ttcm_evaluated' ? (ttcmComment || 'Đã đánh giá, xác nhận và gửi kết quả lên BGH.') :
+          targetStatus === 'completed' ? (leaderComment || 'Ban Giám hiệu đã phê duyệt và chốt kết quả.') :
+          targetStatus === 'returned' ? (actionComment || 'Yêu cầu tự chấm lại.') : ''
+        ),
+        timestamp: now
+      };
+
+      const existingHistory = form.history || [];
+      const updatedHistory = [newHistoryEntry, ...existingHistory];
+
+      const updatePayload: Partial<KpiVcForm> = {
+        employeeId: form.employeeId,
+        employeeName: form.employeeName,
+        periodId: form.periodId,
+        periodName: form.periodName,
+        academicYear: form.academicYear,
+        position: form.position || resolvedPosition,
+        department: form.department || resolvedDepartment,
+        items: scoreItems,
+        groupScores,
+        ttcmGroupScores,
+        managerGroupScores,
+        totalScore,
+        ttcmTotalScore: hasAnyTtcmScore ? ttcmTotalScore : null,
+        managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
+
+        // Cấp 1 - Giáo viên tự chấm
+        selfClassification: selfClassification || 'Hoàn thành tốt nhiệm vụ',
+        selfDate: selfDate || todayStr,
+        selfComment: selfComment || '',
+        selfEvaluatedAt: targetStatus === 'submitted' ? now : (form.selfEvaluatedAt || (form.submittedAt ? form.submittedAt : null)),
+        submittedAt: targetStatus === 'submitted' ? now : form.submittedAt,
+
+        // Cấp 2 - TTCM đánh giá
+        ttcmClassification: ttcmClassification || form.ttcmClassification || 'Hoàn thành tốt nhiệm vụ',
+        ttcmComment: ttcmComment || form.ttcmComment || '',
+        ttcmDate: ttcmDate || form.ttcmDate || todayStr,
+        ttcmEvaluatorName: form.ttcmEvaluatorName || ttcmEvaluatorName || user?.name || 'Tổ trưởng chuyên môn',
+        ttcmStatus: targetStatus === 'ttcm_evaluated' ? 'evaluated' : (hasAnyTtcmScore ? 'evaluated' : (form.ttcmStatus || 'pending')),
+        ttcmEvaluatedAt: targetStatus === 'ttcm_evaluated' ? now : form.ttcmEvaluatedAt,
+
+        // Cấp 3 - BGH đánh giá & phê duyệt
+        leaderClassification: leaderClassification || form.leaderClassification || 'Hoàn thành tốt nhiệm vụ',
+        leaderComment: leaderComment || form.leaderComment || '',
+        leaderDate: leaderDate || form.leaderDate || todayStr,
+        leaderSignName: leaderSignName || form.bghEvaluatorName || form.evaluatorName || evaluatorNameResolved || 'Hiệu trưởng / Ban Giám hiệu',
+        bghClassification: leaderClassification || form.bghClassification || 'Hoàn thành tốt nhiệm vụ',
+        bghComment: leaderComment || form.bghComment || '',
+        bghDate: leaderDate || form.bghDate || todayStr,
+        bghStatus: targetStatus === 'completed' ? 'evaluated' : (hasAnyManagerScore ? 'evaluated' : (form.bghStatus || 'pending')),
+        bghTotalScore: hasAnyManagerScore ? managerTotalScore : (form.bghTotalScore ?? null),
+        managerGeneralComment: managerGeneralComment || form.managerGeneralComment || '',
+        managerEvaluatedAt: targetStatus === 'completed' ? now : form.managerEvaluatedAt,
+        bghEvaluatedAt: targetStatus === 'completed' ? now : form.bghEvaluatedAt,
+
+        evaluatorId: evaluatorIdResolved,
+        evaluatorName: evaluatorNameResolved,
+        evaluatorRole: evaluatorRoleResolved,
+        status: targetStatus,
+        history: updatedHistory
+      };
+
+      await updateVcForm(formId, updatePayload, actor);
+      setSuccessMsg(successAlert || 'Cập nhật phiếu đánh giá thành công!');
+      if (onSaved) onSaved(formId);
+
+      setTimeout(() => {
+        onClose();
+      }, 1200);
+    } catch (err: any) {
+      console.error('Error executing transition for VC form:', err);
+      setErrorMsg(err.message || 'Lỗi khi lưu phiếu đánh giá.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // CÁC HÀNH ĐỘNG TUẦN TỰ CHO TỪNG CẤP:
+  // Cấp 1: Giáo viên lưu nháp
+  const handleSaveSelfDraft = async () => {
+    await executeFormTransition('draft', 'Giáo viên lưu nháp tự chấm', undefined, 'Đã lưu bản nháp tự chấm thành công!');
+  };
+
+  // Cấp 1: Giáo viên gửi phiếu tự chấm -> Chuyển sang Chờ TTCM
+  const handleSubmitSelf = async () => {
+    if (!isSelfComplete) {
+      setErrorMsg(`Vui lòng tự chấm điểm cho tất cả tiêu chí (hiện còn ${missingSelfCriteria.length} tiêu chí chưa nhập điểm) trước khi gửi phiếu lên TTCM!`);
+      const el = document.getElementById('kpi-vc-document-modal');
+      if (el) el.scrollTop = 0;
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xác nhận gửi phiếu tự chấm lên TTCM',
+      message: `Bạn đã tự chấm đạt ${totalScore}/100 điểm. Sau khi gửi phiếu, chức năng tự chấm sẽ khóa để chuyển sang Tổ trưởng chuyên môn đánh giá. Bạn có chắc chắn muốn gửi?`,
+      confirmLabel: 'Gửi phiếu tự chấm',
+      confirmColor: 'blue',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        await executeFormTransition(
+          'submitted',
+          'Giáo viên gửi phiếu tự chấm',
+          selfComment,
+          'Đã gửi phiếu tự chấm thành công! Trạng thái chuyển sang: Chờ TTCM.'
+        );
+      }
+    });
+  };
+
+  // Cấp 2: TTCM lưu tạm đánh giá
+  const handleSaveTtcmDraft = async () => {
+    await executeFormTransition('submitted', 'TTCM lưu tạm kết quả đánh giá', undefined, 'Đã lưu tạm đánh giá của TTCM thành công!');
+  };
+
+  // Cấp 2: TTCM xác nhận và gửi kết quả lên BGH -> Chuyển sang Chờ BGH
+  const handleSubmitTtcm = async () => {
+    if (!isTtcmComplete) {
+      setErrorMsg(`Vui lòng hoàn thành chấm điểm tất cả tiêu chí của cấp TTCM (hiện còn ${missingTtcmCriteria.length} tiêu chí chưa chấm) trước khi gửi lên BGH!`);
+      const el = document.getElementById('kpi-vc-document-modal');
+      if (el) el.scrollTop = 0;
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xác nhận gửi kết quả đánh giá lên Ban Giám hiệu',
+      message: `Tổ trưởng chuyên môn đã chấm đạt ${ttcmTotalScore}/100 điểm (Xếp loại đề xuất: ${ttcmClassification}). Bạn có chắc chắn muốn xác nhận và gửi kết quả lên Ban Giám hiệu?`,
+      confirmLabel: 'Xác nhận & Gửi lên BGH',
+      confirmColor: 'purple',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        await executeFormTransition(
+          'ttcm_evaluated',
+          'TTCM xác nhận & gửi kết quả lên BGH',
+          ttcmComment,
+          'Đã gửi kết quả đánh giá lên Ban Giám hiệu thành công! Trạng thái chuyển sang: Chờ BGH.'
+        );
+      }
+    });
+  };
+
+  // Cấp 2: TTCM hoàn trả lại cho Giáo viên tự chấm lại
+  const handleOpenReturnToTeacher = () => {
+    setReturnTarget('TEACHER');
+    setReturnReason('');
+    setIsReturnModalOpen(true);
+  };
+
+  // Cấp 3: BGH lưu tạm đánh giá
+  const handleSaveBghDraft = async () => {
+    await executeFormTransition('ttcm_evaluated', 'BGH lưu tạm kết quả đánh giá', undefined, 'Đã lưu tạm đánh giá của Ban Giám hiệu!');
+  };
+
+  // Cấp 3: BGH phê duyệt và hoàn thành chốt kết quả -> Chuyển sang Hoàn thành
+  const handleApproveBgh = async () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Phê duyệt & Chốt kết quả đánh giá KPI',
+      message: `Ban Giám hiệu chấm đạt ${hasAnyManagerScore ? managerTotalScore : (hasAnyTtcmScore ? ttcmTotalScore : totalScore)}/100 điểm. Xếp loại chính thức: "${leaderClassification || 'Hoàn thành tốt nhiệm vụ'}". Sau khi phê duyệt, kết quả sẽ được chốt chính thức và khóa toàn bộ. Bạn có chắc chắn?`,
+      confirmLabel: 'Phê duyệt & Hoàn thành',
+      confirmColor: 'emerald',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        await executeFormTransition(
+          'completed',
+          'Ban Giám hiệu phê duyệt & chốt kết quả KPI',
+          leaderComment,
+          'Đã phê duyệt và hoàn thành đánh giá KPI năm học 2026–2027!'
+        );
+      }
+    });
+  };
+
+  // Cấp 3: BGH yêu cầu TTCM đánh giá lại
+  const handleOpenReturnToTtcm = () => {
+    setReturnTarget('TTCM');
+    setReturnReason('');
+    setIsReturnModalOpen(true);
+  };
+
+  // Thực hiện hoàn trả (từ modal lý do)
+  const handleConfirmReturn = async () => {
+    if (!returnReason.trim()) {
+      alert('Vui lòng nhập lý do yêu cầu đánh giá lại.');
+      return;
+    }
+
+    setIsReturnModalOpen(false);
+    if (returnTarget === 'TEACHER') {
+      await executeFormTransition(
+        'returned',
+        'TTCM yêu cầu giáo viên tự chấm lại',
+        `Lý do hoàn trả: ${returnReason.trim()}`,
+        'Đã hoàn trả phiếu yêu cầu giáo viên tự chấm lại thành công!'
+      );
+    } else {
+      await executeFormTransition(
+        'submitted',
+        'BGH yêu cầu TTCM đánh giá lại',
+        `Lý do yêu cầu đánh giá lại: ${returnReason.trim()}`,
+        'Đã gửi yêu cầu TTCM đánh giá lại thành công!'
+      );
+    }
+  };
+
+  // Admin mở lại quy trình
+  const handleAdminResetToStep = (targetStep: KpiVcFormStatus) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Quản trị viên điều chỉnh trạng thái phiếu',
+      message: `Bạn đang thực hiện thao tác quản trị: Chuyển trạng thái phiếu về "${getVcStatusMeta(targetStep).label}". Tiếp tục?`,
+      confirmLabel: 'Xác nhận chuyển',
+      confirmColor: 'amber',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        await executeFormTransition(
+          targetStep,
+          `Quản trị viên chuyển trạng thái về ${getVcStatusMeta(targetStep).label}`,
+          'Điều chỉnh bởi Quản trị viên',
+          `Đã chuyển trạng thái phiếu về: ${getVcStatusMeta(targetStep).label}`
+        );
+      }
+    });
+  };
 
   if (!isOpen) return null;
 
@@ -1705,25 +1998,50 @@ export default function KpiVcDocumentModal({
               <FileText size={20} />
             </div>
             <div>
-              <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                {mode === 'edit' && `CHỈNH SỬA PHIẾU KPI: ${form?.employeeName}`}
-                {mode === 'self_eval' && `TỰ CHẤM ĐIỂM KPI: ${form?.employeeName}`}
-                {mode === 'leader_eval' && `Ý KIẾN ĐÁNH GIÁ CỦA LÃNH ĐẠO: ${form?.employeeName}`}
-                {mode === 'view' && `XEM CHI TIẾT PHIẾU ĐÁNH GIÁ: ${form?.employeeName}`}
-                
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  {mode === 'edit' && `CHỈNH SỬA PHIẾU KPI: ${form?.employeeName}`}
+                  {mode === 'self_eval' && `TỰ CHẤM ĐIỂM KPI: ${form?.employeeName}`}
+                  {mode === 'leader_eval' && `Ý KIẾN ĐÁNH GIÁ CỦA LÃNH ĐẠO: ${form?.employeeName}`}
+                  {mode === 'view' && `XEM CHI TIẾT PHIẾU ĐÁNH GIÁ: ${form?.employeeName}`}
+                </h2>
+
+                {/* TRẠNG THÁI QUY TRÌNH 3 CẤP TUẦN TỰ */}
+                {form && (
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black border ${statusMeta.badgeClass}`}>
+                    <span className={`w-2 h-2 rounded-full ${statusMeta.dotClass} animate-pulse`} />
+                    {statusMeta.label}
+                  </span>
+                )}
+
                 {isLocked && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/30">
                     <Lock size={12} /> Đã khóa
                   </span>
                 )}
-              </h2>
-              <p className="text-[11px] text-blue-200">
-                Trường THPT Sơn Lương • Mẫu chuẩn viên chức không giữ chức vụ quản lý
+              </div>
+              <p className="text-[11px] text-blue-200 mt-0.5">
+                Trường THPT Sơn Lương • Quy trình đánh giá 3 cấp tuần tự năm học 2026–2027
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {form && (
+              <button
+                type="button"
+                onClick={() => setIsAuditHistoryOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                title="Xem lịch sử chỉnh sửa và quy trình đánh giá"
+              >
+                <History size={14} className="text-blue-300" />
+                <span className="hidden sm:inline">Lịch sử</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-white/20 text-[10px] font-mono">
+                  {form.history?.length || 0}
+                </span>
+              </button>
+            )}
+
             <div className="flex items-center gap-1 bg-white/10 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white">
               <span className="hidden sm:inline">Thu phóng:</span>
               <button 
@@ -1785,24 +2103,54 @@ export default function KpiVcDocumentModal({
           </div>
         </div>
 
-        {/* REALTIME SCORE BAR (STICKY COUNTER) */}
-        <div className="bg-slate-50 border-b border-slate-200 px-5 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs font-semibold">
+        {/* REALTIME SCORE BAR & ROLE SIMULATOR BAR */}
+        <div className="bg-slate-50 border-b border-slate-200 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
+          {/* BỘ CHUYỂN ĐỔI VAI TRÒ NHANH (ROLE SIMULATOR) */}
+          <div className="flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-xl text-[11px] font-bold">
+            <span className="text-slate-600 px-1 hidden md:inline">Vai trò:</span>
+            {(['AUTO', 'TEACHER', 'TTCM', 'BGH', 'ADMIN'] as const).map(roleKey => {
+              const isActive = simulatedRole === roleKey;
+              const labelMap: Record<string, string> = {
+                AUTO: 'Tự động',
+                TEACHER: '👤 Giáo viên',
+                TTCM: '👔 TTCM',
+                BGH: '🏛️ BGH',
+                ADMIN: '🛡️ Admin'
+              };
+              return (
+                <button
+                  key={roleKey}
+                  type="button"
+                  onClick={() => setSimulatedRole(roleKey)}
+                  className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+                    isActive 
+                      ? 'bg-blue-600 text-white shadow-xs font-extrabold' 
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/60'
+                  }`}
+                  title={`Thử nghiệm với vai trò ${labelMap[roleKey]}`}
+                >
+                  {labelMap[roleKey]}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-1.5 text-slate-700">
               <span className="w-2 h-2 rounded-full bg-blue-600" />
-              <span>Nhóm I (Tư tưởng, đạo đức):</span>
+              <span>Nhóm I:</span>
               <span className="font-extrabold text-blue-700">{groupScores.group_I || 0} / 15</span>
             </div>
 
             <div className="flex items-center gap-1.5 text-slate-700">
               <span className="w-2 h-2 rounded-full bg-indigo-600" />
-              <span>Nhóm II (Tác phong, kỷ luật):</span>
+              <span>Nhóm II:</span>
               <span className="font-extrabold text-indigo-700">{groupScores.group_II || 0} / 15</span>
             </div>
 
             <div className="flex items-center gap-1.5 text-slate-700">
               <span className="w-2 h-2 rounded-full bg-emerald-600" />
-              <span>Nhóm III (Kết quả thực hiện):</span>
+              <span>Nhóm III:</span>
               <span className="font-extrabold text-emerald-700">{groupScores.group_III || 0} / 70</span>
             </div>
           </div>
@@ -1995,11 +2343,191 @@ export default function KpiVcDocumentModal({
               </p>
             </div>
 
-            {/* 4. TIÊU ĐỀ PHẦN A. NỘI DUNG CHẤM ĐIỂM */}
-            <div className="my-5">
-              <h2 className="text-sm sm:text-base font-extrabold uppercase text-slate-900 tracking-wide">
-                A. NỘI DUNG CHẤM ĐIỂM
-              </h2>
+            {/* 4. THANH QUY TRÌNH CHẤM ĐIỂM 3 CẤP TUẦN TỰ */}
+            <div className="my-6 space-y-3.5">
+              <div className="border border-slate-300 rounded-2xl p-4 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 shadow-xs">
+                <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2.5 flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
+                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">
+                      QUY TRÌNH CHẤM ĐIỂM 3 CẤP TUẦN TỰ (NĂM HỌC 2026–2027)
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-medium">Trạng thái:</span>
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border ${statusMeta.badgeClass}`}>
+                      <span className={`w-2 h-2 rounded-full ${statusMeta.dotClass}`} />
+                      {statusMeta.label}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3 BƯỚC TUẦN TỰ */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* BƯỚC 1: GIÁO VIÊN TỰ CHẤM */}
+                  <div className={`p-3 rounded-xl border transition-all ${
+                    isDraftOrReturned
+                      ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                      : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-extrabold uppercase text-blue-900 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
+                        <span>Giáo viên tự chấm</span>
+                      </span>
+                      {isDraftOrReturned ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold border border-amber-300">
+                          {formStatus === 'returned' ? '⚠️ Chấm lại' : '⏳ Đang tự chấm'}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-300">
+                          ✓ Đã gửi phiếu
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-700 font-medium truncate">
+                      {form?.employeeName || selectedTeacher?.name || 'Giáo viên'}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">
+                        {form?.submittedAt ? `Gửi: ${new Date(form.submittedAt).toLocaleDateString('vi-VN')}` : (form?.selfDate ? `Ngày: ${form.selfDate}` : 'Chưa gửi')}
+                      </span>
+                      <span className="font-bold text-blue-900 font-mono">
+                        {scoreItems.some(it => typeof it.selfScore === 'number') ? `${totalScore}đ / 100đ` : '---'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* BƯỚC 2: TTCM ĐÁNH GIÁ */}
+                  <div className={`p-3 rounded-xl border transition-all ${
+                    isSubmittedToTtcm
+                      ? 'bg-purple-50/80 border-purple-400 ring-2 ring-purple-500/20 shadow-xs'
+                      : isDraftOrReturned
+                        ? 'bg-slate-100/60 border-slate-200 opacity-75'
+                        : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-extrabold uppercase text-purple-950 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-black">2</span>
+                        <span>TTCM đánh giá</span>
+                      </span>
+                      {isDraftOrReturned ? (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold flex items-center gap-1" title="Chờ giáo viên tự chấm xong và gửi phiếu">
+                          <Lock size={10} /> Khóa
+                        </span>
+                      ) : isSubmittedToTtcm ? (
+                        <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 text-[10px] font-extrabold border border-purple-300 animate-pulse">
+                          ⏳ Đang đánh giá
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-300">
+                          ✓ Đã gửi BGH
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-700 font-medium truncate">
+                      {form?.ttcmEvaluatorName || 'Tổ trưởng chuyên môn'}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">
+                        {form?.ttcmEvaluatedAt ? `Chấm: ${new Date(form.ttcmEvaluatedAt).toLocaleDateString('vi-VN')}` : (isDraftOrReturned ? 'Chờ GV gửi phiếu' : 'Đang chờ TTCM')}
+                      </span>
+                      <span className="font-bold text-purple-950 font-mono">
+                        {hasAnyTtcmScore ? `${ttcmTotalScore}đ / 100đ` : '---'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* BƯỚC 3: BAN GIÁM HIỆU PHÊ DUYỆT */}
+                  <div className={`p-3 rounded-xl border transition-all ${
+                    isEvaluatedByTtcm
+                      ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-500/20 shadow-xs'
+                      : isCompleted
+                        ? 'bg-emerald-50/80 border-emerald-400 shadow-xs'
+                        : 'bg-slate-100/60 border-slate-200 opacity-75'
+                  }`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-extrabold uppercase text-blue-950 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-blue-800 text-white flex items-center justify-center text-[10px] font-black">3</span>
+                        <span>BGH phê duyệt</span>
+                      </span>
+                      {isDraftOrReturned || isSubmittedToTtcm ? (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold flex items-center gap-1" title={isDraftOrReturned ? "Chờ giáo viên tự chấm" : "Chờ TTCM xác nhận và gửi kết quả"}>
+                          <Lock size={10} /> Khóa
+                        </span>
+                      ) : isEvaluatedByTtcm ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-extrabold border border-amber-300 animate-pulse">
+                          ⏳ Đang phê duyệt
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-300">
+                          ✓ Hoàn thành
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-700 font-medium truncate">
+                      {form?.bghEvaluatorName || form?.evaluatorName || leaderSignName || 'Ban Giám hiệu'}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">
+                        {form?.managerEvaluatedAt ? `Duyệt: ${new Date(form.managerEvaluatedAt).toLocaleDateString('vi-VN')}` : (isCompleted ? 'Đã hoàn thành' : 'Chờ cấp trước')}
+                      </span>
+                      <span className="font-bold text-blue-900 font-mono">
+                        {hasAnyManagerScore ? `${managerTotalScore}đ / 100đ` : '---'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* THÔNG BÁO QUY TRÌNH VÀ RÀNG BUỘC THEO THỜI GIAN THỰC */}
+              {isDraftOrReturned && (
+                <div className="p-3 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-950 flex items-start gap-2.5 shadow-2xs">
+                  <span className="text-base leading-none">📌</span>
+                  <div className="leading-relaxed">
+                    <strong>Cấp 1 đang thực hiện: Giáo viên tự chấm điểm và gửi phiếu.</strong>
+                    <div className="text-[11px] text-blue-800 mt-0.5">
+                      Giáo viên nhập điểm vào cột <strong>"Tự chấm"</strong> (thang điểm 100 chuẩn). Sau khi chấm đủ các tiêu chí, nhấn nút <strong>"Hoàn thành & Gửi phiếu tự chấm"</strong> để chuyển sang Cấp 2. Cột <strong>"TTCM đánh giá"</strong> và <strong>"CBQL đánh giá"</strong> hiện đang bị <strong>KHÓA HOÀN TOÀN</strong> nhằm đảm bảo tính tuần tự.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isSubmittedToTtcm && (
+                <div className="p-3 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-950 flex items-start gap-2.5 shadow-2xs">
+                  <span className="text-base leading-none">👔</span>
+                  <div className="leading-relaxed">
+                    <strong>Cấp 2 đang thực hiện: TTCM đánh giá, chấm điểm và xác nhận kết quả.</strong>
+                    <div className="text-[11px] text-purple-800 mt-0.5">
+                      Giáo viên đã hoàn thành và gửi phiếu tự chấm ({totalScore}/100đ). Cột <strong>"Tự chấm"</strong> đã được khóa bảo toàn. Tổ trưởng chuyên môn thực hiện chấm điểm ở cột <strong>"TTCM đánh giá"</strong>, ghi nhận xét và nhấn <strong>"Xác nhận & Gửi kết quả"</strong> lên BGH. Cột <strong>"CBQL đánh giá"</strong> tiếp tục bị <strong>KHÓA</strong> cho đến khi TTCM hoàn thành.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isEvaluatedByTtcm && (
+                <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start gap-2.5 shadow-2xs">
+                  <span className="text-base leading-none">🏛️</span>
+                  <div className="leading-relaxed">
+                    <strong>Cấp 3 đang thực hiện: Ban Giám hiệu chấm điểm, đánh giá và phê duyệt.</strong>
+                    <div className="text-[11px] text-amber-900 mt-0.5">
+                      TTCM đã hoàn tất và gửi kết quả ({ttcmTotalScore}/100đ). Cột tự chấm và cột TTCM đã được khóa bảo toàn. Ban Giám hiệu thực hiện chấm điểm ở cột <strong>"CBQL đánh giá"</strong>, cho ý kiến chỉ đạo, xếp loại chất lượng chính thức và nhấn <strong>"Phê duyệt & Hoàn thành"</strong>.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isCompleted && (
+                <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-950 flex items-start gap-2.5 shadow-2xs">
+                  <span className="text-base leading-none">✅</span>
+                  <div className="leading-relaxed">
+                    <strong>Quy trình đánh giá KPI năm học 2026–2027 đã hoàn thành chính thức!</strong>
+                    <div className="text-[11px] text-emerald-800 mt-0.5">
+                      Phiếu đã qua đầy đủ 3 cấp: Giáo viên ({totalScore}đ) ➔ TTCM ({ttcmTotalScore}đ) ➔ BGH ({hasAnyManagerScore ? managerTotalScore : (ttcmTotalScore || totalScore)}đ). Kết quả và chữ ký của cả 3 cấp được lưu trữ và khóa an toàn. Bạn có thể in bản in A4 hoặc xuất file Word chuẩn.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 5. BẢNG CHẤM ĐIỂM CHUẨN */}
@@ -2010,15 +2538,49 @@ export default function KpiVcDocumentModal({
                     <th className="p-2 border-r border-slate-400 w-10">Stt</th>
                     <th className="p-2 border-r border-slate-400 text-left min-w-[200px]">Nội dung đánh giá</th>
                     <th className="p-2 border-r border-slate-400 w-16">Tối đa</th>
-                    <th className="p-2 border-r border-slate-400 bg-blue-50/70 text-blue-950 font-extrabold w-24">
-                      Tự chấm
+                    
+                    {/* CỘT TỰ CHẤM (CẤP 1) */}
+                    <th className={`p-2 border-r border-slate-400 font-extrabold w-28 ${
+                      canEditSelf 
+                        ? 'bg-blue-100 text-blue-950 ring-1 ring-blue-400' 
+                        : 'bg-blue-50/70 text-blue-950'
+                    }`}>
+                      <div>Tự chấm</div>
+                      <div className="text-[10px] font-bold text-blue-700">
+                        (Cấp 1) {!canEditSelf && '🔒'}
+                      </div>
                     </th>
-                    <th className="p-2 border-r border-slate-400 bg-purple-50/70 text-purple-950 font-extrabold w-24">
-                      TTCM đánh giá
+
+                    {/* CỘT TTCM ĐÁNH GIÁ (CẤP 2) */}
+                    <th 
+                      className={`p-2 border-r border-slate-400 font-extrabold w-28 ${
+                        canEditTtcm 
+                          ? 'bg-purple-100 text-purple-950 ring-1 ring-purple-400' 
+                          : 'bg-purple-50/70 text-purple-950'
+                      }`}
+                      title={lockReasonTtcm}
+                    >
+                      <div>TTCM đánh giá</div>
+                      <div className="text-[10px] font-bold text-purple-700">
+                        (Cấp 2) {!canEditTtcm && '🔒'}
+                      </div>
                     </th>
-                    <th className="p-2 border-r border-slate-400 bg-amber-50/70 text-amber-950 font-extrabold w-24">
-                      CBQL đánh giá
+
+                    {/* CỘT CBQL ĐÁNH GIÁ (CẤP 3) */}
+                    <th 
+                      className={`p-2 border-r border-slate-400 font-extrabold w-28 ${
+                        canEditManager 
+                          ? 'bg-amber-100 text-amber-950 ring-1 ring-amber-400' 
+                          : 'bg-amber-50/70 text-amber-950'
+                      }`}
+                      title={lockReasonManager}
+                    >
+                      <div>CBQL đánh giá</div>
+                      <div className="text-[10px] font-bold text-amber-700">
+                        (Cấp 3) {!canEditManager && '🔒'}
+                      </div>
                     </th>
+
                     <th className="p-2 text-slate-800 text-left min-w-[120px]">Ghi chú / Minh chứng</th>
                   </tr>
                 </thead>
@@ -2043,7 +2605,7 @@ export default function KpiVcDocumentModal({
                             {group.maxScore}
                           </td>
                           <td className="p-2 text-center border-r border-slate-400 bg-blue-50/50 font-extrabold text-blue-900 font-mono">
-                            {groupScore} / {group.maxScore}
+                            {scoreItems.some(it => it.groupId === group.id && typeof it.selfScore === 'number') ? `${groupScore} / ${group.maxScore}` : `--- / ${group.maxScore}`}
                           </td>
                           <td className="p-2 text-center border-r border-slate-400 bg-purple-50/50 font-extrabold text-purple-900 font-mono">
                             {hasAnyTtcmScore || canEditTtcm ? `${groupTtcmScore} / ${group.maxScore}` : '---'}
@@ -2056,9 +2618,9 @@ export default function KpiVcDocumentModal({
 
                         {groupCriteria.map((criterion, cIdx) => {
                           const itemScore = scoreItems.find(it => it.criterionId === criterion.id);
-                          const currentSelfScore = itemScore?.selfScore ?? criterion.maxScore;
-                          const currentTtcmScore = itemScore?.ttcmScore;
-                          const currentManagerScore = itemScore?.managerScore;
+                          const currentSelfScore = itemScore && typeof itemScore.selfScore === 'number' ? itemScore.selfScore : null;
+                          const currentTtcmScore = itemScore && typeof itemScore.ttcmScore === 'number' ? itemScore.ttcmScore : null;
+                          const currentManagerScore = itemScore && typeof itemScore.managerScore === 'number' ? itemScore.managerScore : null;
 
                           const isSubGroupA = group.id === 'group_III' && (criterion.subGroup === 'A' || criterion.code.startsWith('III.1'));
                           const isSubGroupB = group.id === 'group_III' && (criterion.subGroup === 'B' || !criterion.code.startsWith('III.1'));
@@ -2075,7 +2637,7 @@ export default function KpiVcDocumentModal({
                           const aMaxTotal = aItems.reduce((acc, c) => acc + (c.maxScore || 0), 0);
                           const aSelfTotal = Math.round(aItems.reduce((acc, c) => {
                             const it = scoreItems.find(s => s.criterionId === c.id);
-                            return acc + (it ? (it.selfScore ?? c.maxScore) : c.maxScore);
+                            return acc + (it && typeof it.selfScore === 'number' ? it.selfScore : 0);
                           }, 0) * 10) / 10;
                           const aTtcmTotal = Math.round(aItems.reduce((acc, c) => {
                             const it = scoreItems.find(s => s.criterionId === c.id);
@@ -2091,7 +2653,7 @@ export default function KpiVcDocumentModal({
                           const bMaxTotal = bItems.reduce((acc, c) => acc + (c.maxScore || 0), 0);
                           const bSelfTotal = Math.round(bItems.reduce((acc, c) => {
                             const it = scoreItems.find(s => s.criterionId === c.id);
-                            return acc + (it ? (it.selfScore ?? c.maxScore) : c.maxScore);
+                            return acc + (it && typeof it.selfScore === 'number' ? it.selfScore : 0);
                           }, 0) * 10) / 10;
                           const bTtcmTotal = Math.round(bItems.reduce((acc, c) => {
                             const it = scoreItems.find(s => s.criterionId === c.id);
@@ -2143,28 +2705,55 @@ export default function KpiVcDocumentModal({
                                     min={0}
                                     max={criterion.maxScore}
                                     step={0.5}
-                                    value={itemScore?.selfScore ?? criterion.maxScore}
-                                    onChange={(e) => handleSelfScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, parseFloat(e.target.value) || 0)))}
+                                    value={typeof itemScore?.selfScore === 'number' ? itemScore.selfScore : ''}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      if (raw === '') {
+                                        handleSelfScoreChange(criterion.id, null);
+                                      } else {
+                                        const num = parseFloat(raw);
+                                        if (!isNaN(num)) {
+                                          handleSelfScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                        }
+                                      }
+                                    }}
+                                    placeholder="---"
                                     className="w-14 p-1 text-center font-bold bg-white border border-blue-300 rounded text-blue-900 focus:ring-2 focus:ring-blue-500 font-mono"
                                   />
                                 ) : (
-                                  <span className="font-bold text-blue-900 font-mono">{currentSelfScore}</span>
+                                  <span className="font-bold text-blue-900 font-mono">
+                                    {typeof currentSelfScore === 'number' ? currentSelfScore : '---'}
+                                  </span>
                                 )}
                               </td>
 
                               {/* TTCM ĐÁNH GIÁ */}
-                              <td className="p-2 text-center border-r border-slate-300 bg-purple-50/30">
+                              <td className={`p-2 text-center border-r border-slate-300 ${canEditTtcm ? 'bg-purple-50/40' : (isDraftOrReturned ? 'bg-slate-100/50' : 'bg-purple-50/20')}`}>
                                 {canEditTtcm ? (
                                   <input
                                     type="number"
                                     min={0}
                                     max={criterion.maxScore}
                                     step={0.5}
-                                    value={currentTtcmScore ?? ''}
-                                    onChange={(e) => handleTtcmScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, parseFloat(e.target.value) || 0)))}
-                                    className="w-14 p-1 text-center font-bold bg-white border border-purple-300 rounded text-purple-950 focus:ring-2 focus:ring-purple-500 font-mono"
-                                    placeholder="Điểm"
+                                    value={typeof currentTtcmScore === 'number' ? currentTtcmScore : ''}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      if (raw === '') {
+                                        handleTtcmScoreChange(criterion.id, null);
+                                      } else {
+                                        const num = parseFloat(raw);
+                                        if (!isNaN(num)) {
+                                          handleTtcmScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                        }
+                                      }
+                                    }}
+                                    className="w-14 p-1 text-center font-bold bg-white border border-purple-300 rounded text-purple-950 focus:ring-2 focus:ring-purple-500 font-mono shadow-xs"
+                                    placeholder="---"
                                   />
+                                ) : isDraftOrReturned ? (
+                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title="Khóa: Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm">
+                                    <Lock size={11} className="text-slate-300 shrink-0" /> ---
+                                  </span>
                                 ) : (
                                   <span className="font-bold text-purple-950 font-mono">
                                     {typeof currentTtcmScore === 'number' ? currentTtcmScore : '---'}
@@ -2173,18 +2762,32 @@ export default function KpiVcDocumentModal({
                               </td>
 
                               {/* CBQL ĐÁNH GIÁ */}
-                              <td className="p-2 text-center border-r border-slate-300 bg-amber-50/30">
+                              <td className={`p-2 text-center border-r border-slate-300 ${canEditManager ? 'bg-amber-50/40' : (isDraftOrReturned || isSubmittedToTtcm ? 'bg-slate-100/50' : 'bg-amber-50/20')}`}>
                                 {canEditManager ? (
                                   <input
                                     type="number"
                                     min={0}
                                     max={criterion.maxScore}
                                     step={0.5}
-                                    value={currentManagerScore ?? ''}
-                                    onChange={(e) => handleManagerScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, parseFloat(e.target.value) || 0)))}
-                                    className="w-14 p-1 text-center font-bold bg-white border border-amber-300 rounded text-amber-950 focus:ring-2 focus:ring-amber-500 font-mono"
-                                    placeholder="Điểm"
+                                    value={typeof currentManagerScore === 'number' ? currentManagerScore : ''}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      if (raw === '') {
+                                        handleManagerScoreChange(criterion.id, null);
+                                      } else {
+                                        const num = parseFloat(raw);
+                                        if (!isNaN(num)) {
+                                          handleManagerScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                        }
+                                      }
+                                    }}
+                                    className="w-14 p-1 text-center font-bold bg-white border border-amber-300 rounded text-amber-950 focus:ring-2 focus:ring-amber-500 font-mono shadow-xs"
+                                    placeholder="---"
                                   />
+                                ) : (isDraftOrReturned || isSubmittedToTtcm) ? (
+                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title={isDraftOrReturned ? "Khóa: Đang chờ giáo viên gửi phiếu tự chấm" : "Khóa: Đang chờ TTCM hoàn thành và gửi kết quả"}>
+                                    <Lock size={11} className="text-slate-300 shrink-0" /> ---
+                                  </span>
                                 ) : (
                                   <span className="font-bold text-amber-950 font-mono">
                                     {typeof currentManagerScore === 'number' ? currentManagerScore : '---'}
@@ -2278,7 +2881,7 @@ export default function KpiVcDocumentModal({
                       TỔNG GIÁO VIÊN TỰ CHẤM:
                     </td>
                     <td colSpan={3} className="p-2 text-left font-black text-blue-900 font-mono text-sm">
-                      {totalScore} / 100
+                      {scoreItems.some(it => typeof it.selfScore === 'number') ? `${totalScore} / 100` : '--- / 100'} {!isSelfComplete && <span className="text-xs font-normal text-amber-700 italic ml-2">(Chưa hoàn thành tự đánh giá)</span>}
                     </td>
                     <td className="p-2"></td>
                   </tr>
@@ -2593,41 +3196,379 @@ export default function KpiVcDocumentModal({
         </div>
 
         {/* BOTTOM ACTION FOOTER FOR SINGLE FORM */}
-        <div className="bg-slate-100 border-t border-slate-200 px-6 py-4 flex items-center justify-between shrink-0 shadow-inner">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-slate-300 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
-          >
-            Đóng
-          </button>
+        <div className="bg-slate-100 border-t border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-inner">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-slate-300 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+            >
+              Đóng
+            </button>
 
-          <div className="flex items-center gap-3">
-            {canEditSelf && (
+            {form && (
               <button
                 type="button"
-                disabled={isSubmitting}
-                onClick={() => handleSingleSave('self_evaluated')}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2"
+                onClick={() => setIsAuditHistoryOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
+                title="Xem lịch sử chỉnh sửa và quy trình đánh giá 3 cấp"
               >
-                <Save size={16} /> Lưu phiếu
+                <History size={15} className="text-blue-600" />
+                <span>Lịch sử ({form.history?.length || 0})</span>
               </button>
             )}
+          </div>
 
-            {canEditManager && (
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => handleSingleSave('completed')}
-                className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-2"
-              >
-                <CheckCircle2 size={18} /> Chốt lưu phiếu đánh giá
-              </button>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* CẤP 1: GIÁO VIÊN TỰ CHẤM */}
+            {isDraftOrReturned && (
+              <>
+                {canEditSelf ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleSaveSelfDraft}
+                      className="px-4 py-2.5 bg-white hover:bg-slate-50 text-blue-700 border border-blue-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                      title="Lưu tạm điểm tự chấm, vẫn giữ trạng thái Chưa tự chấm"
+                    >
+                      <Save size={15} /> Lưu nháp tự chấm
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleSubmitSelf}
+                      className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                      title="Hoàn thành tự chấm và gửi phiếu lên Tổ trưởng chuyên môn"
+                    >
+                      <Send size={15} /> Hoàn thành & Gửi phiếu tự chấm (Chuyển TTCM)
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-500 italic bg-slate-200/60 px-3 py-1.5 rounded-xl border border-slate-300">
+                    ⏳ Phiếu đang ở bước Giáo viên tự chấm
+                  </span>
+                )}
+              </>
+            )}
+
+            {/* CẤP 2: TTCM ĐÁNH GIÁ */}
+            {isSubmittedToTtcm && (
+              <>
+                {canEditTtcm ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleOpenReturnToTeacher}
+                      className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Hoàn trả phiếu yêu cầu giáo viên tự chấm lại nếu chưa đúng minh chứng"
+                    >
+                      <RotateCcw size={15} /> Yêu cầu GV chấm lại
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleSaveTtcmDraft}
+                      className="px-4 py-2.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Lưu tạm điểm TTCM, phiếu vẫn ở trạng thái Chờ TTCM"
+                    >
+                      <Save size={15} /> Lưu tạm TTCM
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleSubmitTtcm}
+                      className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2"
+                      title="Xác nhận kết quả đánh giá cấp Tổ và gửi lên Ban Giám hiệu"
+                    >
+                      <CheckCircle2 size={16} /> Xác nhận & Gửi kết quả (Chuyển BGH)
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-purple-800 font-medium bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200">
+                    📨 Đã gửi phiếu tự chấm. Đang chờ Tổ trưởng chuyên môn đánh giá.
+                  </span>
+                )}
+              </>
+            )}
+
+            {/* CẤP 3: BAN GIÁM HIỆU PHÊ DUYỆT */}
+            {isEvaluatedByTtcm && (
+              <>
+                {canEditManager ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleOpenReturnToTtcm}
+                      className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Yêu cầu TTCM đánh giá lại"
+                    >
+                      <RotateCcw size={15} /> Yêu cầu TTCM chấm lại
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleSaveBghDraft}
+                      className="px-4 py-2.5 bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Lưu tạm điểm BGH, phiếu vẫn ở trạng thái Chờ BGH"
+                    >
+                      <Save size={15} /> Lưu tạm BGH
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleApproveBgh}
+                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-2"
+                      title="Phê duyệt, xếp loại và chốt kết quả đánh giá KPI chính thức"
+                    >
+                      <Award size={16} /> Phê duyệt & Hoàn thành (Chốt kết quả)
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-amber-900 font-medium bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                    🏛️ TTCM đã gửi kết quả. Đang chờ Ban Giám hiệu phê duyệt.
+                  </span>
+                )}
+              </>
+            )}
+
+            {/* CẤP 4: ĐÃ HOÀN THÀNH */}
+            {isCompleted && (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                  Đã hoàn thành và chốt kết quả KPI
+                </span>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdminResetToStep('draft')}
+                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1"
+                    title="Mở lại phiếu về bước tự chấm (Chỉ dành cho Admin)"
+                  >
+                    <RotateCcw size={13} /> Mở lại tự chấm
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
 
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODAL LỊCH SỬ CHỈNH SỬA & QUY TRÌNH ĐÁNH GIÁ 3 CẤP (AUDIT TRAIL) */}
+      {/* ========================================================================= */}
+      {isAuditHistoryOpen && form && (
+        <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <History size={18} className="text-blue-300" />
+                <h3 className="text-sm font-bold text-white">
+                  Lịch sử chỉnh sửa & Quy trình đánh giá: {form.employeeName}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAuditHistoryOpen(false)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-center justify-between">
+                <span>Trạng thái hiện tại:</span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-black border ${statusMeta.badgeClass}`}>
+                  <span className={`w-2 h-2 rounded-full ${statusMeta.dotClass}`} />
+                  {statusMeta.label}
+                </span>
+              </div>
+
+              {(!form.history || form.history.length === 0) ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  Chưa có bản ghi lịch sử nào được ghi lại cho phiếu này.
+                </div>
+              ) : (
+                <div className="space-y-3 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-slate-200">
+                  {form.history.map((h, idx) => (
+                    <div key={h.id || idx} className="relative flex items-start gap-3 pl-1">
+                      <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs shrink-0 z-10 shadow-xs">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1 hover:border-slate-300 transition-colors">
+                        <div className="flex items-center justify-between flex-wrap gap-1">
+                          <span className="font-bold text-slate-900 text-sm">
+                            {h.action}
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-mono">
+                            {h.timestamp ? new Date(h.timestamp).toLocaleString('vi-VN') : ''}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-600 flex items-center gap-2">
+                          <span>Người thực hiện: <strong className="text-slate-800">{h.actorName}</strong></span>
+                          {h.actorRole && <span className="text-slate-400">({h.actorRole})</span>}
+                        </div>
+                        {(h.previousStatus || h.newStatus) && (
+                          <div className="text-[11px] text-slate-600 flex items-center gap-1.5 pt-0.5">
+                            <span>Chuyển trạng thái:</span>
+                            <span className="font-semibold text-slate-700">{getVcStatusMeta(h.previousStatus).label}</span>
+                            <span className="text-slate-400">➔</span>
+                            <span className="font-extrabold text-blue-700">{getVcStatusMeta(h.newStatus).label}</span>
+                          </div>
+                        )}
+                        {(h.previousScore !== undefined || h.newScore !== undefined) && (
+                          <div className="text-[11px] text-slate-600 flex items-center gap-1.5">
+                            <span>Điểm số:</span>
+                            <span className="font-mono">{h.previousScore !== null ? `${h.previousScore}đ` : '---'}</span>
+                            <span className="text-slate-400">➔</span>
+                            <span className="font-mono font-bold text-emerald-700">{h.newScore !== null ? `${h.newScore}đ` : '---'}</span>
+                          </div>
+                        )}
+                        {h.comment && (
+                          <div className="mt-1 p-2 bg-white rounded-lg border border-slate-200 text-slate-700 italic text-[11px]">
+                            "{h.comment}"
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-slate-50 border-t border-slate-200 p-3 text-right">
+              <button
+                type="button"
+                onClick={() => setIsAuditHistoryOpen(false)}
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL HOÀN TRẢ YÊU CẦU ĐÁNH GIÁ LẠI */}
+      {/* ========================================================================= */}
+      {isReturnModalOpen && (
+        <div className="fixed inset-0 z-[2600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="bg-gradient-to-r from-rose-800 to-amber-800 text-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RotateCcw size={18} className="text-rose-200" />
+                <h3 className="text-sm font-bold text-white">
+                  {returnTarget === 'TEACHER' ? 'Yêu cầu giáo viên tự chấm lại' : 'Yêu cầu TTCM đánh giá lại'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReturnModalOpen(false)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs">
+              <p className="text-slate-600 leading-relaxed">
+                Vui lòng nhập lý do hoàn trả và nội dung cần điều chỉnh (ví dụ: thiếu minh chứng, điểm tự chấm chưa phù hợp...):
+              </p>
+              <textarea
+                rows={3}
+                value={returnReason}
+                onChange={e => setReturnReason(e.target.value)}
+                placeholder="Nhập lý do hoàn trả chi tiết..."
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none text-xs"
+              />
+            </div>
+
+            <div className="bg-slate-50 border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsReturnModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReturn}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw size={14} /> Xác nhận hoàn trả
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL XÁC NHẬN HÀNH ĐỘNG (CONFIRM MODAL) */}
+      {/* ========================================================================= */}
+      {confirmModal && confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[2700] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={18} className="text-blue-300" />
+                <h3 className="text-sm font-bold text-white">
+                  {confirmModal.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 text-xs text-slate-700 leading-relaxed">
+              {confirmModal.message}
+            </div>
+
+            <div className="bg-slate-50 border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={confirmModal.onConfirm}
+                className={`px-5 py-2 text-white text-xs font-black rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 ${
+                  confirmModal.confirmColor === 'emerald'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : confirmModal.confirmColor === 'purple'
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : confirmModal.confirmColor === 'amber'
+                        ? 'bg-amber-600 hover:bg-amber-700'
+                        : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                <Check size={14} /> {confirmModal.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

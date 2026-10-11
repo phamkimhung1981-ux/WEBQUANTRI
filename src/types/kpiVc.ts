@@ -226,6 +226,7 @@ export interface KpiVcForm {
   history?: KpiVcFormHistory[];
   createdAt: string;
   updatedAt: string;
+  selfEvaluatedAt?: string | null;
   submittedAt?: string | null;
   lockedAt?: string | null;
   lockedBy?: string | null;

@@ -731,20 +731,18 @@ export const initializeVcScoreItems = (criteria: KpiVcCriterion[] = DEFAULT_VC_C
   const activeCriteria = criteria.filter(c => c.isActive);
 
   return activeCriteria.map(c => {
-    let selfScore = 0;
+    let selfScore: number | null = null;
     let selectedLevelId: string | undefined = undefined;
     let selectedLevelName: string | undefined = undefined;
     let selectedLevelCode: string | undefined = undefined;
 
     if (c.scoreType === 'select_level' && c.levels && c.levels.length > 0) {
-      // Không chọn mặc định để GV tự tích vào hộp kiểm
       selectedLevelId = undefined;
       selectedLevelName = undefined;
       selectedLevelCode = undefined;
-      selfScore = 0;
+      selfScore = null;
     } else {
-      // Mặc định điểm tối đa
-      selfScore = c.maxScore;
+      selfScore = null;
     }
 
     return {
@@ -861,6 +859,7 @@ export const calculateVcManagerTotals = (items: KpiVcScoreItem[]) => {
 
 /**
  * Tính tổng điểm Giáo viên tự chấm theo từng nhóm và tổng cộng (Tối đa 100)
+ * Chỉ tính điểm từ các tiêu chí người dùng đã nhập điểm (khác null / undefined)
  */
 export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
   const groupScores: Record<string, number> = {
@@ -870,14 +869,18 @@ export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
   };
 
   let totalScore = 0;
+  let evaluatedCount = 0;
 
   for (const item of items) {
-    const score = Math.max(0, Math.min(item.maxScore, Number(item.selfScore) || 0));
-    if (!groupScores[item.groupId]) {
-      groupScores[item.groupId] = 0;
+    if (typeof item.selfScore === 'number' && item.selfScore !== null && !isNaN(item.selfScore)) {
+      evaluatedCount++;
+      const score = Math.max(0, Math.min(item.maxScore, item.selfScore));
+      if (!groupScores[item.groupId]) {
+        groupScores[item.groupId] = 0;
+      }
+      groupScores[item.groupId] += score;
+      totalScore += score;
     }
-    groupScores[item.groupId] += score;
-    totalScore += score;
   }
 
   // Làm tròn 1 chữ số thập phân
@@ -889,9 +892,14 @@ export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
   // Giới hạn max 100
   totalScore = Math.min(100, Math.max(0, totalScore));
 
+  const isCompleted = items.length > 0 && evaluatedCount === items.length;
+
   return {
     groupScores,
-    totalScore
+    totalScore,
+    evaluatedCount,
+    totalCount: items.length,
+    isCompleted
   };
 };
 
@@ -1114,4 +1122,81 @@ export const resolveVcTeacherDepartment = (teacher: Teacher | null | undefined, 
   const dept = departments.find(d => d.id === teacher.departmentId);
   if (dept) return dept.name;
   return 'Trường THPT Sơn Lương';
+};
+
+/**
+ * Trạng thái và siêu dữ liệu cho quy trình chấm điểm KPI 3 cấp tuần tự:
+ * 1. Chưa tự chấm (draft)
+ * 2. Chờ TTCM (submitted / self_evaluated)
+ * 3. Chờ BGH (ttcm_evaluated)
+ * 4. Hoàn thành (completed)
+ */
+export interface VcStatusMeta {
+  key: string;
+  label: string;
+  badgeClass: string;
+  dotClass: string;
+  stepNumber: number;
+  description: string;
+}
+
+export const getVcStatusMeta = (status?: string): VcStatusMeta => {
+  switch (status) {
+    case 'submitted':
+    case 'self_evaluated':
+      return {
+        key: 'submitted',
+        label: 'Chờ TTCM',
+        badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+        dotClass: 'bg-blue-500',
+        stepNumber: 2,
+        description: 'Giáo viên đã gửi phiếu tự chấm, đang chờ TTCM đánh giá'
+      };
+    case 'ttcm_evaluated':
+      return {
+        key: 'ttcm_evaluated',
+        label: 'Chờ BGH',
+        badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
+        dotClass: 'bg-purple-500',
+        stepNumber: 3,
+        description: 'TTCM đã hoàn tất & gửi kết quả, đang chờ BGH phê duyệt'
+      };
+    case 'completed':
+      return {
+        key: 'completed',
+        label: 'Hoàn thành',
+        badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        dotClass: 'bg-emerald-500',
+        stepNumber: 4,
+        description: 'BGH đã phê duyệt và chốt kết quả đánh giá KPI'
+      };
+    case 'locked':
+      return {
+        key: 'locked',
+        label: 'Đã khóa',
+        badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+        dotClass: 'bg-rose-500',
+        stepNumber: 4,
+        description: 'Phiếu đánh giá đã bị khóa'
+      };
+    case 'returned':
+      return {
+        key: 'returned',
+        label: 'Yêu cầu tự chấm lại',
+        badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+        dotClass: 'bg-amber-500',
+        stepNumber: 1,
+        description: 'Phiếu bị trả lại để giáo viên tự chấm lại'
+      };
+    case 'draft':
+    default:
+      return {
+        key: 'draft',
+        label: 'Chưa tự chấm',
+        badgeClass: 'bg-slate-100 text-slate-700 border-slate-200',
+        dotClass: 'bg-slate-400',
+        stepNumber: 1,
+        description: 'Giáo viên chưa gửi phiếu tự chấm điểm'
+      };
+  }
 };

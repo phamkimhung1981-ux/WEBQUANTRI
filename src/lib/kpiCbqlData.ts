@@ -605,15 +605,15 @@ export function initializeCbqlScoreItems(): KpiCbqlScoreItem[] {
       subCategoryTitle: c.subCategoryTitle,
       maxScore: c.maxScore,
       
-      selfScore: defaultLevel.score,
-      selfLevelId: defaultLevel.id,
-      selfLevelLabel: defaultLevel.label,
+      selfScore: null as any,
+      selfLevelId: undefined,
+      selfLevelLabel: '',
       selfEvidence: '',
       selfNote: '',
       
-      evaluatorScore: defaultLevel.score,
-      evaluatorLevelId: defaultLevel.id,
-      evaluatorLevelLabel: defaultLevel.label,
+      evaluatorScore: null as any,
+      evaluatorLevelId: undefined,
+      evaluatorLevelLabel: '',
       evaluatorNote: ''
     };
   });

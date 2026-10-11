@@ -136,11 +136,18 @@ export default function KpiEvaluationFormModal({
   const isFormEvaluated = status === 'evaluated' || status === 'confirmed';
   const isFormSubmitted = status === 'pending_evaluator' || status === 'pending_evaluation' || status === 'submitted' || status === 'evaluating';
 
+  const isSelfAssessmentCompleted = useMemo(() => {
+    return items.length > 0 && items.every(it => 
+      (typeof it.selfScore === 'number' && it.selfScore !== null && !isNaN(it.selfScore)) ||
+      (typeof it.self_score === 'number' && it.self_score !== null && !isNaN(it.self_score))
+    );
+  }, [items]);
+
   // Permissions for Part A (Tự đánh giá)
   const canEditPartA = !isFormLocked && !isFormSubmitted && !isFormEvaluated && (isCurrentUserEvaluatee || isBghOrAdmin || !formToEdit);
 
-  // Permissions for Part B (Người đánh giá)
-  const canEditPartB = !isFormLocked && (isCurrentUserEvaluator || isBghOrAdmin);
+  // Permissions for Part B (Người đánh giá) - Ràng buộc bắt buộc: Cá nhân phải tự chấm xong thì TTCM/CBQL mới được chấm
+  const canEditPartB = !isFormLocked && isSelfAssessmentCompleted && (isBghOrAdmin || isCurrentUserEvaluator);
 
   // Initialize / load form data
   const loadFormData = (f: KpiEvaluationForm) => {
@@ -165,6 +172,9 @@ export default function KpiEvaluationFormModal({
         const tmpl = defaultTemplateItems.find(t => t.kpi_code === item.kpi_code || t.code === item.code) || defaultTemplateItems[idx];
         const baseSc = Number(item.base_score ?? item.standardScore ?? tmpl?.base_score ?? 10);
         
+        const loadedSelfScore = item.self_score !== undefined && item.self_score !== null ? item.self_score : (item.selfScore !== undefined && item.selfScore !== null ? item.selfScore : null);
+        const loadedEvalScore = item.evaluator_score !== undefined && item.evaluator_score !== null ? item.evaluator_score : (item.evaluatorScore !== undefined && item.evaluatorScore !== null ? item.evaluatorScore : null);
+
         return {
           ...tmpl,
           ...item,
@@ -183,26 +193,26 @@ export default function KpiEvaluationFormModal({
           evidence_rule: item.evidence_rule || tmpl?.evidence_rule || '',
           evaluator_role: item.evaluator_role || tmpl?.evaluator_role || 'Tổ trưởng / BGH',
           
-          self_score: item.self_score !== undefined ? item.self_score : (item.selfScore !== undefined ? item.selfScore : baseSc),
-          selfScore: item.selfScore !== undefined ? item.selfScore : (item.self_score !== undefined ? item.self_score : baseSc),
-          self_plus_score: item.self_plus_score ?? item.selfPlusScore ?? 0,
-          selfPlusScore: item.selfPlusScore ?? item.self_plus_score ?? 0,
-          self_minus_score: item.self_minus_score ?? item.selfMinusScore ?? 0,
-          selfMinusScore: item.selfMinusScore ?? item.self_minus_score ?? 0,
+          self_score: loadedSelfScore,
+          selfScore: loadedSelfScore,
+          self_plus_score: loadedSelfScore !== null ? (item.self_plus_score ?? item.selfPlusScore ?? 0) : null,
+          selfPlusScore: loadedSelfScore !== null ? (item.selfPlusScore ?? item.self_plus_score ?? 0) : null,
+          self_minus_score: loadedSelfScore !== null ? (item.self_minus_score ?? item.selfMinusScore ?? 0) : null,
+          selfMinusScore: loadedSelfScore !== null ? (item.selfMinusScore ?? item.self_minus_score ?? 0) : null,
           evidence: item.evidence || item.self_evidence || '',
           self_evidence: item.self_evidence || item.evidence || '',
           
-          evaluator_score: item.evaluator_score !== undefined ? item.evaluator_score : (item.evaluatorScore !== undefined ? item.evaluatorScore : baseSc),
-          evaluatorScore: item.evaluatorScore !== undefined ? item.evaluatorScore : (item.evaluator_score !== undefined ? item.evaluator_score : baseSc),
-          evaluator_plus_score: item.evaluator_plus_score ?? item.evaluatorPlusScore ?? 0,
-          evaluatorPlusScore: item.evaluatorPlusScore ?? item.evaluator_plus_score ?? 0,
-          evaluator_minus_score: item.evaluator_minus_score ?? item.evaluatorMinusScore ?? 0,
-          evaluatorMinusScore: item.evaluatorMinusScore ?? item.evaluator_minus_score ?? 0,
+          evaluator_score: loadedEvalScore,
+          evaluatorScore: loadedEvalScore,
+          evaluator_plus_score: loadedEvalScore !== null ? (item.evaluator_plus_score ?? item.evaluatorPlusScore ?? 0) : null,
+          evaluatorPlusScore: loadedEvalScore !== null ? (item.evaluatorPlusScore ?? item.evaluator_plus_score ?? 0) : null,
+          evaluator_minus_score: loadedEvalScore !== null ? (item.evaluator_minus_score ?? item.evaluatorMinusScore ?? 0) : null,
+          evaluatorMinusScore: loadedEvalScore !== null ? (item.evaluatorMinusScore ?? item.evaluator_minus_score ?? 0) : null,
           evaluatorComment: item.evaluatorComment || item.evaluator_comment || item.evaluatorNote || item.evaluator_note || '',
           
           plusScore: item.plusScore ?? item.plus_score ?? 0,
           minusScore: item.minusScore ?? item.minus_score ?? 0,
-          kpiScore: item.kpiScore ?? item.kpi_score ?? baseSc
+          kpiScore: item.kpiScore ?? item.kpi_score ?? null
         };
       }));
     } else {

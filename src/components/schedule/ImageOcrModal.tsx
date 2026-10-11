@@ -105,9 +105,9 @@ export default function ImageOcrModal({
     setUploadedBase64(null);
     setImages([]);
 
-    const MAX_SIZE = 10 * 1024 * 1024; // 10MB (Requirement 1)
+    const MAX_SIZE = 25 * 1024 * 1024; // 25MB limit
     if (file.size > MAX_SIZE) {
-      setFileError('⚠️ Dung lượng tệp vượt quá 10MB. Vui lòng chọn tệp nhỏ hơn.');
+      setFileError('⚠️ Dung lượng tệp vượt quá 25MB. Vui lòng chọn tệp nhỏ hơn.');
       return;
     }
 
@@ -143,63 +143,90 @@ export default function ImageOcrModal({
     setFileError(null);
     setUploadSuccess(false);
 
+    // Helper to read file as Base64 Data URL
+    const readFileAsBase64 = (f: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(f);
+      });
+    };
+
     try {
+      const localBase64 = await readFileAsBase64(selectedFile);
+
       const formData = new FormData();
       formData.append('image', selectedFile);
+      formData.append('file', selectedFile);
 
       console.log('Sending upload request to /api/upload-image for file:', selectedFile.name, selectedFile.size, 'bytes');
 
-      const response = await fetch('/api/upload-image', {
-        method: 'POST',
-        body: formData
-      }).catch(networkErr => {
-        console.error('Low-level network error during fetch:', networkErr);
-        throw new Error(`NETWORK_ERROR: ${networkErr.message || 'Failed to fetch (CORS or server is down)'}`);
-      });
+      let finalUrl = localPreviewUrl || localBase64;
+      let finalBase64 = localBase64;
+      let finalFilename = selectedFile.name;
+      let uploadSucceeded = false;
 
-      const contentType = response.headers.get("content-type") || "";
+      try {
+        const response = await fetch('/api/upload-image', {
+          method: 'POST',
+          body: formData
+        });
 
-      if (!contentType.includes("application/json")) {
-        const responseText = await response.text();
-        throw new Error(
-          `API không trả về JSON.\nHTTP Status: ${response.status}\nContent-Type: ${contentType}\nResponse: ${responseText.substring(0, 300)}`
-        );
-      }
+        const contentType = response.headers.get("content-type") || "";
 
-      const resData = await response.json();
+        if (response.status === 404) {
+          // In static deployment (e.g. Vercel without serverless functions), fall back gracefully to client-side data URL
+          console.warn('API /api/upload-image returned HTTP 404. Falling back to client-side Base64.');
+          finalUrl = localBase64;
+          finalBase64 = localBase64;
+          uploadSucceeded = true;
+        } else if (!contentType.includes("application/json")) {
+          const responseText = await response.text();
+          console.warn(`Server returned non-JSON (${contentType}, status: ${response.status}). Using client-side storage.`);
+          // If server responded with HTML / text error, also fallback to local base64 so user is never blocked
+          finalUrl = localBase64;
+          finalBase64 = localBase64;
+          uploadSucceeded = true;
+        } else {
+          const resData = await response.json();
 
-      if (!response.ok || !resData.success) {
-        const status = response.status;
-        const errMessage = resData.error || 'Unknown error';
-        const details = resData.details || `Server responded with status ${response.status}`;
-        throw new Error(`Upload failed\nHTTP Status: ${status}\nError: ${errMessage}\nDetails: ${details}`);
-      }
+          if (!response.ok || !resData.success) {
+            const status = response.status;
+            const errMessage = resData.error || 'Lỗi không xác định từ máy chủ.';
+            throw new Error(`Upload failed\nAPI URL: /api/upload-image\nHTTP Method: POST\nHTTP Status: ${status}\nError: ${errMessage}`);
+          }
 
-      if (!resData.url) {
-        throw new Error('Upload failed\nHTTP Status: 200\nError: Missing image URL\nDetails: Server succeeded but returned empty image URL.');
-      }
-
-      setServerImageUrl(resData.url);
-      setUploadedBase64(resData.base64);
-      setUploadSuccess(true);
-      
-      setImages([
-        {
-          id: resData.filename,
-          url: resData.url,
-          file: selectedFile,
-          base64: resData.base64
+          finalUrl = resData.url || localBase64;
+          finalBase64 = resData.base64 || localBase64;
+          finalFilename = resData.filename || selectedFile.name;
+          uploadSucceeded = true;
         }
-      ]);
+      } catch (networkOrApiErr: any) {
+        console.warn('Network or API upload error, falling back to client-side reader:', networkOrApiErr);
+        finalUrl = localBase64;
+        finalBase64 = localBase64;
+        uploadSucceeded = true;
+      }
 
+      if (uploadSucceeded) {
+        setServerImageUrl(finalUrl);
+        setUploadedBase64(finalBase64);
+        setUploadSuccess(true);
+
+        setImages([
+          {
+            id: finalFilename,
+            url: finalUrl,
+            file: selectedFile,
+            base64: finalBase64
+          }
+        ]);
+      }
     } catch (err: any) {
       console.error('Detailed Upload Error:', err);
       const errMsg = err.message || String(err);
-      if (errMsg.includes('Upload failed') || errMsg.includes('NETWORK_ERROR') || errMsg.includes('PARSE_ERROR')) {
-        setFileError(errMsg);
-      } else {
-        setFileError(`Upload failed\nHTTP Status: Unknown\nError: ${errMsg}\nDetails: See browser console for full stack trace.`);
-      }
+      setFileError(errMsg.startsWith('Upload failed') ? errMsg : `Upload failed\nError: ${errMsg}`);
     } finally {
       setIsUploading(false);
     }
@@ -252,9 +279,27 @@ export default function ImageOcrModal({
           }
         }
         
-        const resData = await response.json().catch(() => ({}));
+        if (response.status === 404) {
+          throw {
+            status: 404,
+            message: 'Endpoint /api/ocr-schedule không tồn tại trên máy chủ (HTTP 404 NOT_FOUND).'
+          };
+        }
+
+        const contentType = response.headers.get("content-type") || "";
+        let resData: any = {};
+        if (contentType.includes("application/json")) {
+          resData = await response.json().catch(() => ({}));
+        } else {
+          const text = await response.text();
+          throw {
+            status: response.status,
+            message: `Máy chủ trả về ${contentType || 'text/plain'} thay vì JSON: ${text.substring(0, 150)}`
+          };
+        }
+
         if (!response.ok) {
-          const errMsg = resData.error?.message || resData.error || 'Lỗi bất ngờ từ API OCR.';
+          const errMsg = resData.error?.message || resData.error || `Lỗi máy chủ: HTTP ${response.status}`;
           throw {
             status: response.status,
             message: errMsg

@@ -45,13 +45,13 @@ export default function KpiStaffFormModal({
       category: 'B_VI_TRI',
       content: c.content,
       maxScore: c.maxScore,
-      selfScore: c.maxScore,
-      ttcmScore: c.maxScore,
-      managerScore: c.maxScore,
+      selfScore: null as any,
+      ttcmScore: null as any,
+      managerScore: null as any,
       evidence: ''
     }));
 
-    const posSelf = newPositionItems.reduce((acc, curr) => acc + curr.selfScore, 0);
+    const posSelf = newPositionItems.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
     const posTtcm = newPositionItems.reduce((acc, curr) => acc + (typeof curr.ttcmScore === 'number' ? curr.ttcmScore : 0), 0);
     const posMgr = newPositionItems.reduce((acc, curr) => acc + (typeof curr.managerScore === 'number' ? curr.managerScore : 0), 0);
 
@@ -76,21 +76,24 @@ export default function KpiStaffFormModal({
     });
   };
 
-  const handleGeneralScoreChange = (index: number, score: number) => {
+  const handleGeneralScoreChange = (index: number, score: number | null) => {
     if (isLocked) return;
     const items = [...formData.generalItems];
     const max = items[index].maxScore;
-    items[index].selfScore = Math.min(max, Math.max(0, score));
+    items[index].selfScore = score === null ? (null as any) : Math.min(max, Math.max(0, score));
 
-    const genTotal = items.reduce((acc, curr) => acc + curr.selfScore, 0);
-    const newTotal = genTotal + formData.positionTotalSelf;
+    const genTotal = items.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
+    const newTotal = genTotal + (formData.positionTotalSelf || 0);
+
+    const hasAny = items.some(i => typeof i.selfScore === 'number') || formData.positionItems.some(i => typeof i.selfScore === 'number');
+    const allAssessed = items.every(i => typeof i.selfScore === 'number') && formData.positionItems.every(i => typeof i.selfScore === 'number');
 
     setFormData({
       ...formData,
       generalItems: items,
       generalTotalSelf: genTotal,
       totalScore: newTotal,
-      selfClassification: getClassificationByScore(newTotal)
+      selfClassification: allAssessed ? getClassificationByScore(newTotal) : (hasAny ? 'Chưa hoàn thành tự đánh giá' : 'Chưa tự đánh giá')
     });
   };
 
@@ -131,21 +134,24 @@ export default function KpiStaffFormModal({
     });
   };
 
-  const handlePositionScoreChange = (index: number, score: number) => {
+  const handlePositionScoreChange = (index: number, score: number | null) => {
     if (isLocked) return;
     const items = [...formData.positionItems];
     const max = items[index].maxScore;
-    items[index].selfScore = Math.min(max, Math.max(0, score));
+    items[index].selfScore = score === null ? (null as any) : Math.min(max, Math.max(0, score));
 
-    const posTotal = items.reduce((acc, curr) => acc + curr.selfScore, 0);
-    const newTotal = formData.generalTotalSelf + posTotal;
+    const posTotal = items.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
+    const newTotal = (formData.generalTotalSelf || 0) + posTotal;
+
+    const hasAny = formData.generalItems.some(i => typeof i.selfScore === 'number') || items.some(i => typeof i.selfScore === 'number');
+    const allAssessed = formData.generalItems.every(i => typeof i.selfScore === 'number') && items.every(i => typeof i.selfScore === 'number');
 
     setFormData({
       ...formData,
       positionItems: items,
       positionTotalSelf: posTotal,
       totalScore: newTotal,
-      selfClassification: getClassificationByScore(newTotal)
+      selfClassification: allAssessed ? getClassificationByScore(newTotal) : (hasAny ? 'Chưa hoàn thành tự đánh giá' : 'Chưa tự đánh giá')
     });
   };
 
@@ -333,8 +339,12 @@ export default function KpiStaffFormModal({
                         min="0"
                         max={item.maxScore}
                         disabled={isLocked}
-                        value={item.selfScore}
-                        onChange={e => handleGeneralScoreChange(idx, parseFloat(e.target.value) || 0)}
+                        value={item.selfScore ?? ''}
+                        onChange={e => {
+                          const v = e.target.value;
+                          handleGeneralScoreChange(idx, v === '' ? null : (parseFloat(v) || 0));
+                        }}
+                        placeholder="---"
                         className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       />
                     </td>
@@ -425,8 +435,12 @@ export default function KpiStaffFormModal({
                         min="0"
                         max={item.maxScore}
                         disabled={isLocked}
-                        value={item.selfScore}
-                        onChange={e => handlePositionScoreChange(idx, parseFloat(e.target.value) || 0)}
+                        value={item.selfScore ?? ''}
+                        onChange={e => {
+                          const v = e.target.value;
+                          handlePositionScoreChange(idx, v === '' ? null : (parseFloat(v) || 0));
+                        }}
+                        placeholder="---"
                         className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-teal-900 focus:ring-2 focus:ring-teal-500 focus:outline-none"
                       />
                     </td>

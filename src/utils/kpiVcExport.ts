@@ -16,10 +16,12 @@ export const exportVcSummaryToExcel = (
     const groupII = f.groupScores?.group_II ?? 0;
     const groupIII = f.groupScores?.group_III ?? 0;
 
-    let statusText = 'Bản nháp';
-    if (f.status === 'self_evaluated') statusText = 'Đang tự đánh giá';
-    if (f.status === 'completed') statusText = 'Đã hoàn thành';
+    let statusText = 'Chưa tự chấm';
+    if (f.status === 'submitted' || f.status === 'self_evaluated') statusText = 'Chờ TTCM';
+    if (f.status === 'ttcm_evaluated') statusText = 'Chờ BGH';
+    if (f.status === 'completed') statusText = 'Hoàn thành';
     if (f.status === 'locked') statusText = 'Đã khóa';
+    if (f.status === 'returned') statusText = 'Yêu cầu tự chấm lại';
 
     // Xếp loại cá nhân động
     const effectiveCfg = getEffectiveRatingConfig(f.periodId, ratingConfigs);
@@ -47,7 +49,8 @@ export const exportVcSummaryToExcel = (
       'Nhóm II (Tối đa 15)': groupII,
       'Nhóm III (Tối đa 70)': groupIII,
       'Điểm tự đánh giá (100đ)': f.totalScore,
-      'Điểm lãnh đạo đánh giá (100đ)': f.managerTotalScore !== null && f.managerTotalScore !== undefined ? f.managerTotalScore : 'Chưa chấm',
+      'Điểm TTCM đánh giá (100đ)': f.ttcmTotalScore !== null && f.ttcmTotalScore !== undefined ? f.ttcmTotalScore : 'Chưa chấm',
+      'Điểm BGH đánh giá (100đ)': f.managerTotalScore !== null && f.managerTotalScore !== undefined ? f.managerTotalScore : 'Chưa chấm',
       'Cá nhân tự xếp loại': selfRating || 'Chưa xếp loại',
       'Xếp loại KPI chính thức': finalRating || 'Chưa xếp loại',
       'Trạng thái': statusText,

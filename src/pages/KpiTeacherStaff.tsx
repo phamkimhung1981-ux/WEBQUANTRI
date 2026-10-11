@@ -67,6 +67,7 @@ import {
   getKpiRating,
   getVcClassificationBadge,
   getEffectiveRatingConfig,
+  getVcStatusMeta,
   DEFAULT_VC_GROUPS,
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
@@ -248,10 +249,14 @@ export default function KpiTeacherStaff() {
           return false;
         }
       }
-
       const matchPeriod = selectedPeriodId === 'all' || f.periodId === selectedPeriodId;
       const matchStatus = statusFilter === 'all' || 
-        (statusFilter === 'completed' ? (f.status === 'completed' || f.status === 'self_evaluated') : f.status === statusFilter);
+        (statusFilter === 'draft' ? (f.status === 'draft' || f.status === 'returned' || !f.status) :
+         statusFilter === 'submitted' ? (f.status === 'submitted' || f.status === 'self_evaluated') :
+         statusFilter === 'ttcm_evaluated' ? (f.status === 'ttcm_evaluated') :
+         statusFilter === 'completed' ? (f.status === 'completed') :
+         statusFilter === 'locked' ? (f.status === 'locked') :
+         f.status === statusFilter);
       
       const formRatingName = getFormRating(f).ratingName;
       const matchClass = classificationFilter === 'all' || (
@@ -768,8 +773,10 @@ export default function KpiTeacherStaff() {
               className="w-full px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
               <option value="all">Tất cả trạng thái</option>
-              <option value="completed">Đã hoàn thành</option>
-              <option value="draft">Bản nháp</option>
+              <option value="draft">Chưa tự chấm</option>
+              <option value="submitted">Chờ TTCM</option>
+              <option value="ttcm_evaluated">Chờ BGH</option>
+              <option value="completed">Hoàn thành</option>
               <option value="locked">Đã khóa</option>
             </select>
           </div>
@@ -954,6 +961,7 @@ export default function KpiTeacherStaff() {
 
                       {group.forms.map((form, idx) => {
                         const isLocked = form.status === 'locked';
+                        const statusMeta = getVcStatusMeta(form.status);
                         const ratingInfo = getFormRating(form);
                         const finalClassification = ratingInfo.ratingName;
                         const classStyle = ratingInfo.badgeStyle;
@@ -1057,16 +1065,13 @@ export default function KpiTeacherStaff() {
 
                             <td className="p-3.5 text-center">
                               {isLocked ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
                                   <Lock size={12} /> Đã khóa
                                 </span>
-                              ) : (form.status === 'completed' || form.status === 'self_evaluated') ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  <CheckCircle2 size={12} /> Hoàn thành
-                                </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                                  <Clock size={12} /> Bản nháp
+                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusMeta.badgeClass}`} title={statusMeta.description}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
+                                  {statusMeta.label}
                                 </span>
                               )}
                             </td>
@@ -1150,6 +1155,7 @@ export default function KpiTeacherStaff() {
               ) : (
                 filteredForms.map((form, idx) => {
                   const isLocked = form.status === 'locked';
+                  const statusMeta = getVcStatusMeta(form.status);
                   const ratingInfo = getFormRating(form);
                   const finalClassification = ratingInfo.ratingName;
                   const classStyle = ratingInfo.badgeStyle;
@@ -1221,7 +1227,19 @@ export default function KpiTeacherStaff() {
                       </td>
 
                       <td className="p-3.5 text-center font-extrabold text-blue-800 bg-blue-50/30 text-sm">
-                        {form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
+                        {form.totalScore !== null && form.totalScore !== undefined ? (
+                          <>{form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
+                        )}
+                      </td>
+
+                      <td className="p-3.5 text-center font-extrabold text-purple-800 bg-purple-50/30 text-sm">
+                        {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? (
+                          <>{form.ttcmTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
+                        )}
                       </td>
 
                       <td className="p-3.5 text-center font-extrabold text-indigo-800 bg-indigo-50/30 text-sm">
@@ -1242,16 +1260,13 @@ export default function KpiTeacherStaff() {
 
                       <td className="p-3.5 text-center">
                         {isLocked ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
                             <Lock size={12} /> Đã khóa
                           </span>
-                        ) : (form.status === 'completed' || form.status === 'self_evaluated') ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 size={12} /> Hoàn thành
-                          </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                            <Clock size={12} /> Bản nháp
+                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusMeta.badgeClass}`} title={statusMeta.description}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
+                            {statusMeta.label}
                           </span>
                         )}
                       </td>

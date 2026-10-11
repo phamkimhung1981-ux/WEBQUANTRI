@@ -1172,40 +1172,40 @@ export function createEvaluationItemsForTarget(
     evaluator_role: tmpl.evaluator_role,
 
     // Phần A: Tự đánh giá
-    selfScore: tmpl.base_score,
-    self_kpi_score: tmpl.base_score,
-    selfPlusScore: 0,
-    self_plus_score: 0,
-    selfMinusScore: 0,
-    self_minus_score: 0,
+    selfScore: null as any,
+    self_kpi_score: null as any,
+    selfPlusScore: null as any,
+    self_plus_score: null as any,
+    selfMinusScore: null as any,
+    self_minus_score: null as any,
     evidence: '',
     self_evidence: '',
     selfComment: '',
     self_comment: '',
-    selected_self_minus_label: 'Không vi phạm (0đ)',
-    selected_self_plus_label: 'Không cộng (0đ)',
+    selected_self_minus_label: '',
+    selected_self_plus_label: '',
 
     // Phần B: Người đánh giá
-    evaluatorScore: tmpl.base_score,
-    evaluator_kpi_score: tmpl.base_score,
-    evaluatorPlusScore: 0,
-    evaluator_plus_score: 0,
-    evaluatorMinusScore: 0,
-    evaluator_minus_score: 0,
+    evaluatorScore: null as any,
+    evaluator_kpi_score: null as any,
+    evaluatorPlusScore: null as any,
+    evaluator_plus_score: null as any,
+    evaluatorMinusScore: null as any,
+    evaluator_minus_score: null as any,
     evaluatorComment: '',
     evaluator_comment: '',
     evaluatorNote: '',
     evaluator_note: '',
-    selected_evaluator_minus_label: 'Không vi phạm (0đ)',
-    selected_evaluator_plus_label: 'Không cộng (0đ)',
+    selected_evaluator_minus_label: '',
+    selected_evaluator_plus_label: '',
 
     // Điểm tổng chính thức
     plusScore: 0,
     plus_score: 0,
     minusScore: 0,
     minus_score: 0,
-    kpiScore: tmpl.base_score,
-    kpi_score: tmpl.base_score,
+    kpiScore: null as any,
+    kpi_score: null as any,
     comment: ''
   }));
 }
@@ -1237,34 +1237,42 @@ export function calculateEvaluationFormTotals(items: KpiEvaluationItem[]): {
 
   for (const item of items) {
     const std = Number(item.base_score ?? item.standardScore) || 0;
-    
-    // Tự đánh giá
-    const sPlus = Math.max(0, Number(item.self_plus_score ?? item.selfPlusScore) || 0);
-    const sMinus = Math.max(0, Number(item.self_minus_score ?? item.selfMinusScore) || 0);
-    const sScore = Math.max(0, std - sMinus + sPlus);
-    selfTotalMinus += sMinus;
-    selfTotalPlus += sPlus;
-    totalSelf += sScore;
-
-    // Người đánh giá
-    const ePlus = Math.max(0, Number(item.evaluator_plus_score ?? item.evaluatorPlusScore) || 0);
-    const eMinus = Math.max(0, Number(item.evaluator_minus_score ?? item.evaluatorMinusScore) || 0);
-    const eScore = Math.max(0, std - eMinus + ePlus);
-    evaluatorTotalMinus += eMinus;
-    evaluatorTotalPlus += ePlus;
-    totalEvaluator += eScore;
-
-    // Chính thức (Ưu tiên điểm của Người đánh giá, nếu chưa đánh giá thì dùng điểm tự ĐG / chuẩn)
-    const activePlus = Math.max(0, Number(item.evaluator_plus_score ?? item.evaluatorPlusScore ?? item.plusScore ?? item.self_plus_score ?? item.selfPlusScore) || 0);
-    const activeMinus = Math.max(0, Number(item.evaluator_minus_score ?? item.evaluatorMinusScore ?? item.minusScore ?? item.self_minus_score ?? item.selfMinusScore) || 0);
-
     totalStandard += std;
-    totalPlus += activePlus;
-    totalMinus += activeMinus;
+
+    // Tự đánh giá (chỉ tính nếu selfScore không null / đã chấm)
+    const hasSelf = item.selfScore !== null && item.selfScore !== undefined && item.self_score !== null && item.self_score !== undefined;
+    if (hasSelf) {
+      const sPlus = Math.max(0, Number(item.self_plus_score ?? item.selfPlusScore) || 0);
+      const sMinus = Math.max(0, Number(item.self_minus_score ?? item.selfMinusScore) || 0);
+      const sScore = Math.max(0, std - sMinus + sPlus);
+      selfTotalMinus += sMinus;
+      selfTotalPlus += sPlus;
+      totalSelf += sScore;
+    }
+
+    // Người đánh giá (chỉ tính nếu evaluatorScore không null / đã chấm)
+    const hasEvaluator = item.evaluatorScore !== null && item.evaluatorScore !== undefined && item.evaluator_score !== null && item.evaluator_score !== undefined;
+    if (hasEvaluator) {
+      const ePlus = Math.max(0, Number(item.evaluator_plus_score ?? item.evaluatorPlusScore) || 0);
+      const eMinus = Math.max(0, Number(item.evaluator_minus_score ?? item.evaluatorMinusScore) || 0);
+      const eScore = Math.max(0, std - eMinus + ePlus);
+      evaluatorTotalMinus += eMinus;
+      evaluatorTotalPlus += ePlus;
+      totalEvaluator += eScore;
+
+      totalPlus += ePlus;
+      totalMinus += eMinus;
+    } else if (hasSelf) {
+      const sPlus = Math.max(0, Number(item.self_plus_score ?? item.selfPlusScore) || 0);
+      const sMinus = Math.max(0, Number(item.self_minus_score ?? item.selfMinusScore) || 0);
+      totalPlus += sPlus;
+      totalMinus += sMinus;
+    }
   }
 
-  // Luôn đảm bảo tổng chuẩn = 100 nếu đầy đủ
-  const totalKpi = Math.max(0, Math.round((totalEvaluator || (totalStandard - totalMinus + totalPlus)) * 100) / 100);
+  // Tổng KPI cuối cùng (ưu tiên điểm Lãnh đạo, nếu chưa có thì điểm tự ĐG, nếu chưa có thì 0)
+  const finalScore = (totalEvaluator > 0) ? totalEvaluator : (totalSelf > 0 ? totalSelf : 0);
+  const totalKpi = Math.max(0, Math.round(finalScore * 100) / 100);
 
   return {
     totalStandardScore: totalStandard || 100,

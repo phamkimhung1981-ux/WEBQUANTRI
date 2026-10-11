@@ -95,14 +95,14 @@ export default function KpiCbqlFormModal({
             groupCode: c.groupCode,
             subCategoryTitle: c.subCategoryTitle,
             maxScore: c.maxScore,
-            selfScore: defLevel.score,
-            selfLevelId: defLevel.id,
-            selfLevelLabel: defLevel.label,
+            selfScore: null as any,
+            selfLevelId: undefined,
+            selfLevelLabel: '',
             selfEvidence: '',
             selfNote: '',
-            evaluatorScore: defLevel.score,
-            evaluatorLevelId: defLevel.id,
-            evaluatorLevelLabel: defLevel.label,
+            evaluatorScore: null as any,
+            evaluatorLevelId: undefined,
+            evaluatorLevelLabel: '',
             evaluatorNote: ''
           };
         });
