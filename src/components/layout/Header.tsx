@@ -82,7 +82,7 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
     <>
       <header 
         id="app-main-header"
-        className="main-header sticky top-0 z-[200] h-[76px] w-full bg-white/90 backdrop-blur-[12px] border-b border-white/60 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.06)] px-4 sm:px-6 lg:px-8 transition-all duration-300 flex items-center justify-between"
+        className="main-header sticky top-0 z-[200] h-[60px] w-full bg-white/80 backdrop-blur-md border-b border-white/60 shadow-sm px-4 sm:px-6 lg:px-8 transition-all duration-300 flex items-center justify-between"
       >
         {/* BÊN TRÁI: LOGO & TÊN TRƯỜNG */}
         <div className="flex items-center gap-3 shrink-0">

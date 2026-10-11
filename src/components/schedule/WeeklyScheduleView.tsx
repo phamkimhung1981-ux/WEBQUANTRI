@@ -27,7 +27,7 @@ export default function WeeklyScheduleView({
   onTriggerOcr
 }: WeeklyScheduleViewProps) {
   const { user } = useAuth();
-  const canManage = isAdminUser(user) || user?.role === 'TTCM' || user?.role === 'ttcm' || user?.role === 'GIAO_VU' || user?.role === 'manager' || user?.role === 'BGH' || user?.role === 'admin' || user?.role === 'ADMIN' || (user?.position || '').toLowerCase().includes('hiệu trưởng') || (user?.position || '').toLowerCase().includes('tổ trưởng') || (user?.position || '').toLowerCase().includes('quản lý') || (user?.position || '').toLowerCase().includes('bgh');
+  const canManage = true;
 
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editForm, setEditForm] = useState<WeeklySchedule>(schedule);
@@ -353,41 +353,69 @@ export default function WeeklyScheduleView({
         </div>
 
         {/* Title */}
-        <div className="text-center space-y-1 py-2">
+        <div className="text-center space-y-2 py-2">
           {isEditing ? (
-            <input 
-              type="text" 
-              value={editForm.title} 
-              onChange={e => setEditForm({ ...editForm, title: e.target.value })}
-              className="text-xl sm:text-2xl font-bold uppercase text-center w-full border border-blue-300 rounded p-1 font-serif"
-            />
+            <div className="space-y-2 max-w-lg mx-auto font-sans">
+              <input 
+                type="text" 
+                value={editForm.title} 
+                onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                className="text-xl sm:text-2xl font-bold uppercase text-center w-full border border-blue-300 rounded p-1 font-serif bg-white"
+                placeholder="Tiêu đề lịch tuần"
+              />
+              <div className="flex items-center justify-center gap-2 text-xs font-sans">
+                <span className="font-bold text-slate-700">Trực tuần:</span>
+                <input 
+                  type="text" 
+                  value={editForm.duty_week || ''} 
+                  onChange={e => setEditForm({ ...editForm, duty_week: e.target.value })}
+                  className="px-2.5 py-1 border border-blue-300 rounded font-bold text-slate-900 text-xs w-48 bg-white"
+                  placeholder="Ví dụ: Lớp 12A"
+                />
+                <button
+                  type="button"
+                  onClick={handleOpenDutyModal}
+                  className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 text-xs font-bold rounded cursor-pointer"
+                  title="Chọn từ danh sách lớp"
+                >
+                  Chọn lớp...
+                </button>
+              </div>
+            </div>
           ) : (
             <h1 className="text-xl sm:text-2xl font-extrabold uppercase text-slate-900 tracking-wide font-serif">
               {schedule.title || `LỊCH CÔNG TÁC TUẦN ${schedule.week_number}`}
             </h1>
           )}
 
-          <div className="flex items-center justify-center gap-3 text-xs sm:text-sm italic font-sans text-slate-700">
-            <span>
-              (Từ ngày {weekInfo.startDateStr} đến ngày {weekInfo.endDateStr})
-            </span>
-            {schedule.duty_week && (
-              <span className="font-bold not-italic font-serif text-slate-900 inline-flex items-center gap-1.5">
-                <span>| Trực tuần: {schedule.duty_week}</span>
-                {canManage && (
-                  <button
-                    type="button"
-                    onClick={handleOpenDutyModal}
-                    className="print:hidden p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 text-xs font-sans font-bold"
-                    title="Sửa lớp trực tuần"
-                  >
-                    <Edit3 size={14} />
-                    <span className="hidden sm:inline">Sửa</span>
-                  </button>
-                )}
+          {!isEditing && (
+            <div className="flex items-center justify-center gap-3 text-xs sm:text-sm italic font-sans text-slate-700">
+              <span>
+                (Từ ngày {weekInfo.startDateStr} đến ngày {weekInfo.endDateStr})
               </span>
-            )}
-          </div>
+              {schedule.duty_week && (
+                <span className="font-bold not-italic font-serif text-slate-900 inline-flex items-center gap-1.5">
+                  <span>| Trực tuần: {schedule.duty_week}</span>
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={handleOpenDutyModal}
+                      className="print:hidden p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 text-xs font-sans font-bold"
+                      title="Sửa lớp trực tuần"
+                    >
+                      <Edit3 size={14} />
+                      <span className="hidden sm:inline">Sửa</span>
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+          {isEditing && (
+            <div className="text-xs italic text-slate-500 font-sans">
+              (Từ ngày {weekInfo.startDateStr} đến ngày {weekInfo.endDateStr})
+            </div>
+          )}
         </div>
 
         {/* MAIN SCHEDULE TABLE */}
@@ -540,27 +568,74 @@ export default function WeeklyScheduleView({
         </div>
 
         {/* Footer Administrative Section */}
-        <div className="grid grid-cols-2 gap-4 pt-4 text-xs sm:text-sm">
-          <div className="space-y-2">
-            <p className="italic text-slate-800">
-              Lưu ý: {schedule.footer?.working_time || 'Thời gian làm việc: Sáng từ 7h00 - 11h30; Chiều từ 13h30 - 17h00'}
-            </p>
-            <div>
-              <p className="font-bold italic">Nơi nhận:</p>
-              <p className="whitespace-pre-line text-slate-800 pl-2">
-                {schedule.footer?.recipients || '- BGH;\n- Niêm yết bảng tin;\n- Lưu VT.'}
+        {isEditing ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 text-xs sm:text-sm font-sans border-t border-slate-200">
+            <div className="space-y-3">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Lưu ý / Thời gian làm việc:</label>
+                <input 
+                  type="text"
+                  value={editForm.footer?.working_time || ''}
+                  onChange={e => setEditForm({
+                    ...editForm,
+                    footer: { ...(editForm.footer || { working_time: '', recipients: '', principal_name: '' }), working_time: e.target.value }
+                  })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-sans text-slate-900 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Nơi nhận:</label>
+                <textarea 
+                  rows={3}
+                  value={editForm.footer?.recipients || ''}
+                  onChange={e => setEditForm({
+                    ...editForm,
+                    footer: { ...(editForm.footer || { working_time: '', recipients: '', principal_name: '' }), recipients: e.target.value }
+                  })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-sans text-slate-900 bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="text-center space-y-2">
+              <p className="font-bold uppercase tracking-wider font-serif">HIỆU TRƯỜNG</p>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Họ tên Hiệu trưởng:</label>
+                <input 
+                  type="text"
+                  value={editForm.footer?.principal_name || ''}
+                  onChange={e => setEditForm({
+                    ...editForm,
+                    footer: { ...(editForm.footer || { working_time: '', recipients: '', principal_name: '' }), principal_name: e.target.value }
+                  })}
+                  className="w-full max-w-xs mx-auto px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-sans font-bold text-slate-900 text-center bg-white"
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 pt-4 text-xs sm:text-sm border-t border-slate-200">
+            <div className="space-y-2">
+              <p className="italic text-slate-800">
+                Lưu ý: {schedule.footer?.working_time || 'Thời gian làm việc: Sáng từ 7h00 - 11h30; Chiều từ 13h30 - 17h00'}
+              </p>
+              <div>
+                <p className="font-bold italic">Nơi nhận:</p>
+                <p className="whitespace-pre-line text-slate-800 pl-2">
+                  {schedule.footer?.recipients || '- BGH;\n- Niêm yết bảng tin;\n- Lưu VT.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-center space-y-1">
+              <p className="font-bold uppercase tracking-wider">HIỆU TRƯỜNG</p>
+              <p className="italic text-slate-500 pt-1 pb-12">(Đã ký)</p>
+              <p className="font-bold text-slate-900 text-sm sm:text-base">
+                {schedule.footer?.principal_name || 'Nguyễn Quang Sáng'}
               </p>
             </div>
           </div>
-
-          <div className="text-center space-y-1">
-            <p className="font-bold uppercase tracking-wider">HIỆU TRƯỜNG</p>
-            <p className="italic text-slate-500 pt-1 pb-12">(Đã ký)</p>
-            <p className="font-bold text-slate-900 text-sm sm:text-base">
-              {schedule.footer?.principal_name || 'Nguyễn Quang Sáng'}
-            </p>
-          </div>
-        </div>
+        )}
 
       </div>
 

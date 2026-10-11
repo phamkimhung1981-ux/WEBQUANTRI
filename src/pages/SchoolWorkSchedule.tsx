@@ -43,6 +43,8 @@ import { exportSchoolWorkScheduleToWord } from '../utils/schoolWorkScheduleExpor
 import { getWeekInfoByNumber, getAllWeeksInYear, ACADEMIC_YEARS } from '../utils/schoolWeekUtils';
 import SchoolScheduleWordImportModal from '../components/schoolSchedule/SchoolScheduleWordImportModal';
 import AutoResizeTextarea from '../components/ui/AutoResizeTextarea';
+import { homeroomService } from '../services/homeroomService';
+import { ClassInfo } from '../types/homeroom';
 import * as XLSX from 'xlsx';
 
 export default function SchoolWorkSchedulePage() {
@@ -64,6 +66,16 @@ export default function SchoolWorkSchedulePage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isWordImportOpen, setIsWordImportOpen] = useState<boolean>(false);
+
+  // Duty Class & Weekly Note editing state
+  const [isEditDutyModalOpen, setIsEditDutyModalOpen] = useState<boolean>(false);
+  const [formDutyClass, setFormDutyClass] = useState<string>('12A');
+  const [formWeeklyNote, setFormWeeklyNote] = useState<string>('');
+  const [classList, setClassList] = useState<ClassInfo[]>([]);
+
+  useEffect(() => {
+    homeroomService.getClasses().then(c => setClassList(c)).catch(() => {});
+  }, []);
 
   // Modal item state for Add / Edit task
   const [editingItem, setEditingItem] = useState<{
@@ -617,7 +629,7 @@ export default function SchoolWorkSchedulePage() {
       {/* MAIN DOCUMENT CONTAINER (CHUẨN FORM MẪU THPT SƠN LƯƠNG) */}
       <div className="bg-white rounded-[24px] border border-slate-200/90 shadow-lg p-6 sm:p-10 space-y-6 text-slate-900 print:p-0 print:border-none print:shadow-none">
         {/* 1. DOCUMENT HEADER */}
-        <div className="border-b border-slate-200 pb-5 space-y-2">
+        <div className="border-b border-slate-200 pb-5 space-y-3">
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>
               <h2 className="text-sm sm:text-base font-black tracking-tight text-slate-900 uppercase">
@@ -633,15 +645,61 @@ export default function SchoolWorkSchedulePage() {
               </div>
             </div>
 
-            <div className="text-right sm:text-right w-full sm:w-auto">
+            <div className="text-right sm:text-right w-full sm:w-auto space-y-1">
               <span className="text-base sm:text-lg font-black text-slate-900 uppercase block tracking-wide">
-                TUẦN: {selectedWeek}
+                LỊCH CÔNG TÁC TUẦN {selectedWeek}
               </span>
-              <span className="text-xs sm:text-sm font-semibold italic text-slate-600 block mt-0.5">
+              <span className="text-xs sm:text-sm font-semibold italic text-slate-600 block">
                 {dateRangeSubtitle}
               </span>
+
+              {/* Trực tuần info & Edit button */}
+              <div className="flex items-center justify-end gap-2 pt-0.5">
+                <span className="text-xs sm:text-sm font-bold text-slate-700">
+                  Trực tuần: <span className="font-extrabold text-[#1457D9]">{schedule?.duty_class || 'Lớp 12A'}</span>
+                </span>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormDutyClass(schedule?.duty_class || '12A');
+                      setFormWeeklyNote(schedule?.weekly_note || '');
+                      setIsEditDutyModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-md border border-amber-300 transition-colors cursor-pointer no-print"
+                    title="Sửa lớp trực tuần và lưu ý"
+                  >
+                    <span>✏️ Sửa trực tuần</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Phần lưu ý trong lịch công tác tuần */}
+          {(schedule?.weekly_note || canEdit) && (
+            <div className="mt-3 p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <span className="text-amber-700 font-extrabold shrink-0 mt-0.5 text-xs sm:text-sm">📌 Lưu ý tuần {selectedWeek}:</span>
+                <p className="text-xs sm:text-sm text-slate-700 font-medium whitespace-pre-wrap">
+                  {schedule?.weekly_note || 'Chưa có lưu ý đặc biệt cho tuần này. Nhấn "Sửa lưu ý" để cập nhật nội dung.'}
+                </p>
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormDutyClass(schedule?.duty_class || '12A');
+                    setFormWeeklyNote(schedule?.weekly_note || '');
+                    setIsEditDutyModalOpen(true);
+                  }}
+                  className="text-xs font-bold text-blue-700 hover:underline shrink-0 no-print whitespace-nowrap"
+                >
+                  ✏️ Sửa lưu ý
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 2. OFFICIAL WORK SCHEDULE TABLE (ĐÚNG 5 CỘT THEO FILE GỬI KÈM - KẺ Ô RÕ NÉT) */}
@@ -1199,6 +1257,111 @@ export default function SchoolWorkSchedulePage() {
           showToast(`Đã tải và áp dụng lịch công việc từ file Word thành công (Tuần ${imported.week_number})!`);
         }}
       />
+
+      {/* EDIT DUTY CLASS & WEEKLY NOTE MODAL */}
+      {isEditDutyModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5 border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 uppercase">
+                Chỉnh sửa Trực tuần & Lưu ý Tuần {selectedWeek}
+              </h3>
+              <button
+                onClick={() => setIsEditDutyModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Tuần công tác & Thời gian
+                </label>
+                <div className="px-3 py-2 bg-slate-100 rounded-xl text-xs font-semibold text-slate-800">
+                  Tuần {selectedWeek} ({dateRangeSubtitle}) — Năm học {selectedYear}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Lớp trực tuần
+                </label>
+                <select
+                  value={formDutyClass}
+                  onChange={e => setFormDutyClass(e.target.value)}
+                  className="w-full bg-white text-slate-900 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                >
+                  <option value="12A">Lớp 12A</option>
+                  <option value="12B">Lớp 12B</option>
+                  <option value="12C">Lớp 12C</option>
+                  <option value="12I">Lớp 12I</option>
+                  {classList.map(c => (
+                    <option key={c.id} value={c.name}>
+                      Lớp {c.name} {c.homeroomTeacherName ? `(GVCN: ${c.homeroomTeacherName})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Chọn lớp trực tuần mới từ danh sách lớp đã khai báo trong hệ thống.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Phần lưu ý trong lịch công tác tuần
+                </label>
+                <textarea
+                  value={formWeeklyNote}
+                  onChange={e => setFormWeeklyNote(e.target.value)}
+                  rows={4}
+                  placeholder="Nhập các lưu ý quan trọng trong tuần (ví dụ: thực hiện nghiêm túc nội quy, trang phục, an toàn giao thông...)"
+                  className="w-full bg-white text-slate-900 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setIsEditDutyModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!schedule) return;
+                  try {
+                    setSaving(true);
+                    const updated: SchoolWorkSchedule = {
+                      ...schedule,
+                      duty_class: formDutyClass.trim(),
+                      weekly_note: formWeeklyNote.trim(),
+                      updated_at: new Date().toISOString()
+                    };
+                    setSchedule(updated);
+                    await schoolWorkScheduleService.saveSchedule(updated);
+                    showToast('Đã cập nhật thông tin trực tuần và lưu ý thành công!');
+                    setIsEditDutyModalOpen(false);
+                  } catch (e) {
+                    console.error(e);
+                    showToast('Lỗi khi lưu thông tin trực tuần');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

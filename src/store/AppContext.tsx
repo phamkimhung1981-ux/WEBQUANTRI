@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Department, DisciplineRecord, DisciplineCriterion, Notification, Report, Task, Teacher, CalendarEvent, LeaveRecord, AttendanceRecord, KpiItem, KpiRecord, KpiGroup, KpiCategory, KpiMonthlySetting, GeneralKpi, WorkAssignment, EvaluationCategory, EvaluationCriterion, SchoolStats, KpiEvaluationForm, KpiEvaluationItem, SystemModule, User } from '../types';
+import { Student, ClassInfo } from '../types/homeroom';
 import { DEFAULT_SYSTEM_MODULES, isAdminUser } from '../lib/moduleData';
 import { KpiStaffForm, KpiStaffPeriod, KpiStaffCriterion } from '../types/kpiStaff';
 import { DEFAULT_STAFF_PERIODS, DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffData';
@@ -30,6 +31,8 @@ interface AppState {
   calendarEvents: CalendarEvent[];
   leaveRecords: LeaveRecord[];
   attendanceRecords: AttendanceRecord[];
+  students: Student[];
+  classes: ClassInfo[];
   schoolStats: SchoolStats;
   modules: SystemModule[];
   kpiStaffForms: KpiStaffForm[];
@@ -215,6 +218,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     calendarEvents: [],
     leaveRecords: [],
     attendanceRecords: [],
+    students: [],
+    classes: [],
     schoolStats: {
       totalTeachers: 42,
       totalStudents: 1236,
@@ -297,6 +302,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     handleSnapshot('calendarEvents', 'calendarEvents');
     handleSnapshot('leaveRecords', 'leaveRecords');
     handleSnapshot('attendance', 'attendanceRecords');
+    handleSnapshot('students', 'students');
+    handleSnapshot('classes', 'classes');
 
     // Quản lý System Modules từ Firestore
     const modulesColRef = collection(db, 'system_modules');
@@ -1266,6 +1273,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubscribes.forEach(unsub => unsub());
     };
   }, []);
+
+  // Auto-sync totalStudents and totalClasses from active students and classes collections
+  useEffect(() => {
+    const activeStudentsCount = state.students ? state.students.filter(s => s.status !== 'transferred' && s.status !== 'dropped' && s.status !== 'left').length : 0;
+    const activeClassesCount = state.classes ? state.classes.filter(c => c.status !== 'inactive').length : 0;
+
+    if (activeStudentsCount > 0 || activeClassesCount > 0) {
+      setState(prev => {
+        const curStudents = prev.schoolStats.totalStudents;
+        const curClasses = prev.schoolStats.totalClasses;
+        const newStudents = activeStudentsCount > 0 ? activeStudentsCount : curStudents;
+        const newClasses = activeClassesCount > 0 ? activeClassesCount : curClasses;
+
+        if (curStudents !== newStudents || curClasses !== newClasses) {
+          const updatedStats = {
+            ...prev.schoolStats,
+            totalStudents: newStudents,
+            totalClasses: newClasses
+          };
+          setDoc(doc(db, 'systemSettings', 'schoolStats'), sanitize(updatedStats), { merge: true }).catch(() => {});
+          return { ...prev, schoolStats: updatedStats };
+        }
+        return prev;
+      });
+    }
+  }, [state.students, state.classes]);
 
   // Tự động kiểm tra và chuẩn hóa liên kết groupId cho kpis và kpiRecords
   useEffect(() => {
