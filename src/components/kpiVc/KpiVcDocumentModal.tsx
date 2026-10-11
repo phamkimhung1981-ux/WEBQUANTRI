@@ -2078,6 +2078,17 @@ export default function KpiVcDocumentModal({
               >+</button>
             </div>
 
+            {form && (
+              <button
+                type="button"
+                onClick={() => exportVcFormToWord(form)}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                title="Xuất phiếu đánh giá ra file Microsoft Word (.docx)"
+              >
+                <FileText size={15} /> Xuất Word (.docx)
+              </button>
+            )}
+
             {form && onPrintRequest && (
               <button
                 type="button"
