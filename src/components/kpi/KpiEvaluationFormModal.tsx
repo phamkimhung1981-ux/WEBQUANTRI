@@ -35,6 +35,9 @@ import {
   KpiEvaluationItem, 
   KpiTargetCode 
 } from '../../types';
+import { KpiEvidenceFile } from '../../types/kpiEvidence';
+import { subscribeEvidenceFilesForForm, getEvidenceFilesForForm, reassignEvidenceFilesFormId } from '../../services/kpiEvidenceService';
+import KpiCriterionEvidenceCell from './KpiCriterionEvidenceCell';
 import { 
   KPI_TARGET_GROUPS, 
   KpiTargetGroup, 
@@ -98,6 +101,23 @@ export default function KpiEvaluationFormModal({
   // Column view filter (Tất cả cột / Chỉ Tự đánh giá / Chỉ Lãnh đạo đánh giá)
   const [columnViewMode, setColumnViewMode] = useState<'all' | 'self' | 'evaluator'>('all');
 
+  // Evidence Files State
+  const [evidenceFiles, setEvidenceFiles] = useState<KpiEvidenceFile[]>([]);
+
+  // Subscribe / sync evidence files when form ID changes
+  const effectiveFormId = currentFormId || formToEdit?.id || (selectedTeacherId ? `draft_${selectedTeacherId}_${month}_${academicYear}` : '');
+
+  useEffect(() => {
+    if (isOpen && effectiveFormId) {
+      const unsub = subscribeEvidenceFilesForForm(effectiveFormId, (files) => {
+        setEvidenceFiles(files);
+      });
+      return () => unsub();
+    } else {
+      setEvidenceFiles([]);
+    }
+  }, [isOpen, effectiveFormId]);
+
   // Determine user permissions
   const isBghOrAdmin = !user || user.role === 'BGH' || (user as any).role === 'ADMIN' || user.id === 'admin';
 
@@ -148,6 +168,13 @@ export default function KpiEvaluationFormModal({
 
   // Permissions for Part B (Người đánh giá) - Ràng buộc bắt buộc: Cá nhân phải tự chấm xong thì TTCM/CBQL mới được chấm
   const canEditPartB = !isFormLocked && isSelfAssessmentCompleted && (isBghOrAdmin || isCurrentUserEvaluator);
+
+  // Permissions for evidence file deletion (Cá nhân tự xóa khi tự chấm; TTCM/BGH quản lý khi chưa khóa)
+  const canDeleteEvidence = !isFormLocked && (
+    (isCurrentUserEvaluatee && !isFormSubmitted && !isFormEvaluated) ||
+    isCurrentUserEvaluator ||
+    isBghOrAdmin
+  );
 
   // Initialize / load form data
   const loadFormData = (f: KpiEvaluationForm) => {
@@ -522,6 +549,10 @@ export default function KpiEvaluationFormModal({
       }
 
       const formIdToUse = currentFormId || formToEdit?.id || `kpif_${(academicYear || '2026-2027').replace(/[^a-zA-Z0-9]/g, '_')}_m${String(month || '09').padStart(2, '0')}_${selectedTeacherId}`;
+
+      if (effectiveFormId && effectiveFormId !== formIdToUse) {
+        await reassignEvidenceFilesFormId(effectiveFormId, formIdToUse);
+      }
 
       const formPayload: KpiEvaluationForm = {
         id: formIdToUse,
@@ -1296,14 +1327,34 @@ export default function KpiEvaluationFormModal({
                             </td>
 
                             {/* Minh chứng cá nhân */}
-                            <td className="px-2 py-2.5 border-r border-slate-200 bg-emerald-50/10">
-                              <textarea
-                                rows={2}
-                                disabled={!canEditPartA}
-                                value={item.evidence || item.self_evidence || ''}
-                                onChange={(e) => handlePartAEvidenceChange(item.id, e.target.value)}
-                                placeholder="Ghi chú minh chứng, số hiệu..."
-                                className="w-full p-1.5 text-[11px] bg-white border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100 resize-none"
+                            <td className="px-2 py-2.5 border-r border-slate-200 bg-emerald-50/10 min-w-[210px] align-top">
+                              <KpiCriterionEvidenceCell
+                                formId={currentFormId || formToEdit?.id || `draft_${selectedTeacherId}_${month}_${academicYear}`}
+                                criterionId={item.id}
+                                criterionCode={item.code || item.kpi_code || item.id}
+                                groupId={item.group || 'kpi_group'}
+                                groupName={item.kpi_group || 'Nhóm tiêu chí'}
+                                employeeId={selectedTeacherId}
+                                employeeName={selectedTeacher?.name || ''}
+                                academicYear={academicYear}
+                                periodId={month}
+                                evidenceFiles={evidenceFiles}
+                                canUpload={canEditPartA}
+                                canDelete={canDeleteEvidence}
+                                isLocked={isFormLocked}
+                                note={item.evidence || item.self_evidence || ''}
+                                onNoteChange={(newNote) => handlePartAEvidenceChange(item.id, newNote)}
+                                currentUserId={user?.id}
+                                currentUserName={user?.name}
+                                onFilesUpdated={(deletedId) => {
+                                  if (deletedId) {
+                                    setEvidenceFiles(prev => prev.filter(f => f.id !== deletedId));
+                                  }
+                                  const effId = currentFormId || formToEdit?.id || `draft_${selectedTeacherId}_${month}_${academicYear}`;
+                                  if (effId) {
+                                    getEvidenceFilesForForm(effId).then(setEvidenceFiles);
+                                  }
+                                }}
                               />
                             </td>
                           </>

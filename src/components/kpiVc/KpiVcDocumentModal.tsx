@@ -44,6 +44,9 @@ import {
   KpiVcFormHistory
 } from '../../types/kpiVc';
 import { Teacher, Department } from '../../types';
+import { KpiEvidenceFile } from '../../types/kpiEvidence';
+import { subscribeEvidenceFilesForForm, getEvidenceFilesForForm } from '../../services/kpiEvidenceService';
+import KpiCriterionEvidenceCell from '../kpi/KpiCriterionEvidenceCell';
 import { 
   getEligibleVcTeachers,
   resolveVcTeacherPosition,
@@ -155,6 +158,22 @@ export default function KpiVcDocumentModal({
 
   // Items State (list of scored criteria)
   const [scoreItems, setScoreItems] = useState<KpiVcScoreItem[]>([]);
+  // Evidence Files State
+  const [evidenceFiles, setEvidenceFiles] = useState<KpiEvidenceFile[]>([]);
+
+  // Subscribe / sync evidence files when form changes
+  const effectiveFormId = form?.id || (selectedTeacherId && selectedPeriodId ? `draft_${selectedTeacherId}_${selectedPeriodId}` : '');
+
+  useEffect(() => {
+    if (isOpen && effectiveFormId) {
+      const unsub = subscribeEvidenceFilesForForm(effectiveFormId, (files) => {
+        setEvidenceFiles(files);
+      });
+      return () => unsub();
+    } else {
+      setEvidenceFiles([]);
+    }
+  }, [isOpen, effectiveFormId]);
 
   // --- MULTI-SELECTION & WORKSPACE STATE FOR CREATE MODE ---
   const [selectedTeacherIds, setSelectedTeacherIds] = useState<string[]>([]);
@@ -2795,19 +2814,35 @@ export default function KpiVcDocumentModal({
                                 )}
                               </td>
 
-                              {/* GHI CHÚ */}
-                              <td className="p-2 text-left">
-                                {canEditSelf || canEditTtcm || canEditManager ? (
-                                  <input
-                                    type="text"
-                                    value={itemScore?.note || ''}
-                                    onChange={(e) => handleNoteChange(criterion.id, e.target.value)}
-                                    placeholder="Minh chứng / Ghi chú..."
-                                    className="w-full p-1 text-xs bg-white border border-slate-200 rounded focus:ring-1 focus:ring-blue-500"
-                                  />
-                                ) : (
-                                  <span className="text-slate-600 italic text-[11px]">{itemScore?.note || '---'}</span>
-                                )}
+                              {/* GHI CHÚ / MINH CHỨNG */}
+                              <td className="p-2 text-left min-w-[210px] align-top">
+                                <KpiCriterionEvidenceCell
+                                  formId={effectiveFormId}
+                                  criterionId={criterion.id}
+                                  criterionCode={criterion.code}
+                                  groupId={group.id}
+                                  groupName={group.name}
+                                  employeeId={form?.employeeId || selectedTeacherId || user?.id || ''}
+                                  employeeName={form?.employeeName || selectedTeacher?.name || user?.name || ''}
+                                  academicYear={form?.academicYear || selectedPeriod?.academicYear || '2026-2027'}
+                                  periodId={form?.periodId || selectedPeriodId || ''}
+                                  evidenceFiles={evidenceFiles}
+                                  canUpload={canEditSelf || canEditTtcm || canEditManager}
+                                  canDelete={!isLocked && !isCompleted}
+                                  isLocked={isLocked || isCompleted}
+                                  note={itemScore?.note || ''}
+                                  onNoteChange={(newNote) => handleNoteChange(criterion.id, newNote)}
+                                  currentUserId={user?.id}
+                                  currentUserName={user?.name}
+                                  onFilesUpdated={(deletedId) => {
+                                    if (deletedId) {
+                                      setEvidenceFiles(prev => prev.filter(f => f.id !== deletedId));
+                                    }
+                                    if (effectiveFormId) {
+                                      getEvidenceFilesForForm(effectiveFormId).then(setEvidenceFiles);
+                                    }
+                                  }}
+                                />
                               </td>
                             </tr>
 
