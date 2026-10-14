@@ -213,15 +213,15 @@ export default function KpiVcRatingConfigModal({
       setWorkingTiers([
         { id: 'tier_a', ratingName: 'Loại A (Xuất sắc)', minScore: 90, maxScore: 100, badgeColor: 'emerald', sortOrder: 1, isActive: true },
         { id: 'tier_b', ratingName: 'Loại B (Tốt)', minScore: 80, maxScore: 90, badgeColor: 'blue', sortOrder: 2, isActive: true },
-        { id: 'tier_c', ratingName: 'Loại C (Đạt)', minScore: 65, maxScore: 80, badgeColor: 'amber', sortOrder: 3, isActive: true },
-        { id: 'tier_d', ratingName: 'Loại D (Chưa đạt)', minScore: 0, maxScore: 65, badgeColor: 'rose', sortOrder: 4, isActive: true }
+        { id: 'tier_c', ratingName: 'Loại C (Đạt)', minScore: 70, maxScore: 80, badgeColor: 'amber', sortOrder: 3, isActive: true },
+        { id: 'tier_d', ratingName: 'Loại D (Chưa đạt)', minScore: 0, maxScore: 70, badgeColor: 'rose', sortOrder: 4, isActive: true }
       ]);
     } else if (type === 'levels_1234') {
       setWorkingTiers([
         { id: 'tier_m1', ratingName: 'Mức 1', minScore: 90, maxScore: 100, badgeColor: 'emerald', sortOrder: 1, isActive: true },
         { id: 'tier_m2', ratingName: 'Mức 2', minScore: 80, maxScore: 90, badgeColor: 'blue', sortOrder: 2, isActive: true },
-        { id: 'tier_m3', ratingName: 'Mức 3', minScore: 65, maxScore: 80, badgeColor: 'amber', sortOrder: 3, isActive: true },
-        { id: 'tier_m4', ratingName: 'Mức 4', minScore: 0, maxScore: 65, badgeColor: 'rose', sortOrder: 4, isActive: true }
+        { id: 'tier_m3', ratingName: 'Mức 3', minScore: 70, maxScore: 80, badgeColor: 'amber', sortOrder: 3, isActive: true },
+        { id: 'tier_m4', ratingName: 'Mức 4', minScore: 0, maxScore: 70, badgeColor: 'rose', sortOrder: 4, isActive: true }
       ]);
     }
   };

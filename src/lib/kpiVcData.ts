@@ -15,8 +15,8 @@ import { Teacher, Department } from '../types';
  * Áp dụng quy tắc khoảng điểm chuẩn:
  * - Mức 1 (Xuất sắc): 90 <= điểm <= 100
  * - Mức 2 (Hoàn thành tốt): 80 <= điểm < 90
- * - Mức 3 (Hoàn thành): 65 <= điểm < 80
- * - Mức 4 (Không hoàn thành): 0 <= điểm < 65
+ * - Mức 3 (Hoàn thành): 70 <= điểm < 80
+ * - Mức 4 (Chưa hoàn thành): 0 <= điểm < 70
  */
 export const DEFAULT_VC_RATING_TIERS: KpiVcRatingTier[] = [
   {
@@ -42,22 +42,22 @@ export const DEFAULT_VC_RATING_TIERS: KpiVcRatingTier[] = [
   {
     id: 'tier_3',
     ratingName: 'Hoàn thành nhiệm vụ',
-    minScore: 65,
+    minScore: 70,
     maxScore: 80,
     badgeColor: 'amber',
     sortOrder: 3,
     isActive: true,
-    description: 'Từ 65 đến dưới 80 điểm'
+    description: 'Từ 70 đến dưới 80 điểm'
   },
   {
     id: 'tier_4',
-    ratingName: 'Không hoàn thành nhiệm vụ',
+    ratingName: 'Chưa hoàn thành nhiệm vụ',
     minScore: 0,
-    maxScore: 65,
+    maxScore: 70,
     badgeColor: 'rose',
     sortOrder: 4,
     isActive: true,
-    description: 'Từ 0 đến dưới 65 điểm'
+    description: 'Dưới 70 điểm'
   }
 ];
 

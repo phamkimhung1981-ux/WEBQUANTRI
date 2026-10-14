@@ -325,20 +325,20 @@ export default function KpiVcPrintModal({
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="border border-black p-1">Dưới 70</td>
-                    <td className="border border-black p-1">Chưa hoàn thành</td>
+                    <td className="border border-black p-1 font-bold">90 đến 100</td>
+                    <td className="border border-black p-1 font-bold">Hoàn thành xuất sắc</td>
                   </tr>
                   <tr>
-                    <td className="border border-black p-1">70 đến dưới 85</td>
-                    <td className="border border-black p-1">Hoàn thành</td>
-                  </tr>
-                  <tr>
-                    <td className="border border-black p-1">85 đến dưới 95</td>
+                    <td className="border border-black p-1">80 đến dưới 90</td>
                     <td className="border border-black p-1">Hoàn thành tốt</td>
                   </tr>
                   <tr>
-                    <td className="border border-black p-1 font-bold">95 đến 100</td>
-                    <td className="border border-black p-1 font-bold">Hoàn thành xuất sắc</td>
+                    <td className="border border-black p-1">70 đến dưới 80</td>
+                    <td className="border border-black p-1">Hoàn thành</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-black p-1">Dưới 70</td>
+                    <td className="border border-black p-1">Chưa hoàn thành</td>
                   </tr>
                 </tbody>
               </table>

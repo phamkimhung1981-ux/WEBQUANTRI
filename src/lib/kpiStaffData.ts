@@ -362,6 +362,6 @@ export const createInitialStaffForm = (
 export const getClassificationByScore = (score: number): string => {
   if (score >= 90) return 'Hoàn thành xuất sắc nhiệm vụ';
   if (score >= 80) return 'Hoàn thành tốt nhiệm vụ';
-  if (score >= 50) return 'Hoàn thành nhiệm vụ';
-  return 'Không hoàn thành nhiệm vụ';
+  if (score >= 70) return 'Hoàn thành nhiệm vụ';
+  return 'Chưa hoàn thành nhiệm vụ';
 };

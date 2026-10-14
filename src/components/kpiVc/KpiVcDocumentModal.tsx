@@ -2994,21 +2994,21 @@ export default function KpiVcDocumentModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-medium">
+                    <tr className="bg-emerald-50/50">
+                      <td className="p-2 border-r border-slate-200 font-bold">90 đến 100</td>
+                      <td className="p-2 text-emerald-800 font-extrabold">Hoàn thành xuất sắc</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 border-r border-slate-200">80 đến dưới 90</td>
+                      <td className="p-2 text-blue-700 font-bold">Hoàn thành tốt</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 border-r border-slate-200">70 đến dưới 80</td>
+                      <td className="p-2 text-indigo-700 font-bold">Hoàn thành</td>
+                    </tr>
                     <tr>
                       <td className="p-2 border-r border-slate-200">Dưới 70</td>
                       <td className="p-2 text-rose-700 font-bold">Chưa hoàn thành</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2 border-r border-slate-200">70 đến dưới 85</td>
-                      <td className="p-2 text-blue-700 font-bold">Hoàn thành</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2 border-r border-slate-200">85 đến dưới 95</td>
-                      <td className="p-2 text-indigo-700 font-bold">Hoàn thành tốt</td>
-                    </tr>
-                    <tr className="bg-emerald-50/50">
-                      <td className="p-2 border-r border-slate-200">95 đến 100</td>
-                      <td className="p-2 text-emerald-800 font-extrabold">Hoàn thành xuất sắc</td>
                     </tr>
                   </tbody>
                 </table>
