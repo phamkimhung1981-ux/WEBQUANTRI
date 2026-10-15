@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import TaskEvaluationModal from "../components/evaluations/TaskEvaluationModal";
@@ -286,7 +287,7 @@ export default function Tasks() {
   // Permissions: BGH xem toàn bộ công việc và toàn bộ trạng thái (Yêu cầu 12)
   const isAdmin = user?.role === 'BGH' || (user?.role || '').includes('HIỆU TRƯỞNG') || (user?.role || '').includes('HT') || (user?.role || '').includes('PHT');
   const isHead = (user?.role || '').includes('TTCM') || (user?.position || '').toLowerCase().includes('tổ trưởng');
-  const canManageTasks = isAdmin || isHead;
+  const canManageTasks = canEditOrDelete() && (isAdmin || isHead);
 
   // --- HELPER FUNCTIONS ---
   function findDeptConfig(deptIdOrNameOrSlug?: string): DepartmentConfig | undefined {
@@ -1414,7 +1415,7 @@ export default function Tasks() {
                       const isPast = isTaskOverdue(task);
                       const deptName = getAssignmentDepartmentName(task);
                       const isAssignee = isUserAnAssignee(task, user?.id);
-                      const canEditThisTask = canManageTasks || task.createdBy === user?.id;
+                      const canEditThisTask = canEditOrDelete() && (canManageTasks || task.createdBy === user?.id);
 
                       return (
                         <tr 

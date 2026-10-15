@@ -1,13 +1,16 @@
 import React, { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { Badge } from '../components/ui/Badge';
 import Avatar from '../components/ui/Avatar';
-import { Search, Mail, Filter, Upload, Download, Trash2, UserPlus, Edit2, X, Users, Eye } from 'lucide-react';
+import { Search, Mail, Filter, Upload, Download, Trash2, UserPlus, Edit2, X, Users, Eye, UserCheck } from 'lucide-react';
+import { canEditOrDelete } from '../utils/envUtils';
 import { Teacher } from '../types';
 import * as XLSX from 'xlsx';
 import BackButton from '../components/ui/BackButton';
 
 export default function Teachers() {
+  const navigate = useNavigate();
   const { teachers, departments, deleteTeacher, deleteAllTeachers, updateTeacher, addTeacher, importTeachers } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDept, setFilterDept] = useState<string>('All');
@@ -209,6 +212,13 @@ export default function Teachers() {
             Nhập từ Excel
           </button>
           <button 
+            onClick={() => navigate('/user-accounts')}
+            className="inline-flex items-center justify-center px-4 py-2.5 border border-indigo-200 rounded-xl shadow-sm text-[13px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+          >
+            <UserCheck className="mr-2 h-4 w-4 text-indigo-600" />
+            Quản lý tài khoản
+          </button>
+          <button 
             onClick={() => {
               setEditingTeacher(null);
               setFormData({
@@ -221,7 +231,7 @@ export default function Teachers() {
             <UserPlus className="mr-2 h-4 w-4" />
             Thêm mới
           </button>
-          {teachers.length > 0 && (
+          {canEditOrDelete() && teachers.length > 0 && (
             <button 
               onClick={() => setIsDeleteAllModalOpen(true)}
               className="inline-flex items-center justify-center px-4 py-2.5 border border-rose-200 rounded-xl shadow-sm text-[13px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors"
@@ -330,22 +340,24 @@ export default function Teachers() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={(e) => handleEdit(e, teacher)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Chỉnh sửa"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteClick(e, teacher)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                        title="Xóa"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
+                    {canEditOrDelete() && (
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => handleEdit(e, teacher)}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Chỉnh sửa"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteClick(e, teacher)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Xóa"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               );

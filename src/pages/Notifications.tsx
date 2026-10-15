@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Bell, Check, Clock, Plus, Trash2, MailOpen, X } from 'lucide-react';
@@ -154,15 +155,17 @@ export default function Notifications() {
                   </div>
                   
                   {/* Delete button appears on hover */}
-                  <div className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={(e) => handleDelete(notification.id, e)}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors"
-                      title="Xóa thông báo"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  {canEditOrDelete() && (
+                    <div className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => handleDelete(notification.id, e)}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors"
+                        title="Xóa thông báo"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )}
                   
                   {/* Unread dot indicator */}
                   {!notification.isRead && (

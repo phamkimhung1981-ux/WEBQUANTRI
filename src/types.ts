@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'ADMIN' | 'BGH' | 'TTCM' | 'GIAO_VU' | 'NHAN_SU' | 'GIAO_VIEN';
+export type Role = 'admin' | 'ADMIN' | 'BGH' | 'TTCM' | 'GIAO_VU' | 'NHAN_SU' | 'GIAO_VIEN' | 'NHAN_VIEN';
 
 export interface SystemModule {
   id: string;
@@ -55,6 +55,14 @@ export interface Teacher extends User {
   status: 'Đang công tác' | 'Nghỉ phép' | 'Đã nghỉ việc';
   departmentName?: string;
   position?: string;
+  accountStatus?: 'Chưa có tài khoản' | 'Đang hoạt động' | 'Đã khóa';
+  hasAccount?: boolean;
+  accountRole?: Role;
+  accountPassword?: string;
+  password?: string;
+  accountCreatedAt?: string;
+  accountUpdatedAt?: string;
+  accountLockedAt?: string;
 }
 
 export type DisciplineLevel = string;

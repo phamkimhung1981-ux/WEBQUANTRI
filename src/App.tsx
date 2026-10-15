@@ -11,6 +11,7 @@ import LeaveTracking from './pages/LeaveTracking';
 import Tasks from './pages/Tasks';
 import Reports from './pages/Reports';
 import Teachers from './pages/Teachers';
+import UserAccounts from './pages/UserAccounts';
 import Departments from './pages/Departments';
 import Documents from './pages/Documents';
 import Calendar from './pages/Calendar';
@@ -81,6 +82,9 @@ function AppRoutes() {
         <Route path="/work-schedule" element={<SchoolWorkSchedule />} />
         <Route path="/leaves" element={<LeaveTracking />} />
         <Route path="/teachers" element={<Teachers />} />
+        <Route path="/user-accounts" element={<UserAccounts />} />
+        <Route path="/quan-ly-tai-khoan" element={<UserAccounts />} />
+        <Route path="/tai-khoan" element={<UserAccounts />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/van-ban" element={<Documents />} />

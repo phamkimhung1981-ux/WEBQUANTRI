@@ -150,6 +150,21 @@ export const DEFAULT_SYSTEM_MODULES: SystemModule[] = [
     isSystem: true
   },
   {
+    id: 'user_accounts',
+    title: 'QUẢN LÝ TÀI KHOẢN',
+    desc: 'Quản lý tài khoản đăng nhập cán bộ, giáo viên, nhân viên',
+    icon: 'UserCheck',
+    route: '/user-accounts',
+    gradient: 'from-violet-600 to-indigo-700',
+    shadowColor: 'shadow-violet-500/30',
+    order: 8.5,
+    enabled: true,
+    allowedRoles: ['admin', 'ADMIN', 'BGH'],
+    showOnHome: true,
+    showOnSidebar: true,
+    isSystem: true
+  },
+  {
     id: 'departments',
     title: 'TỔ CHUYÊN MÔN',
     desc: 'Tổ bộ môn & Lịch sinh hoạt tổ',

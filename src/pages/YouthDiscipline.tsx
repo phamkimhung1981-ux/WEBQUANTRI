@@ -61,6 +61,7 @@ import {
 import { youthDisciplineService } from '../services/youthDisciplineService';
 import { homeroomService } from '../services/homeroomService';
 import { classificationService } from '../services/classificationService';
+import { canEditOrDelete } from '../utils/envUtils';
 import {
   YOUTH_DISCIPLINE_CATEGORIES,
   DEFAULT_YOUTH_CRITERIA,
@@ -1996,7 +1997,7 @@ export default function YouthDisciplinePage() {
               </span>
 
               {/* BATCH DELETE BUTTON */}
-              {canEditViolations && selectedViolationIds.length > 0 && (
+              {canEditOrDelete() && canEditViolations && selectedViolationIds.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setIsBatchDeleteViolationsModalOpen(true)}
@@ -2008,7 +2009,7 @@ export default function YouthDisciplinePage() {
               )}
 
               {/* CLEAR SCOPE BUTTON */}
-              {canEditViolations && (
+              {canEditOrDelete() && canEditViolations && (
                 <button
                   type="button"
                   onClick={() => setIsClearScopeViolationsModalOpen(true)}
@@ -2184,7 +2185,7 @@ export default function YouthDisciplinePage() {
                             </button>
                           )}
 
-                          {canEditViolations && (
+                          {canEditOrDelete() && canEditViolations && (
                             <button
                               type="button"
                               onClick={() => openEditViolationModal(vio)}
@@ -2195,7 +2196,7 @@ export default function YouthDisciplinePage() {
                             </button>
                           )}
 
-                          {canEditViolations && (
+                          {canEditOrDelete() && canEditViolations && (
                             <button
                               type="button"
                               onClick={() => handleDeleteViolation(vio.id)}

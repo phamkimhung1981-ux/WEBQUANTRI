@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
+import { canEditOrDelete } from '../utils/envUtils';
 import { 
   KpiStaffPeriod, 
   KpiStaffForm, 
@@ -210,16 +211,18 @@ export default function KpiStaff() {
               <FileSpreadsheet size={15} /> Xuất Excel
             </button>
 
-            <button
-              onClick={() => {
-                setDeleteAllScope('period');
-                setIsDeleteAllModalOpen(true);
-              }}
-              className="px-3.5 py-2.5 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl border border-rose-400/40 shadow-md transition-all flex items-center gap-2"
-              title="Xóa tất cả phiếu đánh giá KPI Nhân viên"
-            >
-              <Trash2 size={15} /> Xóa tất cả phiếu
-            </button>
+            {canEditOrDelete() && (
+              <button
+                onClick={() => {
+                  setDeleteAllScope('period');
+                  setIsDeleteAllModalOpen(true);
+                }}
+                className="px-3.5 py-2.5 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl border border-rose-400/40 shadow-md transition-all flex items-center gap-2"
+                title="Xóa tất cả phiếu đánh giá KPI Nhân viên"
+              >
+                <Trash2 size={15} /> Xóa tất cả phiếu
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -450,13 +453,15 @@ export default function KpiStaff() {
                             <Printer size={14} />
                           </button>
 
-                          <button
-                            onClick={() => handleDeleteForm(f.id)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
-                            title="Xóa phiếu"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canEditOrDelete() && (
+                            <button
+                              onClick={() => handleDeleteForm(f.id)}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
+                              title="Xóa phiếu"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

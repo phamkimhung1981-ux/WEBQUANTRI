@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { canEditOrDelete } from '../utils/envUtils';
 import { 
   Users, 
   Search, 
@@ -580,7 +581,7 @@ export default function KpiCbql() {
                               )}
 
                               {/* Nút Xóa phiếu */}
-                              {canDeleteForm(f) && (
+                              {canEditOrDelete() && canDeleteForm(f) && (
                                 <button
                                   onClick={() => handleRequestDeleteForm(f)}
                                   className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer"

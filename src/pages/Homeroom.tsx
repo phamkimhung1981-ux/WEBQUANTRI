@@ -50,7 +50,7 @@ import {
   EvaluationPeriodScopeType,
   TeacherAssessmentCompletion
 } from '../types/homeroom';
-import { homeroomService } from '../services/homeroomService';
+import { homeroomService, subscribeQuotaStatus, normalizeYear } from '../services/homeroomService';
 import { youthDisciplineService } from '../services/youthDisciplineService';
 import { studentViolationService, StudentViolationSummary, MonthlyConductSummary } from '../services/studentViolationService';
 import { YouthViolationRecord, YouthDisciplineCriterion } from '../types/youthDiscipline';
@@ -67,7 +67,7 @@ import {
 import { exportHomeroomToExcel } from '../utils/homeroomExport';
 import { exportStudentListToExcel } from '../utils/studentExcel';
 import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../utils/studentSorting';
-import { useAuth } from '../store/AuthContext';
+import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import BackButton from '../components/ui/BackButton';
 import { ALL_MONTH_OPTIONS, isWeekInMonth, getWeeksForMonth, getCurrentSchoolWeekInfo } from '../utils/schoolWeekUtils';
@@ -245,6 +245,13 @@ export default function Homeroom() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [isSavingAbc, setIsSavingAbc] = useState<boolean>(false);
   const [abcSaveStatusText, setAbcSaveStatusText] = useState<string>('');
+
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeQuotaStatus(setIsQuotaExceeded);
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     setSelectedStudentIds([]);
@@ -1085,6 +1092,21 @@ export default function Homeroom() {
         </div>
       </div>
 
+      {/* Quota / Cache Mode Warning Banner */}
+      {isQuotaExceeded && (
+        <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl text-amber-950 flex items-start gap-3 shadow-md animate-fadeIn">
+          <ShieldAlert size={22} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <h3 className="font-bold text-amber-950 text-sm flex items-center gap-2">
+              <span>⚠️ Thông báo: Đang hiển thị từ Bộ nhớ đệm dự phòng (Offline / Cache Mode)</span>
+            </h3>
+            <p className="text-amber-900 leading-relaxed font-medium">
+              Cơ sở dữ liệu Firebase Firestore đang tạm thời vượt hạn ngạch đọc miễn phí trong ngày (Quota Exceeded). Dữ liệu danh sách học sinh, điểm rèn luyện và kết quả đánh giá <strong>vẫn được bảo vệ an toàn 100%</strong> trên hệ thống và được tự động hiển thị mượt mà từ bộ nhớ đệm dự phòng.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 2. Filter & Navigation Toolbar */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1266,13 +1288,15 @@ export default function Homeroom() {
               <ShieldAlert size={15} /> BÁO CÁO VP NGHIÊM TRỌNG
             </button>
 
-            <button
-              onClick={handleOpenResetModal}
-              className="px-3.5 py-2 bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
-              title="Xóa / reset tất cả kết quả rèn luyện học sinh"
-            >
-              <Trash2 size={15} /> XÓA / RESET KẾT QUẢ
-            </button>
+            {canEditOrDelete() && (
+              <button
+                onClick={handleOpenResetModal}
+                className="px-3.5 py-2 bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Xóa / reset tất cả kết quả rèn luyện học sinh"
+              >
+                <Trash2 size={15} /> XÓA / RESET KẾT QUẢ
+              </button>
+            )}
           </div>
 
           {/* Search Box */}
@@ -1795,7 +1819,7 @@ export default function Homeroom() {
                 <Download size={14} /> XUẤT FILE EXCEL
               </button>
 
-              {classStudents.length > 0 && (
+              {canEditOrDelete() && classStudents.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setIsDeleteAllModalOpen(true)}
@@ -1843,20 +1867,24 @@ export default function Homeroom() {
                   <FileText size={13} />
                   <span>💾 Xếp loại của GVCN ({selectedStudentIds.length})</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowBulkDeleteConfirm(true)}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-                >
-                  <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedStudentIds.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsDeleteAllModalOpen(true)}
-                  className="px-3 py-1.5 bg-red-800 hover:bg-red-900 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-                >
-                  <AlertCircle size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP ({classStudents.length})
-                </button>
+                {canEditOrDelete() && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+                    >
+                      <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedStudentIds.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsDeleteAllModalOpen(true)}
+                      className="px-3 py-1.5 bg-red-800 hover:bg-red-900 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+                    >
+                      <AlertCircle size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP ({classStudents.length})
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

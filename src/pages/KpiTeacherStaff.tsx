@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
+import { canEditOrDelete } from '../utils/envUtils';
 import BackButton from '../components/ui/BackButton';
 import { 
   KpiVcForm, 
@@ -863,7 +864,7 @@ export default function KpiTeacherStaff() {
             </div>
 
             {/* Nút Xóa đã chọn (hiển thị khi có phiếu được chọn) */}
-            {isAdmin && selectedFormIds.length > 0 && (
+            {canEditOrDelete() && isAdmin && selectedFormIds.length > 0 && (
               <button
                 type="button"
                 onClick={handleOpenBulkDeleteSelected}
@@ -874,8 +875,8 @@ export default function KpiTeacherStaff() {
               </button>
             )}
 
-            {/* Nút Xóa tất cả (màu đỏ nhưng không quá nổi bật, chỉ hiện cho BGH/Admin/CBQL) */}
-            {isAdmin && (
+            {/* Nút Xóa tất cả */}
+            {canEditOrDelete() && isAdmin && (
               <button
                 type="button"
                 disabled={filteredForms.length === 0}
@@ -1134,7 +1135,7 @@ export default function KpiTeacherStaff() {
                                   </button>
                                 )}
 
-                                {canDeleteForm(form) && (
+                                {canEditOrDelete() && canDeleteForm(form) && (
                                   <button
                                     type="button"
                                     onClick={() => handleRequestDeleteForm(form)}

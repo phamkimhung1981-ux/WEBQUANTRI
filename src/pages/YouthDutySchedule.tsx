@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { canEditOrDelete } from '../utils/envUtils';
 import { useAuth } from '../store/AuthContext';
 import { useAppContext } from '../store/AppContext';
 import { Card } from '../components/ui/Card';
@@ -115,16 +116,17 @@ export default function YouthDutySchedulePage() {
   const userRole = (user?.role || '').toUpperCase();
   const userPos = (user?.position || '').toUpperCase();
   const canEdit =
-    user?.id === 'admin' ||
-    userRole === 'ADMIN' ||
-    userRole === 'QUAN_TRI' ||
-    userRole.includes('HIỆU TRƯỞNG') ||
-    userRole.includes('BGH') ||
-    userRole.includes('ĐOÀN') ||
-    userRole.includes('BI_THU') ||
-    userPos.includes('BÍ THƯ') ||
-    userRole.includes('CÁN BỘ') ||
-    userRole.includes('GIAO_VIEN');
+    canEditOrDelete() &&
+    (user?.id === 'admin' ||
+      userRole === 'ADMIN' ||
+      userRole === 'QUAN_TRI' ||
+      userRole.includes('HIỆU TRƯỞNG') ||
+      userRole.includes('BGH') ||
+      userRole.includes('ĐOÀN') ||
+      userRole.includes('BI_THU') ||
+      userPos.includes('BÍ THƯ') ||
+      userRole.includes('CÁN BỘ') ||
+      userRole.includes('GIAO_VIEN'));
 
   const showToast = (msg: string) => {
     setToastMessage(msg);

@@ -46,6 +46,7 @@ export default function Sidebar({ isOpen, setIsOpen, hideOnDesktop = false }: Si
     { name: 'Nền nếp & Nội quy CBGV', href: '/discipline', icon: ShieldCheck },
     { name: 'Công tác chủ nhiệm', href: '/homeroom', icon: Users },
     { name: 'Quản lý CBGVNV', href: '/teachers', icon: GraduationCap },
+    { name: 'Quản lý tài khoản', href: '/user-accounts', icon: UserCheck },
     { name: 'Quản lý Văn bản', href: '/documents', icon: FileText },
     { name: 'Tổ chuyên môn', href: '/departments', icon: UserSquare2 },
     { name: 'Nghỉ phép', href: '/leaves', icon: Plane },

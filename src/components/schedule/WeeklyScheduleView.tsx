@@ -10,6 +10,7 @@ import { useAuth } from '../../store/AuthContext';
 import { isAdminUser } from '../../lib/moduleData';
 import { homeroomService } from '../../services/homeroomService';
 import { ClassInfo } from '../../types/homeroom';
+import { canEditOrDelete } from '../../utils/envUtils';
 
 interface WeeklyScheduleViewProps {
   schedule: WeeklySchedule;
@@ -325,15 +326,17 @@ export default function WeeklyScheduleView({
           >
             <Printer size={14} /> In lịch
           </button>
-          <button 
-            type="button"
-            onClick={() => setShowDeleteConfirm(true)}
-            className="px-3.5 py-1.5 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-            title="Xóa lịch tuần này"
-          >
-            <Trash2 size={14} className="text-rose-600" />
-            <span>Xóa lịch tuần này</span>
-          </button>
+          {canEditOrDelete() && (
+            <button 
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="px-3.5 py-1.5 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              title="Xóa lịch tuần này"
+            >
+              <Trash2 size={14} className="text-rose-600" />
+              <span>Xóa lịch tuần này</span>
+            </button>
+          )}
         </div>
       </div>
 

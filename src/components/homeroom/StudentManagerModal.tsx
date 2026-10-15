@@ -23,6 +23,7 @@ import {
   ParsedStudentRow,
   ExcelParseResult
 } from '../../utils/studentExcel';
+import { canEditOrDelete } from '../../utils/envUtils';
 import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../../utils/studentSorting';
 
 interface StudentManagerModalProps {
@@ -928,27 +929,29 @@ export default function StudentManagerModal({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {selectedIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowBulkDeleteConfirm(true)}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedIds.length})
-                    </button>
-                  )}
-                  {students.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteAllConfirm(true)}
-                      className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-bold text-[11px] rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="Xóa tất cả hồ sơ học sinh của lớp"
-                    >
-                      <Trash2 size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP
-                    </button>
-                  )}
-                </div>
+                {canEditOrDelete() && (
+                  <div className="flex items-center gap-2">
+                    {selectedIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowBulkDeleteConfirm(true)}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedIds.length})
+                      </button>
+                    )}
+                    {students.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteAllConfirm(true)}
+                        className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-bold text-[11px] rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                        title="Xóa tất cả hồ sơ học sinh của lớp"
+                      >
+                        <Trash2 size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="max-h-[380px] overflow-y-auto border border-slate-200 rounded-2xl">
@@ -1081,20 +1084,24 @@ export default function StudentManagerModal({
                             <td className="p-3 text-center font-mono text-slate-600">{s.dob || '—'}</td>
                             <td className="p-3 text-center font-bold text-indigo-700">{s.className || selectedClass.name}</td>
                             <td className="p-3 text-right space-x-1">
-                              <button
-                                onClick={() => startEdit(s)}
-                                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
-                                title="Sửa học sinh"
-                              >
-                                <Edit3 size={14} />
-                              </button>
-                              <button
-                                onClick={() => handleDelete(s)}
-                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
-                                title="Xóa học sinh"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              {canEditOrDelete() && (
+                                <>
+                                  <button
+                                    onClick={() => startEdit(s)}
+                                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                                    title="Sửa học sinh"
+                                  >
+                                    <Edit3 size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(s)}
+                                    className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                    title="Xóa học sinh"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </>
+                              )}
                             </td>
                           </tr>
                         );

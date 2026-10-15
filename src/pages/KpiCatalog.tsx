@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import { Card } from '../components/ui/Card';
@@ -148,7 +149,7 @@ export default function KpiCatalog() {
   // Permissions (Allow BGH, admin, or fallback for testing)
   const isBghOrAdmin = !user || user.role === 'BGH' || (user as any).role === 'ADMIN' || user.id === 'admin';
   const isTtcm = user?.role === 'TTCM';
-  const canManageCatalog = isBghOrAdmin;
+  const canManageCatalog = canEditOrDelete() && isBghOrAdmin;
   const canAssignOrVerify = isBghOrAdmin || isTtcm;
 
   // Catalog filters

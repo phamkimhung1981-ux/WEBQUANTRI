@@ -761,35 +761,76 @@ export function getCriterionDeduction(crit?: ConductCriterion | null): number {
 }
 
 export const DEFAULT_CLASSES: ClassInfo[] = [
+  // Khối 10
   { id: 'class_10a1', name: '10A1', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1', homeroomTeacherName: 'Nguyễn Thị A', room: 'Phòng 101', totalStudents: 38 },
   { id: 'class_10a2', name: '10A2', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't2', homeroomTeacherName: 'Trần Văn B', room: 'Phòng 102', totalStudents: 36 },
   { id: 'class_10a3', name: '10A3', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't3', homeroomTeacherName: 'Lê Thị C', room: 'Phòng 103', totalStudents: 35 },
+  { id: 'class_10a4', name: '10A4', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't7', homeroomTeacherName: 'Vũ Văn H', room: 'Phòng 104', totalStudents: 37 },
+  { id: 'class_10a5', name: '10A5', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't8', homeroomTeacherName: 'Bùi Thị K', room: 'Phòng 105', totalStudents: 36 },
+
+  // Khối 11
   { id: 'class_11a1', name: '11A1', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't4', homeroomTeacherName: 'Phạm Văn D', room: 'Phòng 201', totalStudents: 40 },
   { id: 'class_11a2', name: '11A2', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't5', homeroomTeacherName: 'Hoàng Thị E', room: 'Phòng 202', totalStudents: 37 },
+  { id: 'class_11a3', name: '11A3', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't9', homeroomTeacherName: 'Đỗ Văn L', room: 'Phòng 203', totalStudents: 38 },
+  { id: 'class_11a4', name: '11A4', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't10', homeroomTeacherName: 'Ngô Thị M', room: 'Phòng 204', totalStudents: 36 },
+
+  // Khối 12
   { id: 'class_12a1', name: '12A1', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't6', homeroomTeacherName: 'Đặng Văn F', room: 'Phòng 301', totalStudents: 42 },
+  { id: 'class_12a2', name: '12A2', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't11', homeroomTeacherName: 'Lý Văn N', room: 'Phòng 302', totalStudents: 39 },
+  { id: 'class_12a3', name: '12A3', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't12', homeroomTeacherName: 'Trịnh Thị P', room: 'Phòng 303', totalStudents: 40 },
   { id: 'class_12i', name: '12I', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't_hathithuy', homeroomTeacherName: 'Hà Thị Thúy', room: 'Phòng 309', totalStudents: 40 }
 ];
 
-export const SAMPLE_STUDENTS: Student[] = [
-  { id: 'std_10a1_01', classId: 'class_10a1', className: '10A1', code: 'HS10A101', name: 'Nguyễn Văn A', gender: 'Nam', dob: '2011-03-15', parentPhone: '0912345678', parentName: 'Nguyễn Văn Hùng', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_02', classId: 'class_10a1', className: '10A1', code: 'HS10A102', name: 'Trần Thị B', gender: 'Nữ', dob: '2011-05-20', parentPhone: '0912345679', parentName: 'Trần Văn Long', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_03', classId: 'class_10a1', className: '10A1', code: 'HS10A103', name: 'Lê Hoàng C', gender: 'Nam', dob: '2011-08-10', parentPhone: '0912345680', parentName: 'Lê Văn Nam', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_04', classId: 'class_10a1', className: '10A1', code: 'HS10A104', name: 'Phạm Minh D', gender: 'Nam', dob: '2011-01-12', parentPhone: '0912345681', parentName: 'Phạm Văn Thành', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_05', classId: 'class_10a1', className: '10A1', code: 'HS10A105', name: 'Hoàng Ngọc E', gender: 'Nữ', dob: '2011-09-28', parentPhone: '0912345682', parentName: 'Hoàng Văn Phúc', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_06', classId: 'class_10a1', className: '10A1', code: 'HS10A106', name: 'Đỗ Đức F', gender: 'Nam', dob: '2011-11-04', parentPhone: '0912345683', parentName: 'Đỗ Văn Hải', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_07', classId: 'class_10a1', className: '10A1', code: 'HS10A107', name: 'Vũ Thị G', gender: 'Nữ', dob: '2011-02-18', parentPhone: '0912345684', parentName: 'Vũ Văn Bình', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_08', classId: 'class_10a1', className: '10A1', code: 'HS10A108', name: 'Bùi Anh H', gender: 'Nam', dob: '2011-07-22', parentPhone: '0912345685', parentName: 'Bùi Văn Tuấn', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_09', classId: 'class_10a1', className: '10A1', code: 'HS10A109', name: 'Đặng Mai K', gender: 'Nữ', dob: '2011-10-30', parentPhone: '0912345686', parentName: 'Đặng Văn Đức', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a1_10', classId: 'class_10a1', className: '10A1', code: 'HS10A110', name: 'Ngô Thanh L', gender: 'Nam', dob: '2011-04-14', parentPhone: '0912345687', parentName: 'Ngô Văn Sơn', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
+const SURNAMES = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Đặng', 'Vũ', 'Bùi', 'Đỗ', 'Hà', 'Lý', 'Nông', 'Thào', 'Lò'];
+const MIDDLE_MALE = ['Văn', 'Đức', 'Minh', 'Hoàng', 'Anh', 'Quốc', 'Thành', 'Tuấn', 'Đình', 'Hữu', 'Ngọc', 'Gia'];
+const MIDDLE_FEMALE = ['Thị', 'Thu', 'Thảo', 'Phương', 'Mai', 'Ngọc', 'Quỳnh', 'Thanh', 'Khánh', 'Như', 'Tuyết'];
+const NAMES_MALE = ['An', 'Bảo', 'Cường', 'Dũng', 'Đạt', 'Đức', 'Hải', 'Hiếu', 'Hùng', 'Huy', 'Khoa', 'Lâm', 'Long', 'Minh', 'Nam', 'Nghĩa', 'Phúc', 'Quân', 'Sơn', 'Thành', 'Thắng', 'Thái', 'Trí', 'Tuấn', 'Tùng', 'Việt'];
+const NAMES_FEMALE = ['Anh', 'Bích', 'Châu', 'Chi', 'Dung', 'Dương', 'Hà', 'Hoa', 'Hương', 'Hằng', 'Linh', 'Mai', 'Nhi', 'Nhung', 'Oanh', 'Phương', 'Quỳnh', 'Trang', 'Trinh', 'Thảo', 'Thủy', 'Tú', 'Uyên', 'Vân', 'Yến'];
 
-  // 10A2
-  { id: 'std_10a2_01', classId: 'class_10a2', className: '10A2', code: 'HS10A201', name: 'Lý Văn M', gender: 'Nam', dob: '2011-06-11', parentPhone: '0912345688', parentName: 'Lý Văn Thái', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_10a2_02', classId: 'class_10a2', className: '10A2', code: 'HS10A202', name: 'Nguyễn Thu N', gender: 'Nữ', dob: '2011-09-09', parentPhone: '0912345689', parentName: 'Nguyễn Văn Nghĩa', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
+export function generateClassStudents(classId: string, className: string, grade: number, count: number = 38): Student[] {
+  const birthYear = grade === 10 ? 2011 : grade === 11 ? 2010 : 2009;
+  const classCodePrefix = className.toUpperCase().replace(/\s+/g, '');
+  const students: Student[] = [];
 
-  // 11A1
-  { id: 'std_11a1_01', classId: 'class_11a1', className: '11A1', code: 'HS11A101', name: 'Phan Văn P', gender: 'Nam', dob: '2010-01-25', parentPhone: '0912345690', parentName: 'Phan Văn Quý', address: 'Sơn Lương, Văn Chấn, Yên Bái' },
-  { id: 'std_11a1_02', classId: 'class_11a1', className: '11A1', code: 'HS11A102', name: 'Trịnh Thị Q', gender: 'Nữ', dob: '2010-12-05', parentPhone: '0912345691', parentName: 'Trịnh Văn Khang', address: 'Sơn Lương, Văn Chấn, Yên Bái' }
-];
+  for (let i = 1; i <= count; i++) {
+    const isMale = i % 2 !== 0;
+    const surnameIndex = (i * 3 + classId.length + grade) % SURNAMES.length;
+    const surname = SURNAMES[surnameIndex];
+    const middle = isMale
+      ? MIDDLE_MALE[(i * 2 + grade) % MIDDLE_MALE.length]
+      : MIDDLE_FEMALE[(i * 2 + grade) % MIDDLE_FEMALE.length];
+    const givenName = isMale
+      ? NAMES_MALE[(i * 5 + classId.length + grade) % NAMES_MALE.length]
+      : NAMES_FEMALE[(i * 5 + classId.length + grade) % NAMES_FEMALE.length];
+
+    const fullName = `${surname} ${middle} ${givenName}`;
+    const code = `HS${classCodePrefix}${String(i).padStart(2, '0')}`;
+    const month = String((i % 12) + 1).padStart(2, '0');
+    const day = String(((i * 3) % 28) + 1).padStart(2, '0');
+
+    students.push({
+      id: `std_${classId.toLowerCase()}_${String(i).padStart(2, '0')}`,
+      classId,
+      className,
+      code,
+      stt: i,
+      name: fullName,
+      full_name: fullName,
+      fullName: fullName,
+      gender: isMale ? 'Nam' : 'Nữ',
+      dob: `${birthYear}-${month}-${day}`,
+      parentPhone: `091${String(1234567 + i * 13 + grade * 7).padStart(7, '0').substring(0, 7)}`,
+      parentName: `${surname} Văn Hùng`,
+      address: 'Sơn Lương, Văn Chấn, Yên Bái'
+    });
+  }
+
+  return students;
+}
+
+export const SAMPLE_STUDENTS: Student[] = DEFAULT_CLASSES.flatMap(cls =>
+  generateClassStudents(cls.id, cls.name, cls.grade, cls.totalStudents || 38)
+);
 
 export const DEFAULT_CONDUCT_SETTINGS: ConductSettings = {
   id: 'default_conduct_settings',

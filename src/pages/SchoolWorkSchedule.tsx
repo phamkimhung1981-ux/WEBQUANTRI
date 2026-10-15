@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { canEditOrDelete } from '../utils/envUtils';
 import {
   Calendar,
   Download,
@@ -125,7 +126,7 @@ export default function SchoolWorkSchedulePage() {
     userRole.includes('TỔ TRƯỞNG') || 
     userPosition.includes('TỔ TRƯỞNG');
 
-  const canEdit = isAdmin || isPrincipalOrVice || isHead || userRole.includes('GIAO_VU') || userRole.includes('NHAN_SU');
+  const canEdit = canEditOrDelete() && (isAdmin || isPrincipalOrVice || isHead || userRole.includes('GIAO_VU') || userRole.includes('NHAN_SU'));
 
   // All weeks info
   const allWeeks = useMemo(() => getAllWeeksInYear(selectedYear), [selectedYear]);

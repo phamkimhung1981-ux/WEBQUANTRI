@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { canEditOrDelete } from '../utils/envUtils';
 import { 
   FileText, 
   Plus, 
@@ -581,20 +582,24 @@ export default function Documents() {
                         >
                           <Eye size={15} />
                         </button>
-                        <button
-                          onClick={() => handleOpenEditModal(docItem)}
-                          className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                          title="Chỉnh sửa"
-                        >
-                          <Edit2 size={15} />
-                        </button>
-                        <button
-                          onClick={() => setDeletingDoc(docItem)}
-                          className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Xóa văn bản"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {canEditOrDelete() && (
+                          <>
+                            <button
+                              onClick={() => handleOpenEditModal(docItem)}
+                              className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                              title="Chỉnh sửa"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button
+                              onClick={() => setDeletingDoc(docItem)}
+                              className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Xóa văn bản"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

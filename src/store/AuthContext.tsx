@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { User, Role } from '../types';
+import { User, Role, Teacher } from '../types';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { isAdminUser } from '../lib/moduleData';
@@ -43,19 +43,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async (username: string) => {
+  const login = async (usernameInput: string) => {
     setError(null);
+    const cleanUsername = usernameInput.trim();
     try {
-      const q = query(collection(db, 'teachers'), where('username', '==', username));
-      const querySnapshot = await getDocs(q);
+      const q = query(collection(db, 'teachers'), where('username', '==', cleanUsername));
+      let querySnapshot = await getDocs(q);
       
-      if (!querySnapshot.empty) {
-        const foundUser = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as User;
+      // Fallback: search case-insensitive if snapshot is empty
+      if (querySnapshot.empty) {
+        const allTeachersSnap = await getDocs(collection(db, 'teachers'));
+        const matchedDoc = allTeachersSnap.docs.find(d => {
+          const u = d.data().username;
+          return u && String(u).trim().toLowerCase() === cleanUsername.toLowerCase();
+        });
+        if (matchedDoc) {
+          const foundUser = { id: matchedDoc.id, ...matchedDoc.data() } as Teacher;
+          if (foundUser.accountStatus === 'Đã khóa') {
+            setError('Tài khoản của thầy/cô đã bị khóa. Vui lòng liên hệ Ban Giám hiệu hoặc Quản trị viên hệ thống.');
+            return;
+          }
+          if (foundUser.accountStatus === 'Chưa có tài khoản' || (!foundUser.username && !foundUser.hasAccount)) {
+            setError('Tài khoản này chưa được khởi tạo. Vui lòng liên hệ Ban Giám hiệu để được tạo tài khoản đăng nhập.');
+            return;
+          }
+          setUser(foundUser);
+          localStorage.setItem('authUser', JSON.stringify(foundUser));
+          return;
+        }
+      } else {
+        const foundUser = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Teacher;
+        if (foundUser.accountStatus === 'Đã khóa') {
+          setError('Tài khoản của thầy/cô đã bị khóa. Vui lòng liên hệ Ban Giám hiệu hoặc Quản trị viên hệ thống.');
+          return;
+        }
+        if (foundUser.accountStatus === 'Chưa có tài khoản') {
+          setError('Tài khoản này chưa được kích hoạt. Vui lòng liên hệ Ban Giám hiệu để cấp tài khoản.');
+          return;
+        }
         setUser(foundUser);
         localStorage.setItem('authUser', JSON.stringify(foundUser));
-      } else {
+        return;
+      }
         // Handle admin username
-        if (username.toLowerCase() === 'admin') {
+        if (cleanUsername.toLowerCase() === 'admin') {
           let adminAvatar = '';
           let adminName = 'Quản trị viên Hệ thống';
           try {
@@ -81,7 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setError('Tài khoản không tồn tại. Vui lòng kiểm tra lại. (Mẹo: Dùng "admin" để đăng nhập với quyền Quản trị viên)');
         }
-      }
     } catch (e) {
       console.error(e);
       setError('Không thể kết nối cơ sở dữ liệu.');

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import { Card } from '../components/ui/Card';
@@ -203,6 +204,7 @@ export default function Discipline() {
 
   // Phân quyền sửa/xóa phiếu đánh giá
   const canUserManageSession = (session: EvaluationSessionData | null | undefined): boolean => {
+    if (!canEditOrDelete()) return false;
     if (!session) return false;
     if (isBgh) return true;
     if (isTtcm) {

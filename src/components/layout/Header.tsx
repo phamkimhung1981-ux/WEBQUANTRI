@@ -22,6 +22,8 @@ import Avatar from '../ui/Avatar';
 import AvatarModal from '../profile/AvatarModal';
 import BackToHomeButton from '../ui/BackToHomeButton';
 
+import { subscribeQuotaStatus } from '../../services/homeroomService';
+
 interface HeaderProps {
   onMenuClick: () => void;
   isDashboard?: boolean;
@@ -33,6 +35,22 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  const [isQuota, setIsQuota] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    const unsubQuota = subscribeQuotaStatus(setIsQuota);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      unsubQuota();
+    };
+  }, []);
   
   const location = useLocation();
   const navigate = useNavigate();
@@ -120,6 +138,23 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
                 TRI THỨC - NHÂN CÁCH - TƯƠNG LAI
               </span>
             </div>
+          </div>
+
+          {/* Connection / Sync Status Indicator */}
+          <div className="hidden md:flex items-center text-[10.5px] font-bold">
+            {!isOnline ? (
+              <span className="flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" /> Ngoại tuyến
+              </span>
+            ) : isQuota ? (
+              <span className="flex items-center gap-1.5 text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-full shadow-2xs" title="Cơ sở dữ liệu chạm hạn ngạch đọc miễn phí hàng ngày, ứng dụng tự động hiển thị mượt mà từ bộ nhớ đệm dự phòng">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" /> Cache Mode (Quota)
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" /> Trực tuyến
+              </span>
+            )}
           </div>
         </div>
 

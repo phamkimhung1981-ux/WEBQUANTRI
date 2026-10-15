@@ -42,6 +42,7 @@ import {
 import { CalendarEvent } from '../types';
 import { WeeklySchedule } from '../types/schedule';
 import { scheduleService } from '../services/scheduleService';
+import { canEditOrDelete } from '../utils/envUtils';
 import { cn } from '../lib/utils';
 import { safeFormat } from '../utils/dateUtils';
 import {
@@ -627,22 +628,24 @@ export default function Calendar() {
                       </div>
 
                       {/* Trash icon with safe confirmation trigger */}
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation();
-                          setScheduleToDelete(sched);
-                        }}
-                        className={cn(
-                          'p-1 rounded-lg transition-colors cursor-pointer ml-1',
-                          isSelected
-                            ? 'text-white/80 hover:text-white hover:bg-white/20'
-                            : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                        )}
-                        title={`Xóa Tuần ${sched.week_number}`}
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {canEditOrDelete() && (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setScheduleToDelete(sched);
+                          }}
+                          className={cn(
+                            'p-1 rounded-lg transition-colors cursor-pointer ml-1',
+                            isSelected
+                              ? 'text-white/80 hover:text-white hover:bg-white/20'
+                              : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                          )}
+                          title={`Xóa Tuần ${sched.week_number}`}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   );
                 })

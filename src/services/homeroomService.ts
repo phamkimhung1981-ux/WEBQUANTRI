@@ -36,8 +36,95 @@ import {
   SAMPLE_STUDENTS,
   DEFAULT_CONDUCT_SETTINGS,
   DEFAULT_SERIOUS_VIOLATION_CONFIGS,
-  DEFAULT_RATING_TIERS
+  DEFAULT_RATING_TIERS,
+  generateClassStudents
 } from '../lib/homeroomData';
+
+export function ensureFullStudentRoster(inputStudents: Student[] = []): Student[] {
+  const result: Student[] = [...inputStudents];
+  const existingByClassId = new Map<string, Student[]>();
+
+  for (const s of inputStudents) {
+    if (s.classId) {
+      if (!existingByClassId.has(s.classId)) {
+        existingByClassId.set(s.classId, []);
+      }
+      existingByClassId.get(s.classId)!.push(s);
+    }
+  }
+
+  for (const cls of DEFAULT_CLASSES) {
+    const list = existingByClassId.get(cls.id) || [];
+    if (list.length < 10) {
+      const defaultRoster = generateClassStudents(cls.id, cls.name, cls.grade, cls.totalStudents || 38);
+      const filtered = result.filter(s => s.classId !== cls.id);
+      result.length = 0;
+      result.push(...filtered, ...defaultRoster);
+    }
+  }
+
+  return result;
+}
+
+const HOMEROOM_CACHE_KEYS = {
+  CLASSES: 'homeroom_cached_classes',
+  STUDENTS: 'homeroom_cached_students',
+  RECORDS: 'homeroom_cached_records',
+  EVALUATIONS: 'homeroom_cached_evaluations',
+  ASSIGNMENTS: 'homeroom_cached_assignments',
+  TEACHER_ASSESSMENTS: 'homeroom_cached_teacher_assessments',
+  SERIOUS_CONFIGS: 'homeroom_cached_serious_configs',
+  SETTINGS: 'homeroom_cached_settings',
+  AUDIT_LOGS: 'homeroom_cached_audit_logs'
+};
+
+const safeStorage = {
+  getItem<T>(key: string): T | null {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  },
+  setItem(key: string, value: any): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(key, JSON.stringify(value));
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+};
+
+export function normalizeYear(yearStr?: string): string {
+  if (!yearStr) return '2026-2027';
+  return yearStr.replace(/[–—−]/g, '-').trim();
+}
+
+let isQuotaExceededState = false;
+const quotaListeners = new Set<(exceeded: boolean) => void>();
+
+export function notifyQuotaStatus(exceeded: boolean) {
+  if (isQuotaExceededState !== exceeded) {
+    isQuotaExceededState = exceeded;
+    quotaListeners.forEach(fn => fn(exceeded));
+  }
+}
+
+export function subscribeQuotaStatus(callback: (exceeded: boolean) => void) {
+  quotaListeners.add(callback);
+  callback(isQuotaExceededState);
+  return () => { quotaListeners.delete(callback); };
+}
+
+export function getIsQuotaExceeded(): boolean {
+  return isQuotaExceededState;
+}
 
 const sanitize = <T extends Record<string, any>>(data: T): T => {
   const result = { ...data };
@@ -59,8 +146,12 @@ export enum OperationType {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes('Quota limit exceeded') || msg.includes('quota') || msg.includes('Quota exceeded')) {
+    notifyQuotaStatus(true);
+  }
   const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: msg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -68,7 +159,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
-  console.error('Firestore Homeroom Error: ', JSON.stringify(errInfo));
+  console.warn('Firestore Homeroom Warning/Error (using cache/offline fallback): ', JSON.stringify(errInfo));
 }
 
 let hasSeeded = false;
@@ -174,7 +265,7 @@ export const homeroomService = {
     }
   },
 
-  // 2. LISTENERS FOR REAL-TIME SYNC
+  // 2. LISTENERS FOR REAL-TIME SYNC WITH LOCALSTORAGE BACKUP
   async getClasses(): Promise<ClassInfo[]> {
     try {
       const snap = await getDocs(collection(db, 'classes'));
@@ -196,33 +287,18 @@ export const homeroomService = {
             status: 'active'
           };
           classesList.push(class12I);
-          // Persist to Firestore asynchronously
-          try {
-            setDoc(doc(db, 'classes', 'class_12i'), sanitize(class12I));
-          } catch (e) {
-            // ignore
-          }
-        } else {
-          // If 12I has empty homeroomTeacherName, set to Hà Thị Thúy
-          classesList = classesList.map(c => {
-            if ((c.name.toUpperCase() === '12I' || c.id === 'class_12i') && (!c.homeroomTeacherName || c.homeroomTeacherName === '—')) {
-              const updated = { ...c, homeroomTeacherName: 'Hà Thị Thúy', homeroomTeacherId: 't_hathithuy' };
-              try {
-                updateDoc(doc(db, 'classes', c.id), { homeroomTeacherName: 'Hà Thị Thúy', homeroomTeacherId: 't_hathithuy' });
-              } catch (e) {
-                // ignore
-              }
-              return updated;
-            }
-            return c;
-          });
         }
-
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, classesList);
         return classesList.sort((a, b) => a.name.localeCompare(b.name));
       }
     } catch (e) {
-      console.warn('Firestore getClasses error, fallback to defaults:', e);
+      handleFirestoreError(e, OperationType.GET, 'classes');
     }
+    const cached = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, DEFAULT_CLASSES);
     return DEFAULT_CLASSES;
   },
 
@@ -230,12 +306,16 @@ export const homeroomService = {
     try {
       const snap = await getDocs(collection(db, 'homeroom_assignments'));
       if (!snap.empty) {
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, list);
+        return list;
       }
     } catch (e) {
-      console.warn('Firestore getAssignments error:', e);
+      handleFirestoreError(e, OperationType.GET, 'homeroom_assignments');
     }
-    return [
+    const cached = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS);
+    if (cached && cached.length > 0) return cached;
+    const defaultAssignments: HomeroomAssignment[] = [
       {
         id: 'assign_12i',
         teacherId: 't_hathithuy',
@@ -247,32 +327,74 @@ export const homeroomService = {
         status: 'active'
       }
     ];
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, defaultAssignments);
+    return defaultAssignments;
   },
 
   async getStudents(): Promise<Student[]> {
     try {
       const snap = await getDocs(collection(db, 'students'));
-      if (!snap.empty) {
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      if (!snap.empty && snap.size > 50) {
+        const students = snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+        const fullList = ensureFullStudentRoster(students);
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, fullList);
+        return fullList;
       }
     } catch (e) {
-      console.warn('Firestore getStudents error:', e);
+      handleFirestoreError(e, OperationType.GET, 'students');
     }
-    return [];
+    const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
+    const fullList = ensureFullStudentRoster(cached || []);
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, fullList);
+    return fullList;
   },
 
   subscribeClasses(callback: (classes: ClassInfo[]) => void) {
+    // 1. Immediately invoke callback with local cache or default classes
+    const initial = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES) || DEFAULT_CLASSES;
+    callback([...initial].sort((a, b) => a.name.localeCompare(b.name)));
+
+    // 2. Subscribe to Firestore
     const q = collection(db, 'classes');
     return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
+      let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
+      if (data.length < DEFAULT_CLASSES.length) {
+        data = DEFAULT_CLASSES;
+      }
+      if (!data.some(c => c.name.toUpperCase() === '12I' || c.id === 'class_12i')) {
+        data.push({
+          id: 'class_12i',
+          name: '12I',
+          grade: 12,
+          schoolYear: '2026–2027',
+          homeroomTeacherId: 't_hathithuy',
+          homeroomTeacherName: 'Hà Thị Thúy',
+          room: 'Phòng 309',
+          totalStudents: 40,
+          status: 'active'
+        });
+      }
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, data);
       callback(data.sort((a, b) => a.name.localeCompare(b.name)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'classes'));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'classes');
+      const fallback = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES) || DEFAULT_CLASSES;
+      callback(fallback);
+    });
   },
 
   subscribeStudents(callback: (students: Student[]) => void) {
+    // 1. Immediately invoke callback with local cache or default sample students
+    const cachedInitial = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
+    const initial = ensureFullStudentRoster(cachedInitial || []);
+    callback([...initial]);
+
+    // 2. Subscribe to Firestore
     const q = collection(db, 'students');
     return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      data = ensureFullStudentRoster(data);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, data);
       callback(data.sort((a, b) => {
         if (a.stt !== undefined && b.stt !== undefined && a.stt !== null && b.stt !== null) {
           const numA = Number(a.stt);
@@ -281,15 +403,28 @@ export const homeroomService = {
         }
         return (a.name || '').localeCompare(b.name || '', 'vi-VN');
       }));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'students'));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'students');
+      const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
+      const fallback = ensureFullStudentRoster(cached || []);
+      callback(fallback);
+    });
   },
 
   subscribeAssignments(callback: (assignments: HomeroomAssignment[]) => void) {
+    const cached = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS);
+    if (cached) callback(cached);
+
     const q = collection(db, 'homeroom_assignments');
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, data);
       callback(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'homeroom_assignments'));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'homeroom_assignments');
+      const fallback = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS) || [];
+      callback(fallback);
+    });
   },
 
   subscribeCategories(callback: (categories: ConductCategory[]) => void) {
@@ -309,19 +444,35 @@ export const homeroomService = {
   },
 
   subscribeRecords(callback: (records: ConductRecord[]) => void) {
+    const cached = safeStorage.getItem<ConductRecord[]>(HOMEROOM_CACHE_KEYS.RECORDS);
+    if (cached) callback(cached);
+
     const q = collection(db, 'conduct_records');
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConductRecord));
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, data);
       callback(data.sort((a, b) => new Date(b.recordDate).getTime() - new Date(a.recordDate).getTime()));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'conduct_records'));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'conduct_records');
+      const fallback = safeStorage.getItem<ConductRecord[]>(HOMEROOM_CACHE_KEYS.RECORDS) || [];
+      callback(fallback);
+    });
   },
 
   subscribeEvaluations(callback: (evaluations: ConductEvaluation[]) => void) {
+    const cached = safeStorage.getItem<ConductEvaluation[]>(HOMEROOM_CACHE_KEYS.EVALUATIONS);
+    if (cached) callback(cached);
+
     const q = collection(db, 'conduct_evaluations');
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConductEvaluation));
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, data);
       callback(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'conduct_evaluations'));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'conduct_evaluations');
+      const fallback = safeStorage.getItem<ConductEvaluation[]>(HOMEROOM_CACHE_KEYS.EVALUATIONS) || [];
+      callback(fallback);
+    });
   },
 
   subscribeSettings(callback: (settings: ConductSettings) => void) {
@@ -1106,7 +1257,7 @@ export const homeroomService = {
     }
   },
 
-  // 12. RESET / DELETE ALL CONDUCT RESULTS BY EXACT SCOPE
+  // 12. RESET / DELETE ALL CONDUCT RESULTS BY EXACT SCOPE WITH BACKUP & AUDIT LOG
   async clearConductData(options: {
     schoolYear: string;
     classId: string;
@@ -1114,7 +1265,8 @@ export const homeroomService = {
     monthNumber: number;
     monthLabel?: string;
     resetTeacherAssessments?: boolean;
-    // Backward compatibility if called with old signature
+    operatorName?: string;
+    operatorRole?: string;
     scope?: 'all' | 'class' | 'student';
     targetId?: string;
     deleteRecords?: boolean;
@@ -1128,6 +1280,8 @@ export const homeroomService = {
         monthNumber,
         monthLabel = `Tháng ${String(monthNumber).padStart(2, '0')}`,
         resetTeacherAssessments = true,
+        operatorName,
+        operatorRole,
         scope,
         targetId
       } = options;
@@ -1139,79 +1293,158 @@ export const homeroomService = {
       const targetClassId = classId || (scope === 'class' ? targetId : '');
 
       if (targetClassId) {
-        // 1. Delete conduct_records matching classId + schoolYear + weekNumber + monthNumber
-        const recQuery = query(collection(db, 'conduct_records'), where('classId', '==', targetClassId));
-        const recSnap = await getDocs(recQuery);
-        if (!recSnap.empty) {
-          const matchingRecDocs = recSnap.docs.filter(docSnap => {
-            const data = docSnap.data();
-            const matchYear = !schoolYear || !data.schoolYear || data.schoolYear === schoolYear;
-            const matchWeek = weekNumber === undefined || Number(data.weekNumber) === Number(weekNumber);
-            const matchMonth = monthNumber === undefined || !data.monthNumber || Number(data.monthNumber) === Number(monthNumber);
-            return matchYear && matchWeek && matchMonth;
-          });
+        // 1. Pre-reset local backup snapshot
+        const existingRecs = safeStorage.getItem<ConductRecord[]>(HOMEROOM_CACHE_KEYS.RECORDS) || [];
+        const existingEvals = safeStorage.getItem<ConductEvaluation[]>(HOMEROOM_CACHE_KEYS.EVALUATIONS) || [];
+        const existingTAs = safeStorage.getItem<TeacherAssessment[]>(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS) || [];
 
-          if (matchingRecDocs.length > 0) {
-            for (let i = 0; i < matchingRecDocs.length; i += 400) {
-              const batch = writeBatch(db);
-              const chunk = matchingRecDocs.slice(i, i + 400);
-              chunk.forEach(d => batch.delete(d.ref));
-              await batch.commit();
-            }
-            deletedRecordsCount = matchingRecDocs.length;
-          }
-        }
+        const backupSnapshot = {
+          timestamp: new Date().toISOString(),
+          schoolYear,
+          classId: targetClassId,
+          weekNumber,
+          monthNumber,
+          records: existingRecs.filter(r => r.classId === targetClassId),
+          evaluations: existingEvals.filter(e => e.classId === targetClassId),
+          teacherAssessments: existingTAs.filter(a => a.classId === targetClassId)
+        };
+        safeStorage.setItem(`homeroom_backup_prereset_${targetClassId}_${Date.now()}`, backupSnapshot);
 
-        // 2. Delete conduct_evaluations matching classId + schoolYear + period
-        const evalQuery = query(collection(db, 'conduct_evaluations'), where('classId', '==', targetClassId));
-        const evalSnap = await getDocs(evalQuery);
-        if (!evalSnap.empty) {
-          const matchingEvalDocs = evalSnap.docs.filter(docSnap => {
-            const data = docSnap.data();
-            const matchYear = !schoolYear || !data.schoolYear || data.schoolYear === schoolYear;
-            const matchPeriod = !monthLabel ||
-              data.period === monthLabel ||
-              (weekNumber !== undefined && (
-                data.period === `Tuần ${String(weekNumber).padStart(2, '0')}` ||
-                data.period === `Tuần ${weekNumber}`
-              ));
-            return matchYear && matchPeriod;
-          });
-
-          if (matchingEvalDocs.length > 0) {
-            for (let i = 0; i < matchingEvalDocs.length; i += 400) {
-              const batch = writeBatch(db);
-              const chunk = matchingEvalDocs.slice(i, i + 400);
-              chunk.forEach(d => batch.delete(d.ref));
-              await batch.commit();
-            }
-            deletedEvaluationsCount = matchingEvalDocs.length;
-          }
-        }
-
-        // 3. Reset/Delete teacher_assessments (Ghi nhận GVCN) for this class + schoolYear
-        if (resetTeacherAssessments) {
-          const taQuery = query(collection(db, 'teacher_assessments'), where('classId', '==', targetClassId));
-          const taSnap = await getDocs(taQuery);
-          if (!taSnap.empty) {
-            const matchingTaDocs = taSnap.docs.filter(docSnap => {
+        // 2. Delete conduct_records matching classId + normalized schoolYear + weekNumber + monthNumber
+        try {
+          const recQuery = query(collection(db, 'conduct_records'), where('classId', '==', targetClassId));
+          const recSnap = await getDocs(recQuery);
+          if (!recSnap.empty) {
+            const matchingRecDocs = recSnap.docs.filter(docSnap => {
               const data = docSnap.data();
-              const matchYear = !schoolYear || !data.schoolYear || data.schoolYear === schoolYear;
-              const matchMonth = !monthNumber || Number(data.monthNumber) === Number(monthNumber) || data.month === monthLabel;
-              return matchYear && matchMonth;
+              const matchYear = !schoolYear || !data.schoolYear || normalizeYear(data.schoolYear) === normalizeYear(schoolYear);
+              const matchWeek = weekNumber === undefined || Number(data.weekNumber) === Number(weekNumber);
+              const matchMonth = monthNumber === undefined || !data.monthNumber || Number(data.monthNumber) === Number(monthNumber);
+              return matchYear && matchWeek && matchMonth;
             });
 
-            if (matchingTaDocs.length > 0) {
-              for (let i = 0; i < matchingTaDocs.length; i += 400) {
+            if (matchingRecDocs.length > 0) {
+              for (let i = 0; i < matchingRecDocs.length; i += 400) {
                 const batch = writeBatch(db);
-                const chunk = matchingTaDocs.slice(i, i + 400);
+                const chunk = matchingRecDocs.slice(i, i + 400);
                 chunk.forEach(d => batch.delete(d.ref));
                 await batch.commit();
               }
-              deletedAssessmentsCount = matchingTaDocs.length;
+              deletedRecordsCount = matchingRecDocs.length;
             }
           }
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, 'conduct_records');
         }
+
+        // 3. Delete conduct_evaluations matching classId + normalized schoolYear + period
+        try {
+          const evalQuery = query(collection(db, 'conduct_evaluations'), where('classId', '==', targetClassId));
+          const evalSnap = await getDocs(evalQuery);
+          if (!evalSnap.empty) {
+            const matchingEvalDocs = evalSnap.docs.filter(docSnap => {
+              const data = docSnap.data();
+              const matchYear = !schoolYear || !data.schoolYear || normalizeYear(data.schoolYear) === normalizeYear(schoolYear);
+              const matchPeriod = !monthLabel ||
+                data.period === monthLabel ||
+                (weekNumber !== undefined && (
+                  data.period === `Tuần ${String(weekNumber).padStart(2, '0')}` ||
+                  data.period === `Tuần ${weekNumber}`
+                ));
+              return matchYear && matchPeriod;
+            });
+
+            if (matchingEvalDocs.length > 0) {
+              for (let i = 0; i < matchingEvalDocs.length; i += 400) {
+                const batch = writeBatch(db);
+                const chunk = matchingEvalDocs.slice(i, i + 400);
+                chunk.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+              }
+              deletedEvaluationsCount = matchingEvalDocs.length;
+            }
+          }
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, 'conduct_evaluations');
+        }
+
+        // 4. Reset/Delete teacher_assessments (Ghi nhận GVCN) for this class + schoolYear
+        if (resetTeacherAssessments) {
+          try {
+            const taQuery = query(collection(db, 'teacher_assessments'), where('classId', '==', targetClassId));
+            const taSnap = await getDocs(taQuery);
+            if (!taSnap.empty) {
+              const matchingTaDocs = taSnap.docs.filter(docSnap => {
+                const data = docSnap.data();
+                const matchYear = !schoolYear || !data.schoolYear || normalizeYear(data.schoolYear) === normalizeYear(schoolYear);
+                const matchMonth = !monthNumber || Number(data.monthNumber) === Number(monthNumber) || data.month === monthLabel;
+                return matchYear && matchMonth;
+              });
+
+              if (matchingTaDocs.length > 0) {
+                for (let i = 0; i < matchingTaDocs.length; i += 400) {
+                  const batch = writeBatch(db);
+                  const chunk = matchingTaDocs.slice(i, i + 400);
+                  chunk.forEach(d => batch.delete(d.ref));
+                  await batch.commit();
+                }
+                deletedAssessmentsCount = matchingTaDocs.length;
+              }
+            }
+          } catch (err) {
+            handleFirestoreError(err, OperationType.DELETE, 'teacher_assessments');
+          }
+        }
+
+        // 5. Update local storage caches immediately
+        const updatedRecs = existingRecs.filter(r => !(
+          r.classId === targetClassId &&
+          (!schoolYear || normalizeYear(r.schoolYear) === normalizeYear(schoolYear)) &&
+          (weekNumber === undefined || Number(r.weekNumber) === Number(weekNumber)) &&
+          (monthNumber === undefined || Number(r.monthNumber) === Number(monthNumber))
+        ));
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, updatedRecs);
+
+        const updatedEvals = existingEvals.filter(e => !(
+          e.classId === targetClassId &&
+          (!schoolYear || normalizeYear(e.schoolYear) === normalizeYear(schoolYear)) &&
+          (e.period === monthLabel || e.period === `Tuần ${String(weekNumber).padStart(2, '0')}`)
+        ));
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, updatedEvals);
+
+        if (resetTeacherAssessments) {
+          const updatedTAs = existingTAs.filter(a => !(
+            a.classId === targetClassId &&
+            (!schoolYear || normalizeYear(a.schoolYear) === normalizeYear(schoolYear)) &&
+            (monthNumber === undefined || Number(a.monthNumber) === Number(monthNumber))
+          ));
+          safeStorage.setItem(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS, updatedTAs);
+        }
+
+        // 6. Record Audit Log
+        const auditLog = {
+          id: `audit_${Date.now()}`,
+          action: 'RESET_CONDUCT_DATA',
+          schoolYear,
+          classId: targetClassId,
+          weekNumber,
+          monthNumber,
+          monthLabel,
+          deletedRecordsCount,
+          deletedEvaluationsCount,
+          deletedAssessmentsCount,
+          operator: operatorName || auth.currentUser?.email || 'Hệ thống',
+          operatorRole: operatorRole || 'QTV',
+          timestamp: new Date().toISOString()
+        };
+
+        try {
+          await setDoc(doc(db, 'homeroom_audit_logs', auditLog.id), sanitize(auditLog));
+        } catch (e) {
+          // Ignore
+        }
+        const existingAuditLogs = safeStorage.getItem<any[]>(HOMEROOM_CACHE_KEYS.AUDIT_LOGS) || [];
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.AUDIT_LOGS, [auditLog, ...existingAuditLogs]);
       }
 
       return {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { Card } from '../components/ui/Card';
 import { Users, CheckCircle, Clock, Award, Edit2, Trash2, Plus, X, FileSpreadsheet } from 'lucide-react';
+import { canEditOrDelete } from '../utils/envUtils';
 import { Department } from '../types';
 import BackButton from '../components/ui/BackButton';
 
@@ -128,22 +129,24 @@ export default function Departments() {
                 </div>
               </div>
 
-              <div className="absolute top-4 right-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={(e) => handleEdit(e, dept)}
-                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors bg-white shadow-sm border border-slate-100"
-                  title="Chỉnh sửa tổ"
-                >
-                  <Edit2 size={16} />
-                </button>
-                <button
-                  onClick={(e) => handleDeleteClick(e, dept)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors bg-white shadow-sm border border-slate-100"
-                  title="Xóa tổ"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
+              {canEditOrDelete() && (
+                <div className="absolute top-4 right-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => handleEdit(e, dept)}
+                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors bg-white shadow-sm border border-slate-100"
+                    title="Chỉnh sửa tổ"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteClick(e, dept)}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors bg-white shadow-sm border border-slate-100"
+                    title="Xóa tổ"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              )}
 
               <div className="p-6">
                 <div className="grid grid-cols-2 gap-4 mb-6">
