@@ -199,7 +199,11 @@ export default function KpiStaff() {
 
   const handleCreateForms = (newForms: KpiStaffForm[]) => {
     const currentForms = kpiStaffForms || [];
-    setKpiStaffForms([...newForms, ...currentForms]);
+    const map = new Map<string, KpiStaffForm>();
+    currentForms.forEach(f => map.set(f.id || `${f.employeeId}_${f.periodId}`, f));
+    newForms.forEach(f => map.set(f.id || `${f.employeeId}_${f.periodId}`, f));
+    const merged = Array.from(map.values());
+    setKpiStaffForms(merged);
   };
 
   const handleSaveForm = (updatedForm: KpiStaffForm) => {

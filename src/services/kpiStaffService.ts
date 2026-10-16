@@ -55,10 +55,26 @@ export const STAFF_COLLECTIONS = {
 
 const STAFF_FORMS_CACHE_KEY = 'kpi_staff_forms_cache';
 
+export const deduplicateStaffForms = (forms: KpiStaffForm[]): KpiStaffForm[] => {
+  if (!forms || forms.length === 0) return [];
+  const map = new Map<string, KpiStaffForm>();
+  const sorted = [...forms].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  
+  sorted.forEach(f => {
+    const uniqueKey = `${f.employeeId || f.employeeName || 'no_emp'}__${f.periodId || 'no_period'}`;
+    const idKey = f.id || uniqueKey;
+    if (!map.has(uniqueKey) && !map.has(idKey)) {
+      map.set(uniqueKey, f);
+    }
+  });
+  return Array.from(map.values());
+};
+
 export const loadStaffFormsFromCache = (): KpiStaffForm[] => {
   try {
     const raw = localStorage.getItem(STAFF_FORMS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return deduplicateStaffForms(parsed);
   } catch {
     return [];
   }
@@ -66,7 +82,8 @@ export const loadStaffFormsFromCache = (): KpiStaffForm[] => {
 
 export const saveStaffFormsToCache = (forms: KpiStaffForm[]) => {
   try {
-    localStorage.setItem(STAFF_FORMS_CACHE_KEY, JSON.stringify(forms));
+    const uniqueForms = deduplicateStaffForms(forms);
+    localStorage.setItem(STAFF_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
   } catch (err) {
     console.error('Failed saving staff forms to localStorage cache:', err);
   }
@@ -80,8 +97,9 @@ export const subscribeStaffForms = (callback: (forms: KpiStaffForm[]) => void) =
       snapshot.forEach(docSnap => {
         formsList.push(docSnap.data() as KpiStaffForm);
       });
-      saveStaffFormsToCache(formsList);
-      callback(formsList);
+      const uniqueForms = deduplicateStaffForms(formsList);
+      saveStaffFormsToCache(uniqueForms);
+      callback(uniqueForms);
     }, (err) => {
       console.warn('Firestore subscription warning for staff forms:', err);
       callback(loadStaffFormsFromCache());
