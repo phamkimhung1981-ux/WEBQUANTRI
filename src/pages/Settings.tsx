@@ -5,7 +5,7 @@ import { Card } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 import AvatarModal from '../components/profile/AvatarModal';
 import BackButton from '../components/ui/BackButton';
-import { CURRENT_SYSTEM_VERSION, LAST_UPDATED } from '../version';
+import { CURRENT_SYSTEM_VERSION, LAST_UPDATED, SYSTEM_BUILD_TIME, SYSTEM_COMMIT_SHA, SYSTEM_ENV } from '../version';
 import { 
   User, 
   Camera, 
@@ -16,7 +16,10 @@ import {
   School,
   Database,
   Calendar,
-  Sparkles
+  Sparkles,
+  RefreshCw,
+  GitBranch,
+  Clock
 } from 'lucide-react';
 
 export default function Settings() {
@@ -215,11 +218,55 @@ export default function Settings() {
                   {CURRENT_SYSTEM_VERSION} ({LAST_UPDATED})
                 </span>
               </div>
-              <div className="flex justify-between py-2">
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <Clock size={13} className="text-slate-400" />
+                  Thời điểm Build
+                </span>
+                <span className="font-mono text-xs text-slate-700">
+                  {SYSTEM_BUILD_TIME.substring(0, 19).replace('T', ' ')} UTC
+                </span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <GitBranch size={13} className="text-slate-400" />
+                  Mã Commit / Build ID
+                </span>
+                <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                  {SYSTEM_COMMIT_SHA}
+                </span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-500">Môi trường</span>
+                <span className={`font-bold text-xs px-2 py-0.5 rounded ${SYSTEM_ENV === 'production' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                  {SYSTEM_ENV.toUpperCase()}
+                </span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-500">Cơ sở dữ liệu đám mây</span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <Database size={12} /> Firebase Firestore đã kết nối
                 </span>
+              </div>
+
+              <div className="pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then(registrations => {
+                          registrations.forEach(r => r.unregister());
+                        });
+                      }
+                      window.location.reload();
+                    }
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors border border-slate-300"
+                >
+                  <RefreshCw size={14} className="text-slate-600" />
+                  Xóa bộ nhớ đệm đệm cũ & Tải lại ứng dụng (Hard Refresh)
+                </button>
               </div>
             </div>
           </Card>

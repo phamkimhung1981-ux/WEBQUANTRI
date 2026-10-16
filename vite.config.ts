@@ -3,8 +3,17 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
+const buildTimestamp = new Date().toISOString();
+const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'dev-' + Date.now().toString(36);
+const buildEnv = process.env.VERCEL_ENV || (process.env.NODE_ENV === 'production' ? 'production' : 'development');
+
 export default defineConfig(() => {
   return {
+    define: {
+      __BUILD_TIME__: JSON.stringify(buildTimestamp),
+      __COMMIT_SHA__: JSON.stringify(commitSha),
+      __APP_ENV__: JSON.stringify(buildEnv),
+    },
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
@@ -12,7 +21,7 @@ export default defineConfig(() => {
       },
     },
     build: {
-      outDir: 'dist',
+      outDir: 'build',
       emptyOutDir: true,
       chunkSizeWarningLimit: 1500,
       rollupOptions: {

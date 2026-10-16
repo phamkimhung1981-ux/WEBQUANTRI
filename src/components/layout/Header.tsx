@@ -21,7 +21,7 @@ import { useAppContext } from '../../store/AppContext';
 import Avatar from '../ui/Avatar';
 import AvatarModal from '../profile/AvatarModal';
 import BackToHomeButton from '../ui/BackToHomeButton';
-import { CURRENT_SYSTEM_VERSION } from '../../version';
+import { CURRENT_SYSTEM_VERSION, SYSTEM_BUILD_TIME, SYSTEM_COMMIT_SHA, SYSTEM_ENV } from '../../version';
 
 import { subscribeQuotaStatus } from '../../services/homeroomService';
 
@@ -143,13 +143,15 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
 
           {/* Connection / Sync Status Indicator & System Version Badge */}
           <div className="hidden md:flex items-center gap-2 text-[10.5px] font-bold">
-            <span 
+            <button 
+              type="button"
               onClick={() => navigate('/settings')}
-              className="cursor-pointer px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs font-extrabold transition-colors"
-              title="Phiên bản hệ thống hiện tại. Nhấn để xem chi tiết cài đặt."
+              className="px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs font-extrabold transition-colors flex items-center gap-1 cursor-pointer"
+              title={`Phiên bản: ${CURRENT_SYSTEM_VERSION} | Build: ${SYSTEM_BUILD_TIME.substring(0, 16).replace('T', ' ')} UTC | Commit: ${SYSTEM_COMMIT_SHA} | Env: ${SYSTEM_ENV}`}
             >
-              {CURRENT_SYSTEM_VERSION}
-            </span>
+              <span>{CURRENT_SYSTEM_VERSION}</span>
+              <span className="text-[9px] opacity-75 font-mono">({SYSTEM_COMMIT_SHA.substring(0, 6)})</span>
+            </button>
             {!isOnline ? (
               <span className="flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full shadow-2xs">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" /> Ngoại tuyến

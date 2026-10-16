@@ -6,10 +6,27 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.3.0';
+export const CURRENT_SYSTEM_VERSION = 'v1.3.1';
 export const LAST_UPDATED = '2026-10-16';
 
+export const SYSTEM_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
+export const SYSTEM_COMMIT_SHA = typeof __COMMIT_SHA__ !== 'undefined' ? __COMMIT_SHA__ : 'dev';
+export const SYSTEM_ENV = typeof __APP_ENV__ !== 'undefined' ? __APP_ENV__ : 'development';
+
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.3.1',
+    releaseDate: '2026-10-16',
+    title: 'Khắc phục triệt để lỗi đồng bộ xuất Web & Tích hợp cơ chế nhận diện phiên bản trực tiếp',
+    modulesModified: ['Cấu hình Build & Deploy', 'Vite Config', 'Nhận diện phiên bản', 'Xóa cache Service Worker', 'Bảo vệ dữ liệu Firestore'],
+    changes: [
+      'Tự động tiêm thông số __BUILD_TIME__, __COMMIT_SHA__, __APP_ENV__ vào mã nguồn build để nhận diện phiên bản thực tế.',
+      'Bổ sung nút "Kiểm tra & Cập nhật phiên bản" trên giao diện quản trị giúp làm mới cache trình duyệt tức thì khi Vercel có build mới.',
+      'Thêm cơ chế tự động hủy Service Worker cũ đệm từ các bản xuất cũ trên trình duyệt người dùng.',
+      'Cấu hình HTTP no-cache headers trong index.html và vercel.json chống trình duyệt cache lại tệp HTML gốc.',
+      'Bảo vệ dữ liệu Firestore thực của nhà trường, ngăn chặn việc ghi đè hoặc khởi tạo lại dữ liệu mẫu khi cập nhật.'
+    ]
+  },
   {
     version: 'v1.3.0',
     releaseDate: '2026-10-16',
