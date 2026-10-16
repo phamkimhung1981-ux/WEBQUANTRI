@@ -1189,76 +1189,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               subject: 'Quản lý cơ sở vật chất',
               joinDate: '2018-09-01',
               degree: 'Thạc sĩ'
-            },
-            {
-              id: 't1',
-              username: 'gv001',
-              code: 'GV001',
-              name: 'Nguyễn Văn An',
-              role: 'GIAO_VIEN',
-              departmentId: 'd_toan_ly_tin_cn',
-              status: 'Đang công tác',
-              email: 'nguyenvanan@sonluong.edu.vn',
-              phone: '0912345678',
-              subject: 'Toán',
-              joinDate: '2020-09-01',
-              degree: 'Cử nhân'
-            },
-            {
-              id: 't2',
-              username: 'gv002',
-              code: 'GV002',
-              name: 'Trần Thị Bình',
-              role: 'GIAO_VIEN',
-              departmentId: 'd_van_su_dia_gdkt_pt_an',
-              status: 'Đang công tác',
-              email: 'tranthibinh@sonluong.edu.vn',
-              phone: '0923456789',
-              subject: 'Ngữ văn',
-              joinDate: '2019-09-01',
-              degree: 'Thạc sĩ'
-            },
-            {
-              id: 't3',
-              username: 'gv003',
-              code: 'GV003',
-              name: 'Lê Văn Cường',
-              role: 'GIAO_VIEN',
-              departmentId: 'd_hoa_sinh_qpan_tc_nn',
-              status: 'Đang công tác',
-              email: 'levancuong@sonluong.edu.vn',
-              phone: '0934567890',
-              subject: 'Tiếng Anh',
-              joinDate: '2021-09-01',
-              degree: 'Cử nhân'
-            },
-            {
-              id: 't4',
-              username: 'gv004',
-              code: 'GV004',
-              name: 'Phạm Thị Dung',
-              role: 'GIAO_VIEN',
-              departmentId: 'd_van_phong',
-              status: 'Đang công tác',
-              email: 'phamthidung@sonluong.edu.vn',
-              phone: '0945678901',
-              subject: 'Tin học',
-              joinDate: '2018-09-01',
-              degree: 'Cử nhân'
-            },
-            {
-              id: 't5',
-              username: 'gv005',
-              code: 'GV005',
-              name: 'Hoàng Văn Em',
-              role: 'GIAO_VIEN',
-              departmentId: 'd_hoa_sinh_qpan_tc_nn',
-              status: 'Đang công tác',
-              email: 'hoangvanem@sonluong.edu.vn',
-              phone: '0956789012',
-              subject: 'Sinh học',
-              joinDate: '2022-09-01',
-              degree: 'Cử nhân'
             }
           ];
 
@@ -1267,9 +1197,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             batch.set(doc(db, 'teachers', t.id), sanitize(t));
           });
           await batch.commit();
-          console.log('Seeded default teachers successfully with correct BGH.');
+          console.log('Seeded essential BGH teachers successfully.');
         } else {
-          // Repair existing teachers and ensure correct BGH names
+          // Repair existing teachers and ensure correct BGH names if corrupted (do NOT recreate deleted regular teachers)
           let hasCorrupted = false;
           const batch = writeBatch(db);
 
@@ -1327,12 +1257,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           bghList.forEach(b => {
             batch.set(doc(db, 'teachers', b.id), sanitize(b), { merge: true });
           });
-          hasCorrupted = true;
-          const replacementNames = [
-            'Nguyễn Văn An', 'Trần Thị Bình', 'Lê Văn Cường', 'Phạm Thị Dung', 'Hoàng Văn Em',
-            'Vũ Thị Hồng', 'Phan Văn Giang', 'Bùi Thị Hà', 'Đỗ Minh Khang', 'Nguyễn Thị Lan',
-            'Lê Hồng Phong', 'Trần Văn Hải', 'Phạm Minh Đức', 'Nguyễn Thị Mai', 'Hoàng Quốc Việt'
-          ];
 
           snap.docs.forEach((d, idx) => {
             const t = d.data() as Teacher;
@@ -1347,8 +1271,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               newCode = `GV${100 + (idx % 900)}`;
               changed = true;
             }
-            if (isNameCorrupt) {
-              newName = replacementNames[idx % replacementNames.length];
+            // Only fix corruption if not deliberately deleted
+            if (isNameCorrupt && t.id.startsWith('t_')) {
+              newName = 'Chưa cập nhật';
               changed = true;
             }
 
@@ -1365,7 +1290,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           if (hasCorrupted) {
             await batch.commit();
-            console.log('Repaired corrupted teacher records successfully.');
           }
         }
       } catch (e) {
