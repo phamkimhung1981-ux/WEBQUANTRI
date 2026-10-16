@@ -123,7 +123,7 @@ export default function KpiTeacherStaff() {
   const [ratingHistoryList, setRatingHistoryList] = useState<KpiVcRatingConfigHistory[]>([]);
 
   // Filters & Search
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('all');
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('vc_period_2026_2027_ca_nam');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [classificationFilter, setClassificationFilter] = useState<string>('all');
