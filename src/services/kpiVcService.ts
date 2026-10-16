@@ -115,10 +115,32 @@ export const seedVcInitialDataIfNeeded = async () => {
 // Local Storage Cache Helpers
 const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache';
 
+export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
+  if (!forms || forms.length === 0) return [];
+  const map = new Map<string, KpiVcForm>();
+  const sorted = [...forms].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  
+  sorted.forEach(f => {
+    const canonicalKey = `${f.employeeId || f.employeeName || 'no_emp'}__${f.periodId || 'no_period'}`;
+    if (!map.has(canonicalKey)) {
+      map.set(canonicalKey, f);
+    } else {
+      const existing = map.get(canonicalKey)!;
+      const existingIsCanonicalId = existing.id && existing.id.startsWith('vc_');
+      const currentIsCanonicalId = f.id && f.id.startsWith('vc_');
+      if (currentIsCanonicalId && !existingIsCanonicalId) {
+        map.set(canonicalKey, f);
+      }
+    }
+  });
+  return Array.from(map.values());
+};
+
 const getVcFormsCache = (): KpiVcForm[] => {
   try {
     const raw = localStorage.getItem(VC_FORMS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return deduplicateVcForms(parsed);
   } catch (err) {
     console.warn('Error reading VC forms cache:', err);
     return [];
@@ -127,7 +149,8 @@ const getVcFormsCache = (): KpiVcForm[] => {
 
 const saveVcFormsCache = (forms: KpiVcForm[]) => {
   try {
-    localStorage.setItem(VC_FORMS_CACHE_KEY, JSON.stringify(forms));
+    const uniqueForms = deduplicateVcForms(forms);
+    localStorage.setItem(VC_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
   } catch (err) {
     console.warn('Error saving VC forms cache:', err);
   }
@@ -150,18 +173,14 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
       firestoreList.push({ id: docSnap.id, ...docSnap.data() } as KpiVcForm);
     });
 
-    // Merge Firestore with local cache to prevent missing newly saved forms
     const currentCached = getVcFormsCache();
-    const map = new Map<string, KpiVcForm>();
-    
-    currentCached.forEach(f => map.set(f.id, f));
-    firestoreList.forEach(f => map.set(f.id, f));
+    const combined = [...firestoreList, ...currentCached];
+    const uniqueList = deduplicateVcForms(combined);
 
-    const mergedList = Array.from(map.values());
-    mergedList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    uniqueList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
 
-    saveVcFormsCache(mergedList);
-    callback(mergedList);
+    saveVcFormsCache(uniqueList);
+    callback(uniqueList);
   }, (err) => {
     console.error('Error subscribing to VC Forms, using local cache:', err);
     const fallbackList = getVcFormsCache();
