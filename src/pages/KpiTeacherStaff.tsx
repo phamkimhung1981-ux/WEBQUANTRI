@@ -546,14 +546,16 @@ export default function KpiTeacherStaff() {
             <Home size={15} /> Trang chủ
           </button>
 
-          {/* Tạo phiếu mới */}
-          <button
-            type="button"
-            onClick={handleOpenCreateModal}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
-          >
-            <Plus size={16} /> Tạo phiếu đánh giá mới
-          </button>
+          {/* Tạo phiếu mới (Chỉ hiển thị trong môi trường phát triển Google AI Studio) */}
+          {import.meta.env.DEV && (
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+            >
+              <Plus size={16} /> Tạo phiếu đánh giá mới
+            </button>
+          )}
 
           {/* Quản lý tiêu chí (Admin only) */}
           {isAdmin && (
@@ -626,7 +628,7 @@ export default function KpiTeacherStaff() {
               >
                 <Edit3 size={15} /> Mở phiếu tự chấm điểm
               </button>
-            ) : (
+            ) : import.meta.env.DEV ? (
               <button
                 type="button"
                 onClick={handleOpenCreateModal}
@@ -634,7 +636,7 @@ export default function KpiTeacherStaff() {
               >
                 <Plus size={15} /> Bắt đầu tự chấm điểm ngay
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       )}
@@ -936,7 +938,9 @@ export default function KpiTeacherStaff() {
                     <div className="flex flex-col items-center justify-center gap-2">
                       <FileText size={32} className="text-slate-300" />
                       <p className="font-semibold text-slate-600">Chưa có phiếu đánh giá KPI.</p>
-                      <p className="text-xs text-slate-400">Nhấn nút "+ Tạo phiếu đánh giá mới" để bắt đầu.</p>
+                      {import.meta.env.DEV && (
+                        <p className="text-xs text-slate-400">Nhấn nút "+ Tạo phiếu đánh giá mới" để bắt đầu.</p>
+                      )}
                     </div>
                   </td>
                 </tr>
