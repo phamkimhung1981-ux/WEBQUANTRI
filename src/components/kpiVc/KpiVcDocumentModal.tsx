@@ -1104,13 +1104,18 @@ export default function KpiVcDocumentModal({
         history: updatedHistory
       };
 
-      await updateVcForm(formId, updatePayload, actor);
-      setSuccessMsg(successAlert || 'Cập nhật phiếu đánh giá thành công!');
+      const res = await updateVcForm(formId, updatePayload, actor);
+      
+      const finalMsg = res.isOfflineQuota
+        ? `${successAlert || 'Cập nhật thành công'} (Lưu ý: Đã lưu vào bộ nhớ dự phòng hệ thống do Firebase đang đạt giới hạn Quota Exceeded).`
+        : (successAlert || 'Cập nhật phiếu đánh giá thành công!');
+
+      setSuccessMsg(finalMsg);
       if (onSaved) onSaved(formId);
 
       setTimeout(() => {
         onClose();
-      }, 1200);
+      }, 1500);
     } catch (err: any) {
       console.error('Error executing transition for VC form:', err);
       setErrorMsg(err.message || 'Lỗi khi lưu phiếu đánh giá.');

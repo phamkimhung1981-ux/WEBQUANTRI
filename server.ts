@@ -445,8 +445,13 @@ Chỉ trả về JSON theo schema.`
     }
   });
 
-  // Vite integration in dev mode
-  if (process.env.NODE_ENV !== 'production') {
+  // Determine if running in production mode
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.npm_lifecycle_event === 'start' ||
+    (!process.env.npm_lifecycle_event && fs.existsSync(path.join(__dirname, 'dist', 'index.html')));
+
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

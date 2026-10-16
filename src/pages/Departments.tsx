@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { Card } from '../components/ui/Card';
-import { Users, CheckCircle, Clock, Award, Edit2, Trash2, Plus, X, FileSpreadsheet } from 'lucide-react';
+import { Users, CheckCircle, Clock, Award, Edit2, Trash2, Plus, X, FileSpreadsheet, Sparkles, CheckCircle2 } from 'lucide-react';
 import { canEditOrDelete } from '../utils/envUtils';
 import { Department } from '../types';
 import BackButton from '../components/ui/BackButton';
@@ -14,6 +14,35 @@ export default function Departments() {
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [deletingDept, setDeletingDept] = useState<Department | null>(null);
   const [formData, setFormData] = useState<Partial<Department>>({});
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
+  const handleCreateStandardDepartments = async () => {
+    const standardList = [
+      { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán-Lý-Tin-CN', headId: 't1' },
+      { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN', headId: 't2' },
+      { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't3' },
+      { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't4' }
+    ];
+
+    for (const std of standardList) {
+      const match = departments.find(d => 
+        d.id === std.id ||
+        (d.name.toLowerCase().includes('toán') && std.name.includes('Toán')) ||
+        ((d.name.toLowerCase().includes('văn') || d.name.toLowerCase().includes('sử')) && std.name.includes('Văn-Sử')) ||
+        ((d.name.toLowerCase().includes('hóa') || d.name.toLowerCase().includes('sinh')) && std.name.includes('Hóa-Sinh')) ||
+        (d.name.toLowerCase().includes('văn phòng') && std.name.includes('Văn phòng'))
+      );
+      if (match) {
+        if (match.name !== std.name) {
+          await updateDepartment(match.id, { name: std.name });
+        }
+      } else {
+        await addDepartment(std);
+      }
+    }
+    setSuccessNotice('Đã thiết lập thành công 3 Tổ chuyên môn: Tổ Toán-Lý-Tin-CN, Tổ Văn-Sử-Địa-GDKT&PL-AN, Tổ Hóa-Sinh-GDTC-QPAN-NN!');
+    setTimeout(() => setSuccessNotice(null), 4000);
+  };
 
   const handleEdit = (e: React.MouseEvent, dept: Department) => {
     e.stopPropagation();
@@ -64,7 +93,15 @@ export default function Departments() {
             <p className="text-sm font-medium text-slate-500 mt-0.5">Thông tin và kết quả thi đua các tổ chuyên môn</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button 
+            onClick={handleCreateStandardDepartments}
+            className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-xs text-[13px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors cursor-pointer"
+            title="Tạo và chuẩn hóa 3 Tổ chuyên môn theo yêu cầu nhà trường"
+          >
+            <Sparkles className="mr-2 h-4 w-4 text-emerald-600" />
+            Tạo 3 Tổ chuyên môn
+          </button>
           <Link
             to="/department-schedule"
             className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-xs text-[13px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
@@ -86,33 +123,60 @@ export default function Departments() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {departments.map((dept) => {
-          const deptTeachers = teachers.filter(t => t.departmentId === dept.id);
-          const head = teachers.find(t => t.id === dept.headId);
-          
-          // Calculate stats for this department
-          const deptTeacherIds = deptTeachers.map(t => t.id);
-          const deptTasks = tasks.filter(t => t.assigneeIds.some(id => deptTeacherIds.includes(id)));
-          const completedTasks = deptTasks.filter(t => t.status === 'Đã hoàn thành').length;
-          const completionRate = deptTasks.length > 0 ? Math.round((completedTasks / deptTasks.length) * 100) : 0;
-          
-          const deptDiscipline = disciplineRecords.filter(d => d.departmentId === dept.id);
-          const goodDiscipline = deptDiscipline.filter(d => d.level === 'Tốt' || d.level === 'Đạt').length;
-          const disciplineRate = deptDiscipline.length > 0 ? Math.round((goodDiscipline / deptDiscipline.length) * 100) : 100;
+      {successNotice && (
+        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-900 flex items-center gap-3 shadow-xs animate-fadeIn">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <span className="text-sm font-semibold">{successNotice}</span>
+        </div>
+      )}
 
-          // Find task path for department based on keyword matching
-          let taskPath = '';
-          const lowerName = dept.name.toLowerCase();
-          if (lowerName.includes('văn phòng') || lowerName.includes('van phong') || lowerName.includes('hành chính') || lowerName.includes('hanh chinh')) {
-            taskPath = '/tasks/van-phong';
-          } else if (lowerName.includes('toán') || lowerName.includes('toan') || lowerName.includes('lý') || lowerName.includes('ly') || lowerName.includes('tin') || lowerName.includes('cn')) {
-            taskPath = '/tasks/toan-ly-tin-cn';
-          } else if (lowerName.includes('hóa') || lowerName.includes('hoa') || lowerName.includes('sinh') || lowerName.includes('qpan') || lowerName.includes('gdqpan') || lowerName.includes('nn')) {
-            taskPath = '/tasks/hoa-ly-sinh-gdqpan-nn';
-          } else if (lowerName.includes('văn') || lowerName.includes('van') || lowerName.includes('sử') || lowerName.includes('su') || lowerName.includes('địa') || lowerName.includes('dia') || lowerName.includes('gdkt')) {
-            taskPath = '/tasks/van-su-dia-gdkt-pl-an';
-          }
+      {departments.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4">
+          <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+            <Users className="w-8 h-8" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-slate-800">Chưa có dữ liệu Tổ chuyên môn</h3>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              Nhấn nút bên dưới để tạo ngay 3 Tổ chuyên môn chuẩn theo quy chế Trường THPT Sơn Lương.
+            </p>
+          </div>
+          <button
+            onClick={handleCreateStandardDepartments}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-sm transition-colors cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" />
+            Tạo ngay 3 Tổ chuyên môn
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {departments.map((dept) => {
+            const deptTeachers = teachers.filter(t => t.departmentId === dept.id);
+            const head = teachers.find(t => t.id === dept.headId);
+            
+            // Calculate stats for this department
+            const deptTeacherIds = deptTeachers.map(t => t.id);
+            const deptTasks = tasks.filter(t => t.assigneeIds.some(id => deptTeacherIds.includes(id)));
+            const completedTasks = deptTasks.filter(t => t.status === 'Đã hoàn thành').length;
+            const completionRate = deptTasks.length > 0 ? Math.round((completedTasks / deptTasks.length) * 100) : 0;
+            
+            const deptDiscipline = disciplineRecords.filter(d => d.departmentId === dept.id);
+            const goodDiscipline = deptDiscipline.filter(d => d.level === 'Tốt' || d.level === 'Đạt').length;
+            const disciplineRate = deptDiscipline.length > 0 ? Math.round((goodDiscipline / deptDiscipline.length) * 100) : 100;
+
+            // Find task path for department based on keyword matching
+            let taskPath = '';
+            const lowerName = dept.name.toLowerCase();
+            if (lowerName.includes('văn phòng') || lowerName.includes('van phong') || lowerName.includes('hành chính') || lowerName.includes('hanh chinh')) {
+              taskPath = '/tasks/van-phong';
+            } else if (lowerName.includes('toán') || lowerName.includes('toan') || lowerName.includes('lý') || lowerName.includes('ly') || lowerName.includes('tin') || lowerName.includes('cn')) {
+              taskPath = '/tasks/toan-ly-tin-cn';
+            } else if (lowerName.includes('hóa') || lowerName.includes('hoa') || lowerName.includes('sinh') || lowerName.includes('gdtc') || lowerName.includes('qpan') || lowerName.includes('gdqpan') || lowerName.includes('nn')) {
+              taskPath = '/tasks/hoa-sinh-gdtc-qpan-nn';
+            } else if (lowerName.includes('văn') || lowerName.includes('van') || lowerName.includes('sử') || lowerName.includes('su') || lowerName.includes('địa') || lowerName.includes('dia') || lowerName.includes('gdkt')) {
+              taskPath = '/tasks/van-su-dia-gdkt-pl-an';
+            }
 
           return (
             <Card key={dept.id} className="overflow-hidden group relative">
@@ -201,7 +265,8 @@ export default function Departments() {
             </Card>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">

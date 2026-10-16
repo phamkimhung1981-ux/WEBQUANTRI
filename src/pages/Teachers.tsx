@@ -8,6 +8,7 @@ import { canEditOrDelete } from '../utils/envUtils';
 import { Teacher } from '../types';
 import * as XLSX from 'xlsx';
 import BackButton from '../components/ui/BackButton';
+import TeacherExcelImportModal from '../components/teachers/TeacherExcelImportModal';
 
 export default function Teachers() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function Teachers() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [deletingTeacher, setDeletingTeacher] = useState<Teacher | null>(null);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
@@ -50,15 +52,6 @@ export default function Teachers() {
     XLSX.writeFile(wb, "DanhSachGV.xlsx");
   };
 
-  const getExcelValue = (row: any, possibleKeys: string[]) => {
-    const rowKeys = Object.keys(row);
-    for (const pKey of possibleKeys) {
-      const foundKey = rowKeys.find(k => k.trim().toLowerCase() === pKey.toLowerCase());
-      if (foundKey) return row[foundKey];
-    }
-    return undefined;
-  };
-
   const formatRole = (role: string) => {
     if (!role) return 'Giáo viên';
     const r = role.toUpperCase().trim();
@@ -69,71 +62,6 @@ export default function Teachers() {
     if (r === 'GIAO_VIEN' || r === 'GIÁO VIÊN' || r === 'GV') return 'Giáo viên';
     if (r === 'NHAN_VIEN' || r === 'NHÂN VIÊN' || r === 'NV') return 'Nhân viên';
     return role;
-  };
-
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
-      const newTeachers = data.map((row: any) => {
-        const rawDept = getExcelValue(row, ['Tổ chuyên môn', 'To chuyen mon', 'Tổ', 'To', 'Department', 'Tổ bộ môn']) || '';
-        const normDept = String(rawDept).trim().toLowerCase();
-        
-        let deptId = departments[0]?.id || '';
-        const foundDept = departments.find(d => {
-          const dName = d.name.toLowerCase();
-          return dName.includes(normDept) || normDept.includes(dName) ||
-                 (normDept.includes('toán') && d.id === 'd_toan_ly_tin_cn') ||
-                 (normDept.includes('lý') && d.id === 'd_toan_ly_tin_cn') ||
-                 (normDept.includes('văn') && d.id === 'd_van_su_dia_gdkt_pt_an') ||
-                 (normDept.includes('hóa') && d.id === 'd_hoa_sinh_qpan_tc_nn') ||
-                 (normDept.includes('phòng') && d.id === 'd_van_phong');
-        });
-        if (foundDept) {
-          deptId = foundDept.id;
-        }
-
-        const rawCode = getExcelValue(row, ['Mã GV', 'Ma GV', 'Mã giáo viên', 'Ma giao vien', 'Code', 'Mã viên chức', 'Mã CBGVNV']);
-        const codeVal = (rawCode ? String(rawCode).trim() : '') || `GV${Math.floor(1000 + Math.random() * 9000)}`;
-
-        const rawName = getExcelValue(row, ['Họ và tên', 'Họ tên', 'Ho va ten', 'Ho ten', 'Tên', 'Ten', 'Name']);
-        const nameVal = rawName ? String(rawName).trim() : 'Chưa cập nhật';
-
-        const rawRole = getExcelValue(row, ['Chức vụ', 'Chuc vu', 'Role', 'Position']) || 'Giáo viên';
-        let roleEnum = 'GIAO_VIEN';
-        const normRole = String(rawRole).trim().toLowerCase();
-        if (normRole.includes('hiệu trưởng') || normRole.includes('hieu truong')) roleEnum = 'BGH';
-        else if (normRole.includes('phó hiệu trưởng') || normRole.includes('pho hieu truong')) roleEnum = 'BGH';
-        else if (normRole.includes('tổ trưởng') || normRole.includes('to truong')) roleEnum = 'TTCM';
-        else if (normRole.includes('tổ phó') || normRole.includes('to pho')) roleEnum = 'GIAO_VIEN'; // System maps it as regular user, but we'll store position below
-        else if (normRole.includes('nhân viên') || normRole.includes('nhan vien')) roleEnum = 'NHAN_VIEN';
-
-        const rawStatus = getExcelValue(row, ['Trạng thái', 'Trang thai', 'Status']) || 'Đang công tác';
-        const statusVal = String(rawStatus).trim();
-
-        return {
-          id: Math.random().toString(36).substr(2, 9),
-          code: codeVal,
-          name: nameVal,
-          role: roleEnum as any,
-          position: (normRole.includes('tổ phó') || normRole.includes('to pho')) ? 'Tổ phó' : undefined,
-          departmentId: deptId,
-          status: (statusVal === 'Nghỉ phép' || statusVal === 'Đã nghỉ việc' ? statusVal : 'Đang công tác') as any,
-          email: getExcelValue(row, ['Email', 'Mail']) || '',
-          phone: getExcelValue(row, ['Số điện thoại', 'So dien thoai', 'SĐT', 'SDT', 'Phone']) || '',
-          subject: getExcelValue(row, ['Môn giảng dạy', 'Mon giang day', 'Môn', 'Mon', 'Subject']) || ''
-        } as Teacher;
-      });
-      importTeachers(newTeachers);
-    };
-    reader.readAsBinaryString(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -197,18 +125,12 @@ export default function Teachers() {
             <Download className="mr-2 h-4 w-4" />
             Xuất dữ liệu
           </button>
-          <input 
-            type="file" 
-            accept=".xlsx, .xls, .csv" 
-            className="hidden" 
-            ref={fileInputRef}
-            onChange={handleImportExcel}
-          />
           <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center justify-center px-4 py-2.5 border border-slate-300 rounded-xl shadow-sm text-[13px] font-bold text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+            onClick={() => setIsImportModalOpen(true)}
+            className="inline-flex items-center justify-center px-4 py-2.5 border border-slate-300 rounded-xl shadow-sm text-[13px] font-bold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer"
+            title="Nhập danh sách cán bộ, giáo viên, nhân viên từ tệp Excel"
           >
-            <Upload className="mr-2 h-4 w-4" />
+            <Upload className="mr-2 h-4 w-4 text-emerald-600" />
             Nhập từ Excel
           </button>
           <button 
@@ -536,6 +458,17 @@ export default function Teachers() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL NHẬP DANH SÁCH CBGVNV TỪ EXCEL */}
+      {isImportModalOpen && (
+        <TeacherExcelImportModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          departments={departments}
+          existingTeachers={teachers}
+          onImport={importTeachers}
+        />
       )}
     </div>
   );

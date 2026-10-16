@@ -86,14 +86,14 @@ export const PRESET_DEPARTMENTS: DepartmentConfig[] = [
     }
   },
   {
-    id: 'd_hoa_ly_sinh_gdqpan_nn',
-    slug: 'hoa-ly-sinh-gdqpan-nn',
-    name: 'Tổ Hóa-Lý-Sinh-GDQPAN-NN',
-    shortName: 'Hóa-Lý-Sinh-GDQPAN-NN',
-    groupToken: 'GROUP_HOA_LY_SINH_GDQPAN_NN',
+    id: 'd_hoa_sinh_gdtc_qpan_nn',
+    slug: 'hoa-sinh-gdtc-qpan-nn',
+    name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN',
+    shortName: 'Hóa-Sinh-GDTC-QPAN-NN',
+    groupToken: 'GROUP_HOA_SINH_GDTC_QPAN_NN',
     icon: FlaskConical,
-    description: 'Chuyên môn bộ môn Hóa học, Sinh học, GDQP-AN, Ngoại ngữ (Tiếng Anh) & Thể dục',
-    subjects: ['Hóa học', 'Sinh học', 'GDQP-AN', 'Tiếng Anh', 'Ngoại ngữ', 'Thể dục'],
+    description: 'Chuyên môn bộ môn Hóa học, Sinh học, Giáo dục thể chất, QPAN & Ngoại ngữ (Tiếng Anh)',
+    subjects: ['Hóa học', 'Sinh học', 'GDTC', 'Thể dục', 'GDQP-AN', 'Tiếng Anh', 'Ngoại ngữ'],
     color: {
       border: 'border-emerald-200',
       bg: 'bg-emerald-600',
@@ -274,7 +274,7 @@ export default function Tasks() {
         d.slug === slug || 
         d.id === slug || 
         (slug.includes('toan') && d.slug === 'toan-ly-tin-cn') ||
-        (slug.includes('hoa') && d.slug === 'hoa-ly-sinh-gdqpan-nn') ||
+        (slug.includes('hoa') && (d.slug === 'hoa-sinh-gdtc-qpan-nn' || d.slug === 'hoa-ly-sinh-gdqpan-nn')) ||
         (slug.includes('van-su') && d.slug === 'van-su-dia-gdkt-pl-an') ||
         (slug.includes('phong') && d.slug === 'van-phong')
       );
@@ -298,7 +298,7 @@ export default function Tasks() {
       d.slug === deptIdOrNameOrSlug ||
       d.name.toLowerCase() === lower ||
       ((lower.includes('toán') || lower.includes('toan') || lower.includes('lý') || lower.includes('tin') || lower.includes('cn')) && d.slug === 'toan-ly-tin-cn') ||
-      ((lower.includes('hóa') || lower.includes('hoa') || lower.includes('sinh') || lower.includes('gdqpan') || lower.includes('nn')) && d.slug === 'hoa-ly-sinh-gdqpan-nn') ||
+      ((lower.includes('hóa') || lower.includes('hoa') || lower.includes('sinh') || lower.includes('gdtc') || lower.includes('gdqpan') || lower.includes('qpan') || lower.includes('nn')) && (d.slug === 'hoa-sinh-gdtc-qpan-nn' || d.slug === 'hoa-ly-sinh-gdqpan-nn')) ||
       ((lower.includes('văn') || lower.includes('van') || lower.includes('sử') || lower.includes('su') || lower.includes('địa') || lower.includes('dia') || lower.includes('gdkt')) && d.slug === 'van-su-dia-gdkt-pl-an') ||
       ((lower.includes('văn phòng') || lower.includes('van phong') || lower.includes('hành chính') || lower.includes('phòng')) && d.slug === 'van-phong')
     );

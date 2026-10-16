@@ -69,6 +69,7 @@ import { exportStudentListToExcel } from '../utils/studentExcel';
 import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../utils/studentSorting';
 import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
+import { useAuth } from '../store/AuthContext';
 import BackButton from '../components/ui/BackButton';
 import { ALL_MONTH_OPTIONS, isWeekInMonth, getWeeksForMonth, getCurrentSchoolWeekInfo } from '../utils/schoolWeekUtils';
 

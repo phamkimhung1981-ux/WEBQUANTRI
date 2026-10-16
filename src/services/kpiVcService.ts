@@ -334,12 +334,14 @@ export const updateVcForm = async (
   formId: string,
   updateData: Partial<KpiVcForm>,
   actor: { id: string; name: string; role?: string }
-) => {
+): Promise<{ success: boolean; isOfflineQuota?: boolean }> => {
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
   const now = new Date().toISOString();
 
-  const snap = await getDoc(docRef);
-  const existingData = snap.exists() ? (snap.data() as Partial<KpiVcForm>) : undefined;
+  // 1. Update local cache immediately so UI is always responsive & data is never lost
+  const cachedForms = getVcFormsCache();
+  const idx = cachedForms.findIndex(f => f.id === formId);
+  let existingData: Partial<KpiVcForm> | undefined = idx >= 0 ? cachedForms[idx] : undefined;
 
   const payload: Record<string, any> = {
     ...updateData,
@@ -347,29 +349,53 @@ export const updateVcForm = async (
     updatedBy: actor.name || actor.id
   };
 
-  await setDoc(docRef, cleanFirestoreData(payload), { merge: true });
-
-  // Update local cache immediately
-  const cachedForms = getVcFormsCache();
-  const idx = cachedForms.findIndex(f => f.id === formId);
   if (idx >= 0) {
-    cachedForms[idx] = { ...cachedForms[idx], ...updateData, updatedAt: now };
-    saveVcFormsCache(cachedForms);
+    cachedForms[idx] = { ...cachedForms[idx], ...payload };
+  } else {
+    cachedForms.unshift({ id: formId, ...payload } as KpiVcForm);
+  }
+  saveVcFormsCache(cachedForms);
+
+  let quotaErrorOccurred = false;
+
+  // 2. Try Firestore write with robust fallback if Quota Exceeded
+  try {
+    // If cache didn't have existingData, fetch doc
+    if (!existingData) {
+      try {
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          existingData = snap.data() as Partial<KpiVcForm>;
+        }
+      } catch (err) {}
+    }
+
+    await setDoc(docRef, cleanFirestoreData(payload), { merge: true });
+
+    const empName = updateData.employeeName || existingData?.employeeName || formId;
+    const pId = updateData.periodId || existingData?.periodId;
+
+    try {
+      await addVcAuditLog({
+        formId,
+        periodId: pId,
+        action: 'update_form',
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        targetName: empName,
+        description: `Cập nhật phiếu đánh giá KPI: ${empName}`
+      });
+    } catch (logErr) {}
+
+  } catch (e: any) {
+    console.warn('Could not write VC form to Firestore (Quota Exceeded or Network error):', e);
+    if (e?.code === 'resource-exhausted' || (e?.message && e.message.toLowerCase().includes('quota'))) {
+      quotaErrorOccurred = true;
+    }
   }
 
-  const empName = updateData.employeeName || existingData?.employeeName || formId;
-  const pId = updateData.periodId || existingData?.periodId;
-
-  await addVcAuditLog({
-    formId,
-    periodId: pId,
-    action: 'update_form',
-    actorId: actor.id,
-    actorName: actor.name,
-    actorRole: actor.role,
-    targetName: empName,
-    description: `Cập nhật phiếu đánh giá KPI: ${empName}`
-  });
+  return { success: true, isOfflineQuota: quotaErrorOccurred };
 };
 
 /**

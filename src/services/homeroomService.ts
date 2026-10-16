@@ -940,13 +940,28 @@ export const homeroomService = {
 
       // 2. Also clean up related conduct records, evaluations, teacher assessments
       if (options?.deleteRecordsAndAssessments !== false && studentIds.length > 0) {
-        // Conduct records
+        // Conduct records by classId or studentId
         const recQuery = query(collection(db, 'conduct_records'), where('classId', '==', classId));
         const recSnap = await getDocs(recQuery);
-        if (!recSnap.empty) {
-          for (let i = 0; i < recSnap.docs.length; i += 400) {
+        const docsToDelete = [...recSnap.docs];
+
+        // Also query by studentId for each student
+        for (const sId of studentIds) {
+          try {
+            const sRecQ = query(collection(db, 'conduct_records'), where('studentId', '==', sId));
+            const sRecSnap = await getDocs(sRecQ);
+            sRecSnap.docs.forEach(d => {
+              if (!docsToDelete.some(existing => existing.id === d.id)) {
+                docsToDelete.push(d);
+              }
+            });
+          } catch (e) {}
+        }
+
+        if (docsToDelete.length > 0) {
+          for (let i = 0; i < docsToDelete.length; i += 400) {
             const batch = writeBatch(db);
-            const chunk = recSnap.docs.slice(i, i + 400);
+            const chunk = docsToDelete.slice(i, i + 400);
             chunk.forEach(d => batch.delete(d.ref));
             await batch.commit();
           }
@@ -955,10 +970,23 @@ export const homeroomService = {
         // Conduct evaluations
         const evalQuery = query(collection(db, 'conduct_evaluations'), where('classId', '==', classId));
         const evalSnap = await getDocs(evalQuery);
-        if (!evalSnap.empty) {
-          for (let i = 0; i < evalSnap.docs.length; i += 400) {
+        const evalDocsToDelete = [...evalSnap.docs];
+        for (const sId of studentIds) {
+          try {
+            const sEvalQ = query(collection(db, 'conduct_evaluations'), where('studentId', '==', sId));
+            const sEvalSnap = await getDocs(sEvalQ);
+            sEvalSnap.docs.forEach(d => {
+              if (!evalDocsToDelete.some(existing => existing.id === d.id)) {
+                evalDocsToDelete.push(d);
+              }
+            });
+          } catch (e) {}
+        }
+
+        if (evalDocsToDelete.length > 0) {
+          for (let i = 0; i < evalDocsToDelete.length; i += 400) {
             const batch = writeBatch(db);
-            const chunk = evalSnap.docs.slice(i, i + 400);
+            const chunk = evalDocsToDelete.slice(i, i + 400);
             chunk.forEach(d => batch.delete(d.ref));
             await batch.commit();
           }
@@ -967,10 +995,23 @@ export const homeroomService = {
         // Teacher assessments
         const taQuery = query(collection(db, 'teacher_assessments'), where('classId', '==', classId));
         const taSnap = await getDocs(taQuery);
-        if (!taSnap.empty) {
-          for (let i = 0; i < taSnap.docs.length; i += 400) {
+        const taDocsToDelete = [...taSnap.docs];
+        for (const sId of studentIds) {
+          try {
+            const sTaQ = query(collection(db, 'teacher_assessments'), where('studentId', '==', sId));
+            const sTaSnap = await getDocs(sTaQ);
+            sTaSnap.docs.forEach(d => {
+              if (!taDocsToDelete.some(existing => existing.id === d.id)) {
+                taDocsToDelete.push(d);
+              }
+            });
+          } catch (e) {}
+        }
+
+        if (taDocsToDelete.length > 0) {
+          for (let i = 0; i < taDocsToDelete.length; i += 400) {
             const batch = writeBatch(db);
-            const chunk = taSnap.docs.slice(i, i + 400);
+            const chunk = taDocsToDelete.slice(i, i + 400);
             chunk.forEach(d => batch.delete(d.ref));
             await batch.commit();
           }

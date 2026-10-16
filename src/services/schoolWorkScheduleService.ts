@@ -9,7 +9,7 @@ const STORAGE_KEY_PREFIX = 'thpt_son_luong_school_work_schedule_';
 export const DEFAULT_DEPARTMENTS_CONFIG = [
   { id: 'all', name: 'TOÀN TRƯỜNG', label: 'Toàn trường' },
   { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán - Lý - Tin - Công nghệ', label: 'Tổ Toán - Lý - Tin - CN' },
-  { id: 'd_hoa_ly_sinh_gdqpan_nn', name: 'Tổ Hóa - Sinh - GDQPAN - Ngoại ngữ', label: 'Tổ Hóa - Sinh - GDQPAN - NN' },
+  { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa - Sinh - GDTC - QPAN - Ngoại ngữ', label: 'Tổ Hóa - Sinh - GDTC - QPAN - NN' },
   { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn - Sử - Địa - GDKT&PL - Âm nhạc', label: 'Tổ Văn - Sử - Địa - GDKT&PL - AN' },
   { id: 'd_van_phong', name: 'Tổ Văn phòng', label: 'Tổ Văn phòng' }
 ];

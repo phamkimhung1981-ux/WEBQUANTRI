@@ -17,12 +17,22 @@ export default defineConfig(() => {
       chunkSizeWarningLimit: 1500,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-firebase': ['firebase/app', 'firebase/firestore', 'firebase/auth'],
-            'vendor-office': ['xlsx', 'docx', 'mammoth'],
-            'vendor-charts': ['recharts'],
-            'vendor-icons': ['lucide-react'],
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('xlsx') || id.includes('docx') || id.includes('mammoth') || id.includes('html2pdf') || id.includes('jspdf') || id.includes('html2canvas')) {
+                return 'vendor-office';
+              }
+              if (id.includes('firebase')) {
+                return 'vendor-firebase';
+              }
+              if (id.includes('recharts') || id.includes('d3-')) {
+                return 'vendor-charts';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              return 'vendor-core';
+            }
           },
         },
       },
