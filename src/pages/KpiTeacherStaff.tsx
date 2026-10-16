@@ -113,6 +113,13 @@ export default function KpiTeacherStaff() {
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
 
+  // Total Delete Modal State
+  const [isTotalDeleteModalOpen, setIsTotalDeleteModalOpen] = useState<boolean>(false);
+  const [totalDeleteScope, setTotalDeleteScope] = useState<'period' | 'filtered' | 'all'>('period');
+  const [totalDeleteConfirmInput, setTotalDeleteConfirmInput] = useState<string>('');
+  const [isTotalDeleting, setIsTotalDeleting] = useState<boolean>(false);
+  const [totalDeleteError, setTotalDeleteError] = useState<string | null>(null);
+
   // Firestore Data State
   const [forms, setForms] = useState<KpiVcForm[]>([]);
   const [periods, setPeriods] = useState<KpiVcPeriod[]>([]);
@@ -514,6 +521,64 @@ export default function KpiTeacherStaff() {
     }
   };
 
+  const handleConfirmTotalDelete = async () => {
+    if (totalDeleteConfirmInput.trim().toUpperCase() !== 'XOA TOAN BO KPI') {
+      setTotalDeleteError('Vui lòng nhập chính xác cụm từ "XOA TOAN BO KPI" để xác nhận.');
+      return;
+    }
+
+    setIsTotalDeleting(true);
+    setTotalDeleteError(null);
+
+    let targetIds: string[] = [];
+    let scopeDesc = '';
+
+    if (totalDeleteScope === 'period') {
+      targetIds = forms.filter(f => f.periodId === selectedPeriodId).map(f => f.id);
+      scopeDesc = `Kỳ đánh giá: ${activePeriodObj?.name || selectedPeriodId}`;
+    } else if (totalDeleteScope === 'filtered') {
+      targetIds = filteredForms.map(f => f.id);
+      scopeDesc = `Phạm vi lọc hiện tại (${filteredForms.length} phiếu)`;
+    } else if (totalDeleteScope === 'all') {
+      targetIds = forms.map(f => f.id);
+      scopeDesc = 'Toàn bộ hệ thống';
+    }
+
+    if (targetIds.length === 0) {
+      setTotalDeleteError('Không có phiếu KPI nào trong phạm vi đã chọn để xóa.');
+      setIsTotalDeleting(false);
+      return;
+    }
+
+    try {
+      await bulkDeleteVcForms(
+        targetIds,
+        {
+          id: user?.id || 'admin',
+          name: user?.name || 'Ban Giám hiệu',
+          role: user?.role || 'BGH'
+        },
+        {
+          periodName: scopeDesc,
+          deptName: 'KPI Giáo viên'
+        }
+      );
+
+      const targetSet = new Set(targetIds);
+      setForms(prev => prev.filter(f => !targetSet.has(f.id)));
+      setSelectedFormIds(prev => prev.filter(id => !targetSet.has(id)));
+
+      setIsTotalDeleteModalOpen(false);
+      setNotificationMessage(`Đã xóa thành công ${targetIds.length} phiếu KPI Giáo viên (${scopeDesc}).`);
+      setTimeout(() => setNotificationMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Lỗi xóa toàn bộ phiếu KPI:', err);
+      setTotalDeleteError(err.message || 'Lỗi khi thực hiện xóa. Vui lòng thử lại.');
+    } finally {
+      setIsTotalDeleting(false);
+    }
+  };
+
   const activePeriodObj = periods.find(p => p.id === selectedPeriodId) || periods[0];
 
   return (
@@ -583,6 +648,23 @@ export default function KpiTeacherStaff() {
                 <Sliders size={15} /> Cấu hình xếp loại
               </button>
             </>
+          )}
+
+          {/* Nút Xóa toàn bộ phiếu KPI (Admin / BGH only) */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setTotalDeleteScope('period');
+                setTotalDeleteConfirmInput('');
+                setTotalDeleteError(null);
+                setIsTotalDeleteModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white text-xs font-bold rounded-xl border border-rose-500/40 transition-all cursor-pointer shadow-md"
+              title="Xóa toàn bộ phiếu KPI Giáo viên theo phạm vi"
+            >
+              <Trash2 size={15} /> Xóa toàn bộ phiếu KPI
+            </button>
           )}
 
           {/* Xuất Excel */}
@@ -1610,6 +1692,150 @@ export default function KpiTeacherStaff() {
                   <>
                     <Trash2 size={15} />
                     <span>Xóa {bulkDeleteType === 'selected_items' ? selectedFormIds.length : filteredForms.length} phiếu</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* TOTAL DELETE MODAL */}
+      {isTotalDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5 border border-slate-200">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0 border border-rose-200">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">Xóa toàn bộ phiếu KPI Giáo viên</h3>
+                <p className="text-xs text-rose-600 font-semibold">Cảnh báo: Hành động này không thể hoàn tác!</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs text-slate-700">
+              <div className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-xl font-medium text-rose-950 leading-relaxed">
+                Thầy/cô có chắc chắn muốn xóa toàn bộ phiếu KPI Giáo viên trong phạm vi đã chọn không? Thao tác này có thể làm mất điểm đánh giá, nhận xét và minh chứng liên quan.
+              </div>
+
+              {/* Scope Selection */}
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  Chọn phạm vi xóa:
+                </label>
+
+                <div className="space-y-2">
+                  <label className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
+                    totalDeleteScope === 'period'
+                      ? 'bg-rose-50/90 border-rose-300 ring-2 ring-rose-500/20 text-rose-950 font-bold'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="totalDeleteScope"
+                      checked={totalDeleteScope === 'period'}
+                      onChange={() => setTotalDeleteScope('period')}
+                      className="w-4 h-4 text-rose-600 border-slate-300 focus:ring-rose-500"
+                    />
+                    <div>
+                      <p className="font-bold">Kỳ đánh giá đang chọn ({activePeriodObj?.name})</p>
+                      <p className="text-[11px] text-slate-500 font-normal">
+                        Số lượng: {forms.filter(f => f.periodId === selectedPeriodId).length} phiếu
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
+                    totalDeleteScope === 'filtered'
+                      ? 'bg-rose-50/90 border-rose-300 ring-2 ring-rose-500/20 text-rose-950 font-bold'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="totalDeleteScope"
+                      checked={totalDeleteScope === 'filtered'}
+                      onChange={() => setTotalDeleteScope('filtered')}
+                      className="w-4 h-4 text-rose-600 border-slate-300 focus:ring-rose-500"
+                    />
+                    <div>
+                      <p className="font-bold">Phạm vi bộ lọc hiện tại</p>
+                      <p className="text-[11px] text-slate-500 font-normal">
+                        Số lượng: {filteredForms.length} phiếu phù hợp với bộ lọc
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
+                    totalDeleteScope === 'all'
+                      ? 'bg-rose-50/90 border-rose-300 ring-2 ring-rose-500/20 text-rose-950 font-bold'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="totalDeleteScope"
+                      checked={totalDeleteScope === 'all'}
+                      onChange={() => setTotalDeleteScope('all')}
+                      className="w-4 h-4 text-rose-600 border-slate-300 focus:ring-rose-500"
+                    />
+                    <div>
+                      <p className="font-bold">Toàn bộ phiếu KPI trong hệ thống</p>
+                      <p className="text-[11px] text-slate-500 font-normal">
+                        Tổng số: {forms.length} phiếu trên toàn hệ thống
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Confirmation Input */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-xs font-bold text-slate-700">
+                  Nhập chính xác cụm từ <strong className="text-rose-700 font-black">XOA TOAN BO KPI</strong> để xác nhận:
+                </label>
+                <input
+                  type="text"
+                  value={totalDeleteConfirmInput}
+                  onChange={e => setTotalDeleteConfirmInput(e.target.value)}
+                  placeholder="Nhập XOA TOAN BO KPI..."
+                  className="w-full px-4 py-2.5 bg-slate-50 border-2 border-slate-300 rounded-xl text-xs font-black text-rose-900 focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none uppercase placeholder:normal-case placeholder:font-normal placeholder:text-slate-400"
+                  autoFocus
+                />
+              </div>
+
+              {totalDeleteError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-bold flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0 text-rose-600" />
+                  <span>{totalDeleteError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2.5 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isTotalDeleting}
+                onClick={() => setIsTotalDeleteModalOpen(false)}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isTotalDeleting || totalDeleteConfirmInput.trim().toUpperCase() !== 'XOA TOAN BO KPI'}
+                onClick={handleConfirmTotalDelete}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {isTotalDeleting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} />
+                    <span>Xóa toàn bộ</span>
                   </>
                 )}
               </button>
