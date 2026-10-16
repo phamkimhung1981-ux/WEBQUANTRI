@@ -6,10 +6,23 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.2.3';
-export const LAST_UPDATED = '2026-09-29';
+export const CURRENT_SYSTEM_VERSION = 'v1.3.0';
+export const LAST_UPDATED = '2026-10-16';
 
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.3.0',
+    releaseDate: '2026-10-16',
+    title: 'Đồng bộ hóa toàn diện mã nguồn & dữ liệu đệm sản xuất (Cache-Control & Realtime Firestore)',
+    modulesModified: ['Cấu hình Vercel', 'Xác thực & Môi trường', 'Quản lý Học sinh & Chủ nhiệm', 'Đánh giá KPI', 'Cài đặt hệ thống'],
+    changes: [
+      'Cấu hình Cache-Control chống lưu đệm vĩnh viễn trong vercel.json (force revalidate /index.html trên Vercel Production).',
+      'Đồng bộ hóa dữ liệu danh sách học sinh từ Firestore real-time mà không ghi đè dữ liệu thực bằng dữ liệu mẫu.',
+      'Sửa điều kiện lọc kích thước dữ liệu học sinh trong homeroomService để luôn ưu tiên nạp từ Firestore.',
+      'Hiển thị badge nhận diện phiên bản hệ thống v1.3.0 và trạng thái kết nối trực tiếp trên giao diện quản trị.',
+      'Tích hợp điều kiện môi trường import.meta.env.DEV giúp bảo mật giao diện phát triển AI Studio khi xuất bản.'
+    ]
+  },
   {
     version: 'v1.2.3',
     releaseDate: '2026-09-29',

@@ -41,28 +41,14 @@ import {
 } from '../lib/homeroomData';
 
 export function ensureFullStudentRoster(inputStudents: Student[] = []): Student[] {
-  const result: Student[] = [...inputStudents];
-  const existingByClassId = new Map<string, Student[]>();
-
-  for (const s of inputStudents) {
-    if (s.classId) {
-      if (!existingByClassId.has(s.classId)) {
-        existingByClassId.set(s.classId, []);
-      }
-      existingByClassId.get(s.classId)!.push(s);
-    }
+  if (inputStudents && inputStudents.length > 0) {
+    return inputStudents;
   }
-
+  const result: Student[] = [];
   for (const cls of DEFAULT_CLASSES) {
-    const list = existingByClassId.get(cls.id) || [];
-    if (list.length < 10) {
-      const defaultRoster = generateClassStudents(cls.id, cls.name, cls.grade, cls.totalStudents || 38);
-      const filtered = result.filter(s => s.classId !== cls.id);
-      result.length = 0;
-      result.push(...filtered, ...defaultRoster);
-    }
+    const defaultRoster = generateClassStudents(cls.id, cls.name, cls.grade, cls.totalStudents || 38);
+    result.push(...defaultRoster);
   }
-
   return result;
 }
 
@@ -334,7 +320,7 @@ export const homeroomService = {
   async getStudents(): Promise<Student[]> {
     try {
       const snap = await getDocs(collection(db, 'students'));
-      if (!snap.empty && snap.size > 50) {
+      if (!snap.empty) {
         const students = snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
         const fullList = ensureFullStudentRoster(students);
         safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, fullList);
@@ -358,7 +344,7 @@ export const homeroomService = {
     const q = collection(db, 'classes');
     return onSnapshot(q, (snapshot) => {
       let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
-      if (data.length < DEFAULT_CLASSES.length) {
+      if (data.length === 0) {
         data = DEFAULT_CLASSES;
       }
       if (!data.some(c => c.name.toUpperCase() === '12I' || c.id === 'class_12i')) {
