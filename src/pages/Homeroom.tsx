@@ -1011,7 +1011,9 @@ export default function Homeroom() {
     try {
       setIsDeletingAll(true);
       const res = await homeroomService.deleteAllStudentsOfClass(selectedClass.id, {
-        deleteRecordsAndAssessments: deleteAllWithConductRecords
+        deleteRecordsAndAssessments: deleteAllWithConductRecords,
+        className: selectedClass.name,
+        schoolYear: selectedSchoolYear
       });
       if (deleteAllWithConductRecords) {
         setRecords(prev => prev.filter(r => !(r.classId === selectedClass.id && (!r.schoolYear || r.schoolYear === selectedSchoolYear))));
@@ -1033,7 +1035,11 @@ export default function Homeroom() {
     if (!selectedClass || selectedStudentIds.length === 0) return;
     try {
       setIsDeletingSelected(true);
-      await homeroomService.deleteStudentsBulk(selectedStudentIds, selectedClass.id);
+      await homeroomService.deleteStudentsBulk(selectedStudentIds, selectedClass.id, {
+        deleteRecordsAndAssessments: true,
+        className: selectedClass.name,
+        schoolYear: selectedSchoolYear
+      });
       setShowBulkDeleteConfirm(false);
       const count = selectedStudentIds.length;
       setSelectedStudentIds([]);
@@ -2955,7 +2961,11 @@ export default function Homeroom() {
           }
         }}
         onDeleteStudentsBulk={async (ids) => {
-          await homeroomService.deleteStudentsBulk(ids);
+          await homeroomService.deleteStudentsBulk(ids, selectedClass?.id, {
+            deleteRecordsAndAssessments: true,
+            className: selectedClass?.name,
+            schoolYear: selectedSchoolYear
+          });
           if (selectedClass) {
             await homeroomService.updateClass(selectedClass.id, {
               totalStudents: Math.max(0, (selectedClass.totalStudents || 0) - ids.length)
@@ -2965,7 +2975,9 @@ export default function Homeroom() {
         onDeleteAllStudents={async () => {
           if (selectedClass) {
             await homeroomService.deleteAllStudentsOfClass(selectedClass.id, {
-              deleteRecordsAndAssessments: true
+              deleteRecordsAndAssessments: true,
+              className: selectedClass.name,
+              schoolYear: selectedSchoolYear
             });
             setResetSuccessToast(`Đã xóa toàn bộ hồ sơ học sinh của lớp ${selectedClass.name} thành công.`);
             setTimeout(() => setResetSuccessToast(''), 4000);

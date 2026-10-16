@@ -28,6 +28,7 @@ import DepartmentSchedule from './pages/DepartmentSchedule';
 import SchoolWorkSchedule from './pages/SchoolWorkSchedule';
 import YouthDiscipline from './pages/YouthDiscipline';
 import YouthDutySchedule from './pages/YouthDutySchedule';
+import OfficeDepartment from './pages/OfficeDepartment';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -86,6 +87,10 @@ function AppRoutes() {
         <Route path="/quan-ly-tai-khoan" element={<UserAccounts />} />
         <Route path="/tai-khoan" element={<UserAccounts />} />
         <Route path="/departments" element={<Departments />} />
+        <Route path="/van-phong" element={<OfficeDepartment />} />
+        <Route path="/to-van-phong" element={<OfficeDepartment />} />
+        <Route path="/office-department" element={<OfficeDepartment />} />
+        <Route path="/office-staff" element={<OfficeDepartment />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/van-ban" element={<Documents />} />
         <Route path="/reports" element={<Reports />} />

@@ -81,24 +81,37 @@ export default function Teachers() {
     setIsModalOpen(true);
   };
 
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
   const handleDeleteClick = (e: React.MouseEvent, teacher: Teacher) => {
     e.stopPropagation();
     setDeletingTeacher(teacher);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deletingTeacher) {
-      deleteTeacher(deletingTeacher.id);
-      setDeletingTeacher(null);
+      setIsDeleting(true);
+      try {
+        await deleteTeacher(deletingTeacher.id);
+        setDeletingTeacher(null);
+      } catch (err: any) {
+        alert('Lỗi khi xóa giáo viên: ' + (err.message || err));
+      } finally {
+        setIsDeleting(false);
+      }
     }
   };
 
   const handleDeleteAll = async () => {
     try {
+      setIsDeletingAll(true);
       await deleteAllTeachers();
       setIsDeleteAllModalOpen(false);
-    } catch (err) {
-      console.error("Error deleting all teachers:", err);
+    } catch (err: any) {
+      alert("Lỗi khi xóa toàn bộ giáo viên: " + (err.message || err));
+    } finally {
+      setIsDeletingAll(false);
     }
   };
 
@@ -425,11 +438,11 @@ export default function Teachers() {
               </p>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3 bg-slate-50/50">
-              <button onClick={() => setDeletingTeacher(null)} className="px-4 py-2 text-[13px] font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors">
+              <button disabled={isDeleting} onClick={() => setDeletingTeacher(null)} className="px-4 py-2 text-[13px] font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50">
                 Hủy
               </button>
-              <button onClick={confirmDelete} className="px-4 py-2 text-[13px] font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 hover:shadow-rose-500/20 transition-all">
-                Xóa
+              <button disabled={isDeleting} onClick={confirmDelete} className="px-4 py-2 text-[13px] font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 hover:shadow-rose-500/20 transition-all disabled:opacity-50">
+                {isDeleting ? 'Đang xóa...' : 'Xóa'}
               </button>
             </div>
           </div>
@@ -449,11 +462,11 @@ export default function Teachers() {
               </p>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3 bg-slate-50/50">
-              <button onClick={() => setIsDeleteAllModalOpen(false)} className="px-4 py-2 text-[13px] font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors">
+              <button disabled={isDeletingAll} onClick={() => setIsDeleteAllModalOpen(false)} className="px-4 py-2 text-[13px] font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50">
                 Hủy bỏ
               </button>
-              <button onClick={handleDeleteAll} className="px-4 py-2 text-[13px] font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 hover:shadow-rose-500/20 transition-all">
-                Đồng ý xóa hết
+              <button disabled={isDeletingAll} onClick={handleDeleteAll} className="px-4 py-2 text-[13px] font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 hover:shadow-rose-500/20 transition-all disabled:opacity-50">
+                {isDeletingAll ? 'Đang xóa...' : 'Đồng ý xóa hết'}
               </button>
             </div>
           </div>

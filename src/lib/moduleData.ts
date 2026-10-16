@@ -180,6 +180,21 @@ export const DEFAULT_SYSTEM_MODULES: SystemModule[] = [
     isSystem: true
   },
   {
+    id: 'van_phong',
+    title: 'TỔ VĂN PHÒNG',
+    desc: 'Quản lý nhân sự, nhiệm vụ, văn thư, kế toán, y tế & hỗ trợ hành chính',
+    icon: 'Briefcase',
+    route: '/van-phong',
+    gradient: 'from-blue-600 to-cyan-700',
+    shadowColor: 'shadow-blue-500/30',
+    order: 9.5,
+    enabled: true,
+    allowedRoles: ['admin', 'ADMIN', 'BGH', 'TTCM', 'GIAO_VU', 'NHAN_SU', 'GIAO_VIEN', 'NHAN_VIEN'],
+    showOnHome: true,
+    showOnSidebar: true,
+    isSystem: true
+  },
+  {
     id: 'reports',
     title: 'THỐNG KÊ',
     desc: 'Báo cáo tổng hợp, xuất dữ liệu',

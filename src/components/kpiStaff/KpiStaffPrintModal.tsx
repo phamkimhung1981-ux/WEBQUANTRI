@@ -143,41 +143,50 @@ export default function KpiStaffPrintModal({ isOpen, onClose, form }: Props) {
 
           {/* Section C & D: TỔNG HỢP ĐIỂM */}
           <div className="font-sans text-xs space-y-2 pt-2">
-            <h3 className="font-bold text-sm text-slate-900 uppercase">D. TỔNG HỢP ĐIỂM</h3>
-            <table className="w-full border-collapse border border-slate-300 max-w-lg">
+            <h3 className="font-bold text-sm text-slate-900 uppercase">D. TỔNG HỢP ĐIỂM & ĐÁNH GIÁ 3 CẤP</h3>
+            <table className="w-full border-collapse border border-slate-300">
               <thead>
                 <tr className="bg-slate-100 font-bold text-slate-800">
-                  <th className="p-2 border border-slate-300 text-left">Nội dung</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Điểm tối đa</th>
-                  <th className="p-2 border border-slate-300 w-28 text-center">Điểm đạt</th>
+                  <th className="p-2 border border-slate-300 text-left">Cấp đánh giá</th>
+                  <th className="p-2 border border-slate-300 w-28 text-center">Điểm KPI (100đ)</th>
+                  <th className="p-2 border border-slate-300 text-left">Nhận xét / Xếp loại</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td className="p-2 border border-slate-300">KPI chung</td>
-                  <td className="p-2 border border-slate-300 text-center">30</td>
-                  <td className="p-2 border border-slate-300 text-center font-bold">{form.generalTotalSelf}</td>
+                  <td className="p-2 border border-slate-300 font-semibold">1. Nhân viên tự đánh giá</td>
+                  <td className="p-2 border border-slate-300 text-center font-bold">{form.totalScore} / 100đ</td>
+                  <td className="p-2 border border-slate-300">{form.selfClassification || '---'}</td>
                 </tr>
                 <tr>
-                  <td className="p-2 border border-slate-300">KPI vị trí việc làm</td>
-                  <td className="p-2 border border-slate-300 text-center">70</td>
-                  <td className="p-2 border border-slate-300 text-center font-bold">{form.positionTotalSelf}</td>
+                  <td className="p-2 border border-slate-300 font-semibold">2. Tổ trưởng Văn phòng đánh giá</td>
+                  <td className="p-2 border border-slate-300 text-center font-bold text-purple-900">
+                    {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? `${form.ttcmTotalScore} / 100đ` : 'Chưa đánh giá'}
+                  </td>
+                  <td className="p-2 border border-slate-300 text-slate-700">
+                    {form.ttcmComment ? `${form.ttcmComment} (${form.ttcmClassification || '---'})` : (form.ttcmClassification || '---')}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">3. Ban Giám hiệu phê duyệt</td>
+                  <td className="p-2 border border-slate-300 text-center font-bold text-amber-900">
+                    {form.managerTotalScore !== null && form.managerTotalScore !== undefined ? `${form.managerTotalScore} / 100đ` : 'Chưa duyệt'}
+                  </td>
+                  <td className="p-2 border border-slate-300 text-slate-700">
+                    {form.managerGeneralComment ? `${form.managerGeneralComment} (${form.bghClassification || form.leaderClassification || '---'})` : (form.bghClassification || form.leaderClassification || '---')}
+                  </td>
                 </tr>
                 <tr className="font-bold bg-slate-50">
-                  <td className="p-2 border border-slate-300">Tổng điểm KPI</td>
-                  <td className="p-2 border border-slate-300 text-center">100</td>
-                  <td className="p-2 border border-slate-300 text-center text-emerald-800 text-sm font-extrabold">{finalScore}</td>
-                </tr>
-                <tr className="font-bold">
-                  <td className="p-2 border border-slate-300">Tự xếp loại</td>
-                  <td colSpan={2} className="p-2 border border-slate-300 text-center text-emerald-900 uppercase">{finalClassification}</td>
+                  <td className="p-2 border border-slate-300">ĐIỂM CHÍNH THỨC CUỐI CÙNG</td>
+                  <td className="p-2 border border-slate-300 text-center text-emerald-800 text-sm font-black">{finalScore} / 100đ</td>
+                  <td className="p-2 border border-slate-300 text-emerald-900 uppercase font-black">{finalClassification}</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           {/* Signatures */}
-          <div className="pt-8 grid grid-cols-2 text-center text-xs font-sans">
+          <div className="pt-8 grid grid-cols-3 text-center text-xs font-sans gap-2">
             <div className="space-y-1">
               <p className="font-bold uppercase">NHÂN VIÊN TỰ ĐÁNH GIÁ</p>
               <p className="text-[10px] italic text-slate-500">(Ký và ghi rõ họ tên)</p>
@@ -186,10 +195,17 @@ export default function KpiStaffPrintModal({ isOpen, onClose, form }: Props) {
             </div>
 
             <div className="space-y-1">
+              <p className="font-bold uppercase">TỔ TRƯỞNG VĂN PHÒNG</p>
+              <p className="text-[10px] italic text-slate-500">(Ký và ghi rõ họ tên)</p>
+              <div className="h-16" />
+              <p className="font-bold">Tổ trưởng Văn phòng</p>
+            </div>
+
+            <div className="space-y-1">
               <p className="font-bold uppercase">BGH PHÊ DUYỆT</p>
               <p className="text-[10px] italic text-slate-500">(Ký và ghi rõ họ tên)</p>
               <div className="h-16" />
-              <p className="font-bold">{form.evaluatorName || 'Phạm Kim Hùng'}</p>
+              <p className="font-bold">{form.evaluatorName || 'Hiệu trưởng'}</p>
             </div>
           </div>
 

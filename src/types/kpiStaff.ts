@@ -72,6 +72,9 @@ export interface KpiStaffPeriod {
   id: string;
   name: string;
   academicYear: string;
+  periodType?: 'month' | 'semester' | 'year';
+  month?: number;
+  semester?: string;
   startDate: string;
   endDate: string;
   status: 'active' | 'locked' | 'draft';
@@ -96,6 +99,9 @@ export interface KpiStaffForm {
   periodId: string;
   periodName: string;
   academicYear: string;
+  periodType?: 'month' | 'semester' | 'year';
+  month?: number;
+  semester?: string;
 
   // Score Items list
   generalItems: KpiStaffScoreItem[]; // Section A: 30 điểm KPI Chung
@@ -120,9 +126,13 @@ export interface KpiStaffForm {
   leaderClassification?: string;
   bghClassification?: string;
 
-  // Comments
+  // Comments & Statuses
   selfComment?: string;
+  ttcmComment?: string;
   managerGeneralComment?: string;
+
+  ttcmStatus?: 'Chưa đánh giá' | 'Đang đánh giá' | 'Đã đánh giá' | 'Đã xác nhận';
+  bghStatus?: 'Chưa đánh giá' | 'Đang đánh giá' | 'Đã đánh giá' | 'Đã xác nhận';
 
   // Metadata
   status: KpiStaffFormStatus;

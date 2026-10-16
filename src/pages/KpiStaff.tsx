@@ -10,10 +10,15 @@ import {
 import { 
   DEFAULT_STAFF_PERIODS, 
   POSITION_CONFIGS, 
-  getEligibleStaffMembers 
+  getEligibleStaffMembers,
+  getClassificationByScore
 } from '../lib/kpiStaffData';
 import { exportStaffSummaryToExcel, exportStaffFormToWord } from '../utils/kpiStaffExport';
-import { deleteAllStaffFormsFromFirestore, deleteStaffFormFromFirestore } from '../services/kpiStaffService';
+import { 
+  deleteAllStaffFormsFromFirestore, 
+  deleteStaffFormFromFirestore, 
+  saveStaffFormsToCache 
+} from '../services/kpiStaffService';
 
 import KpiStaffPeriodManagerModal from '../components/kpiStaff/KpiStaffPeriodManagerModal';
 import KpiStaffDocumentModal from '../components/kpiStaff/KpiStaffDocumentModal';
@@ -25,6 +30,69 @@ import {
   Award, Edit3, Printer, Trash2, 
   TrendingUp, Users, FileText, Lock
 } from 'lucide-react';
+
+const getTtcmEvaluationBadge = (f: KpiStaffForm) => {
+  const hasScore = typeof f.ttcmTotalScore === 'number' && f.ttcmTotalScore !== null && !isNaN(f.ttcmTotalScore);
+  if (hasScore) {
+    const isConfirmed = f.status === 'completed' || f.status === 'locked' || f.ttcmStatus === 'Đã xác nhận';
+    return (
+      <div className="flex flex-col items-center gap-0.5">
+        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border inline-block ${
+          isConfirmed 
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+            : 'bg-purple-50 text-purple-800 border-purple-200'
+        }`}>
+          {isConfirmed ? 'Đã xác nhận' : 'Đã đánh giá'}
+        </span>
+        <span className="text-xs font-black text-purple-950">{f.ttcmTotalScore} / 100đ</span>
+      </div>
+    );
+  }
+  if (f.status === 'self_evaluated' || f.status === 'submitted') {
+    return (
+      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-amber-50 text-amber-800 border-amber-200 inline-block">
+        Đang đánh giá
+      </span>
+    );
+  }
+  return (
+    <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200 inline-block">
+      Chưa đánh giá
+    </span>
+  );
+};
+
+const getBghEvaluationBadge = (f: KpiStaffForm) => {
+  const hasScore = typeof f.managerTotalScore === 'number' && f.managerTotalScore !== null && !isNaN(f.managerTotalScore);
+  if (hasScore) {
+    const isConfirmed = f.status === 'completed' || f.status === 'locked' || f.bghStatus === 'Đã xác nhận';
+    return (
+      <div className="flex flex-col items-center gap-0.5">
+        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border inline-block ${
+          isConfirmed 
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+            : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+        }`}>
+          {isConfirmed ? 'Đã xác nhận' : 'Đã đánh giá'}
+        </span>
+        <span className="text-xs font-black text-indigo-950">{f.managerTotalScore} / 100đ</span>
+      </div>
+    );
+  }
+  const hasTtcm = typeof f.ttcmTotalScore === 'number' && f.ttcmTotalScore !== null;
+  if (hasTtcm || f.status === 'submitted') {
+    return (
+      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-amber-50 text-amber-800 border-amber-200 inline-block">
+        Đang đánh giá
+      </span>
+    );
+  }
+  return (
+    <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200 inline-block">
+      Chưa đánh giá
+    </span>
+  );
+};
 
 export default function KpiStaff() {
   const { user } = useAuth();
@@ -48,6 +116,11 @@ export default function KpiStaff() {
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState<boolean>(false);
   const [deleteAllScope, setDeleteAllScope] = useState<'period' | 'all'>('period');
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Single Form Delete Modal State
+  const [formToDelete, setFormToDelete] = useState<KpiStaffForm | null>(null);
+  const [isDeletingSingle, setIsDeletingSingle] = useState<boolean>(false);
+  const [deleteSingleErrorMsg, setDeleteSingleErrorMsg] = useState<string>('');
 
   // Eligible Staff Members
   const eligibleStaff = useMemo(() => getEligibleStaffMembers(teachers), [teachers]);
@@ -138,12 +211,9 @@ export default function KpiStaff() {
     }
   };
 
-  const handleDeleteForm = (formId: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa phiếu đánh giá KPI này?')) {
-      deleteStaffFormFromFirestore(formId);
-      const updated = (kpiStaffForms || []).filter(f => f.id !== formId);
-      setKpiStaffForms(updated);
-    }
+  const handleDeleteForm = (f: KpiStaffForm) => {
+    setDeleteSingleErrorMsg('');
+    setFormToDelete(f);
   };
 
   const handleConfirmDeleteAllForms = async () => {
@@ -348,6 +418,8 @@ export default function KpiStaff() {
                 <th className="p-4 text-center">KPI Chung (30đ)</th>
                 <th className="p-4 text-center">KPI Vị trí (70đ)</th>
                 <th className="p-4 text-center">Tổng điểm (100đ)</th>
+                <th className="p-4 text-center">TT Văn phòng đánh giá</th>
+                <th className="p-4 text-center">BGH đánh giá</th>
                 <th className="p-4">Xếp loại</th>
                 <th className="p-4 text-center">Trạng thái</th>
                 <th className="p-4 text-right">Thao tác</th>
@@ -356,7 +428,7 @@ export default function KpiStaff() {
             <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
               {filteredForms.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-500">
+                  <td colSpan={11} className="p-8 text-center text-slate-500">
                     <div className="max-w-xs mx-auto space-y-2">
                       <UserCheck size={36} className="mx-auto text-slate-300" />
                       <p className="font-bold text-slate-700">Chưa có phiếu đánh giá KPI Nhân viên nào</p>
@@ -367,8 +439,8 @@ export default function KpiStaff() {
               ) : (
                 filteredForms.map((f, idx) => {
                   const posConfig = POSITION_CONFIGS[f.positionKey] || POSITION_CONFIGS.KE_TOAN;
-                  const finalScore = f.managerTotalScore ?? f.totalScore;
-                  const finalClassification = f.leaderClassification || f.selfClassification;
+                  const finalScore = f.managerTotalScore ?? f.ttcmTotalScore ?? f.totalScore;
+                  const finalClassification = f.bghClassification || f.leaderClassification || f.ttcmClassification || f.selfClassification || getClassificationByScore(finalScore);
 
                   return (
                     <tr key={f.id} className="hover:bg-slate-50/80 transition-colors">
@@ -401,6 +473,14 @@ export default function KpiStaff() {
 
                       <td className="p-4 text-center">
                         <span className="font-black text-slate-900 text-sm">{finalScore} / 100đ</span>
+                      </td>
+
+                      <td className="p-4 text-center">
+                        {getTtcmEvaluationBadge(f)}
+                      </td>
+
+                      <td className="p-4 text-center">
+                        {getBghEvaluationBadge(f)}
                       </td>
 
                       <td className="p-4">
@@ -455,7 +535,7 @@ export default function KpiStaff() {
 
                           {canEditOrDelete() && (
                             <button
-                              onClick={() => handleDeleteForm(f.id)}
+                              onClick={() => handleDeleteForm(f)}
                               className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
                               title="Xóa phiếu"
                             >
@@ -586,6 +666,78 @@ export default function KpiStaff() {
                 className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
               >
                 {isDeleting ? 'Đang xóa...' : 'Xác nhận xóa tất cả'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Individual Delete Modal */}
+      {formToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center shrink-0 border border-rose-200">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Xác nhận xóa phiếu KPI cá nhân</h3>
+                <p className="text-xs text-slate-500 font-medium">Hành động này sẽ xóa vĩnh viễn phiếu đánh giá khỏi hệ thống</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2 text-xs text-slate-700 font-medium">
+              <p><strong>Họ và tên nhân viên:</strong> <span className="font-bold text-slate-900">{formToDelete.employeeName}</span> ({formToDelete.employeeCode || '---'})</p>
+              <p><strong>Vị trí việc làm:</strong> <span className="font-bold text-emerald-900">{formToDelete.position}</span></p>
+              <p><strong>Kỳ đánh giá:</strong> <span className="font-bold text-slate-900">{formToDelete.periodName}</span> ({formToDelete.academicYear})</p>
+              <p><strong>Điểm KPI hiện tại:</strong> <span className="font-black text-rose-700">{formToDelete.managerTotalScore ?? formToDelete.ttcmTotalScore ?? formToDelete.totalScore} / 100đ</span></p>
+            </div>
+
+            {deleteSingleErrorMsg && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-center gap-2">
+                <span>{deleteSingleErrorMsg}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                disabled={isDeletingSingle}
+                onClick={() => {
+                  setFormToDelete(null);
+                  setDeleteSingleErrorMsg('');
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+              >
+                Hủy bỏ
+              </button>
+
+              <button
+                disabled={isDeletingSingle}
+                onClick={async () => {
+                  setIsDeletingSingle(true);
+                  setDeleteSingleErrorMsg('');
+                  try {
+                    await deleteStaffFormFromFirestore(formToDelete.id);
+                    const updated = (kpiStaffForms || []).filter(f => f.id !== formToDelete.id);
+                    setKpiStaffForms(updated);
+                    saveStaffFormsToCache(updated);
+                    setFormToDelete(null);
+                  } catch (err: any) {
+                    console.error('Xóa phiếu KPI thất bại:', err);
+                    setDeleteSingleErrorMsg('Xóa phiếu thất bại: ' + (err?.message || 'Không thể kết nối máy chủ Firestore. Vui lòng thử lại!'));
+                  } finally {
+                    setIsDeletingSingle(false);
+                  }
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5"
+              >
+                {isDeletingSingle ? (
+                  <span>Đang xóa...</span>
+                ) : (
+                  <>
+                    <Trash2 size={14} /> Đồng ý Xóa
+                  </>
+                )}
               </button>
             </div>
           </div>

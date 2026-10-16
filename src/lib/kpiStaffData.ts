@@ -227,26 +227,80 @@ export const POSITION_CONFIGS: Record<StaffPositionKey, KpiStaffPositionConfig> 
   }
 };
 
-export const DEFAULT_STAFF_PERIODS: KpiStaffPeriod[] = [
-  {
-    id: 'period_staff_2026_2027',
-    name: 'Năm học 2026–2027',
-    academicYear: '2026–2027',
-    startDate: '2026-09-01',
-    endDate: '2027-05-31',
-    status: 'active',
-    description: 'Đánh giá, chấm điểm KPI Nhân viên THPT Sơn Lương năm học 2026–2027 (Khung 30đ + 70đ)'
-  },
-  {
-    id: 'period_staff_2026_hk1',
-    name: 'Học kỳ I (2026–2027)',
-    academicYear: '2026–2027',
-    startDate: '2026-09-01',
-    endDate: '2027-01-15',
-    status: 'active',
-    description: 'Đánh giá KPI Nhân viên Học kỳ I năm học 2026–2027'
-  }
-];
+export function generateStaffPeriodsForAcademicYear(academicYearStr: string = '2026–2027'): KpiStaffPeriod[] {
+  const cleanYear = academicYearStr.replace('-', '–');
+  const startYear = parseInt(cleanYear.split('–')[0]) || 2026;
+  const endYear = startYear + 1;
+  const yearRangeStr = `${startYear}–${endYear}`;
+
+  const list: KpiStaffPeriod[] = [
+    {
+      id: `period_staff_${startYear}_${endYear}`,
+      name: `Năm học ${yearRangeStr}`,
+      academicYear: yearRangeStr,
+      periodType: 'year',
+      startDate: `${startYear}-09-01`,
+      endDate: `${endYear}-05-31`,
+      status: 'active',
+      description: `Đánh giá KPI Nhân viên cả năm học ${yearRangeStr}`
+    },
+    {
+      id: `period_staff_${startYear}_hk1`,
+      name: `Học kỳ I (${yearRangeStr})`,
+      academicYear: yearRangeStr,
+      periodType: 'semester',
+      semester: 'HK1',
+      startDate: `${startYear}-09-01`,
+      endDate: `${endYear}-01-15`,
+      status: 'active',
+      description: `Đánh giá KPI Nhân viên Học kỳ I năm học ${yearRangeStr}`
+    },
+    {
+      id: `period_staff_${startYear}_hk2`,
+      name: `Học kỳ II (${yearRangeStr})`,
+      academicYear: yearRangeStr,
+      periodType: 'semester',
+      semester: 'HK2',
+      startDate: `${endYear}-01-16`,
+      endDate: `${endYear}-05-31`,
+      status: 'active',
+      description: `Đánh giá KPI Nhân viên Học kỳ II năm học ${yearRangeStr}`
+    }
+  ];
+
+  const monthSeq = [
+    { m: 8, yr: startYear },
+    { m: 9, yr: startYear },
+    { m: 10, yr: startYear },
+    { m: 11, yr: startYear },
+    { m: 12, yr: startYear },
+    { m: 1, yr: endYear },
+    { m: 2, yr: endYear },
+    { m: 3, yr: endYear },
+    { m: 4, yr: endYear },
+    { m: 5, yr: endYear }
+  ];
+
+  monthSeq.forEach(({ m, yr }) => {
+    const mPadded = m < 10 ? `0${m}` : `${m}`;
+    const lastDay = new Date(yr, m, 0).getDate();
+    list.push({
+      id: `period_staff_m${mPadded}_${yr}`,
+      name: `Tháng ${m}/${yr}`,
+      academicYear: yearRangeStr,
+      periodType: 'month',
+      month: m,
+      startDate: `${yr}-${mPadded}-01`,
+      endDate: `${yr}-${mPadded}-${lastDay}`,
+      status: 'active',
+      description: `Đánh giá, chấm điểm KPI Nhân viên Tháng ${m}/${yr}`
+    });
+  });
+
+  return list;
+}
+
+export const DEFAULT_STAFF_PERIODS: KpiStaffPeriod[] = generateStaffPeriodsForAcademicYear('2026–2027');
 
 /**
  * Tự động xác định bộ Vị trí việc làm dựa trên tên chức danh / công việc của nhân viên
@@ -345,6 +399,8 @@ export const createInitialStaffForm = (
     periodId: period.id,
     periodName: period.name,
     academicYear: period.academicYear,
+    periodType: period.periodType || 'month',
+    month: period.month,
     generalItems,
     positionItems,
     generalTotalSelf: genSelf,

@@ -499,24 +499,60 @@ export default function KpiStaffFormModal({
               <p className="text-slate-600 leading-relaxed"><strong>Người theo dõi:</strong> {posConfig.trackingPerson}</p>
             </div>
 
-            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-2.5 font-bold text-slate-800">
-              <h4 className="font-extrabold text-emerald-900 uppercase text-[11px] tracking-wider border-b border-emerald-200 pb-1">D. TỔNG HỢP ĐIỂM KPI ĐÁNH GIÁ</h4>
+            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-3 font-bold text-slate-800">
+              <h4 className="font-extrabold text-emerald-900 uppercase text-[11px] tracking-wider border-b border-emerald-200 pb-1">D. TỔNG HỢP ĐIỂM & ĐÁNH GIÁ 3 CẤP</h4>
               
-              <div className="flex justify-between text-xs">
-                <span>1. Cá nhân tự chấm:</span>
-                <span className="text-blue-900 font-bold">{formData.totalScore} / 100 điểm</span>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span>1. Cá nhân tự chấm:</span>
+                  <span className="text-blue-900 font-bold">{formData.totalScore} / 100đ ({formData.selfClassification})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>2. TT Văn phòng đánh giá:</span>
+                  <span className="text-purple-900 font-bold">
+                    {formData.ttcmTotalScore !== null && formData.ttcmTotalScore !== undefined 
+                      ? `${formData.ttcmTotalScore} / 100đ (${formData.ttcmClassification || '---'})` 
+                      : 'Chưa đánh giá'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>3. Ban Giám hiệu phê duyệt:</span>
+                  <span className="text-amber-900 font-bold">
+                    {formData.managerTotalScore !== null && formData.managerTotalScore !== undefined 
+                      ? `${formData.managerTotalScore} / 100đ (${formData.bghClassification || formData.leaderClassification || '---'})` 
+                      : 'Chưa duyệt'}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between text-xs">
-                <span>2. Tổ trưởng chuyên môn chấm (TTCM):</span>
-                <span className="text-purple-900 font-bold">{formData.ttcmTotalScore !== null && formData.ttcmTotalScore !== undefined ? `${formData.ttcmTotalScore} / 100 điểm` : '---'}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span>3. Ban Giám hiệu chấm (BGH):</span>
-                <span className="text-amber-900 font-bold">{formData.managerTotalScore !== null && formData.managerTotalScore !== undefined ? `${formData.managerTotalScore} / 100 điểm` : '---'}</span>
+
+              <div className="pt-2 border-t border-emerald-200 space-y-2 text-xs">
+                <div>
+                  <label className="text-[11px] font-bold text-purple-900 block mb-1">Nhận xét của Tổ trưởng Văn phòng:</label>
+                  <input
+                    type="text"
+                    disabled={isLocked}
+                    value={formData.ttcmComment || ''}
+                    onChange={e => setFormData({ ...formData, ttcmComment: e.target.value })}
+                    placeholder="Nhập nhận xét / nhận định của TT Văn phòng..."
+                    className="w-full p-2 bg-white border border-purple-200 rounded-lg text-xs font-normal text-slate-800 focus:ring-1 focus:ring-purple-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-amber-900 block mb-1">Ý kiến / Chỉ đạo của Ban Giám hiệu:</label>
+                  <input
+                    type="text"
+                    disabled={isLocked}
+                    value={formData.managerGeneralComment || ''}
+                    onChange={e => setFormData({ ...formData, managerGeneralComment: e.target.value })}
+                    placeholder="Nhập ý kiến phê duyệt của BGH..."
+                    className="w-full p-2 bg-white border border-amber-200 rounded-lg text-xs font-normal text-slate-800 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="flex justify-between text-sm pt-2 border-t border-emerald-200 font-black">
-                <span className="text-slate-900">ĐIỂM ĐÁNH GIÁ CUỐI CÙNG:</span>
+                <span className="text-slate-900">ĐIỂM CHÍNH THỨC CUỐI CÙNG:</span>
                 <span className="text-emerald-800 text-base">{finalScore} / 100 ĐIỂM</span>
               </div>
             </div>
@@ -524,9 +560,9 @@ export default function KpiStaffFormModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="text-xs font-semibold text-slate-500">
-            Trạng thái: <span className="font-bold text-emerald-800 uppercase">{formData.status === 'completed' ? 'Đã nghiệm thu' : 'Bản nháp'}</span>
+            Trạng thái: <span className="font-bold text-emerald-800 uppercase">{formData.status === 'completed' || formData.status === 'locked' ? 'Đã nghiệm thu / Khóa' : formData.status === 'submitted' ? 'TT Văn phòng đã duyệt' : 'Bản nháp'}</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -547,10 +583,40 @@ export default function KpiStaffFormModal({
                 </button>
 
                 <button
-                  onClick={() => handleSave('completed')}
+                  onClick={() => {
+                    const updated = {
+                      ...formData,
+                      ttcmStatus: 'Đã xác nhận' as const,
+                      status: 'submitted' as const,
+                      updatedAt: new Date().toISOString()
+                    };
+                    setFormData(updated);
+                    onSaveForm(updated);
+                    setSaveSuccessMsg('Tổ trưởng Văn phòng đã xác nhận đánh giá thành công!');
+                    setTimeout(() => setSaveSuccessMsg(''), 2000);
+                  }}
+                  className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <FileCheck size={15} /> TT Văn phòng xác nhận
+                </button>
+
+                <button
+                  onClick={() => {
+                    const updated = {
+                      ...formData,
+                      ttcmStatus: 'Đã xác nhận' as const,
+                      bghStatus: 'Đã xác nhận' as const,
+                      status: 'completed' as const,
+                      updatedAt: new Date().toISOString()
+                    };
+                    setFormData(updated);
+                    onSaveForm(updated);
+                    setSaveSuccessMsg('Ban Giám hiệu đã phê duyệt hoàn tất phiếu KPI!');
+                    setTimeout(() => setSaveSuccessMsg(''), 2000);
+                  }}
                   className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-md"
                 >
-                  <Send size={15} /> Hoàn tất & Nghiệm thu
+                  <Send size={15} /> BGH Phê duyệt & Nghiệm thu
                 </button>
               </>
             )}

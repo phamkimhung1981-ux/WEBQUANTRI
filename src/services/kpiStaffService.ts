@@ -102,11 +102,19 @@ export const saveStaffFormToFirestore = async (form: KpiStaffForm) => {
   }
 };
 
-export const deleteStaffFormFromFirestore = async (formId: string) => {
+export const deleteStaffFormFromFirestore = async (formId: string): Promise<boolean> => {
   try {
-    await deleteDoc(doc(db, STAFF_COLLECTIONS.FORMS, formId));
+    const docRef = doc(db, STAFF_COLLECTIONS.FORMS, formId);
+    await deleteDoc(docRef);
+
+    // Update localStorage cache immediately
+    const currentForms = loadStaffFormsFromCache();
+    const remainingForms = currentForms.filter(f => f.id !== formId);
+    saveStaffFormsToCache(remainingForms);
+    return true;
   } catch (err) {
     console.error('Error deleting staff form from Firestore:', err);
+    throw err;
   }
 };
 

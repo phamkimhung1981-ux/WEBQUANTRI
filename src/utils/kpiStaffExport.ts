@@ -237,7 +237,7 @@ export const exportStaffFormToWord = async (form: KpiStaffForm): Promise<void> =
           new Paragraph({
             spacing: { before: 300, after: 100 },
             children: [
-              new TextRun({ text: 'D. TỔNG HỢP ĐIỂM', bold: true, size: 24, font: 'Times New Roman', color: '0F172A' })
+              new TextRun({ text: 'D. TỔNG HỢP ĐIỂM & ĐÁNH GIÁ 3 CẤP', bold: true, size: 24, font: 'Times New Roman', color: '0F172A' })
             ]
           }),
           new Table({
@@ -245,36 +245,37 @@ export const exportStaffFormToWord = async (form: KpiStaffForm): Promise<void> =
             rows: [
               new TableRow({
                 children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Nội dung', bold: true, size: 20, font: 'Times New Roman' })] })], width: { size: 50, type: WidthType.PERCENTAGE } }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Điểm tối đa', bold: true, size: 20, font: 'Times New Roman' })] })], width: { size: 25, type: WidthType.PERCENTAGE } }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Điểm đạt', bold: true, size: 20, font: 'Times New Roman' })] })], width: { size: 25, type: WidthType.PERCENTAGE } })
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Cấp đánh giá', bold: true, size: 20, font: 'Times New Roman' })] })], width: { size: 40, type: WidthType.PERCENTAGE } }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Điểm KPI (100đ)', bold: true, size: 20, font: 'Times New Roman' })] })], width: { size: 25, type: WidthType.PERCENTAGE } }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Nhận xét / Xếp loại', bold: true, size: 20, font: 'Times New Roman' })] })], width: { size: 35, type: WidthType.PERCENTAGE } })
                 ]
               }),
               new TableRow({
                 children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'KPI chung', size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '30', size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${form.generalTotalSelf}`, bold: true, size: 20, font: 'Times New Roman' })] })] })
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: '1. Nhân viên tự đánh giá', size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${form.totalScore} / 100đ`, bold: true, size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: form.selfClassification || '---', size: 20, font: 'Times New Roman' })] })] })
                 ]
               }),
               new TableRow({
                 children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'KPI vị trí việc làm', size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '70', size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${form.positionTotalSelf}`, bold: true, size: 20, font: 'Times New Roman' })] })] })
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: '2. Tổ trưởng Văn phòng', size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? `${form.ttcmTotalScore} / 100đ` : 'Chưa đánh giá', bold: true, size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: form.ttcmComment ? `${form.ttcmComment} (${form.ttcmClassification || '---'})` : (form.ttcmClassification || '---'), size: 20, font: 'Times New Roman' })] })] })
                 ]
               }),
               new TableRow({
                 children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Tổng điểm KPI', bold: true, size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '100', bold: true, size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${finalScore}`, bold: true, size: 20, font: 'Times New Roman', color: '166534' })] })] })
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: '3. Ban Giám hiệu phê duyệt', size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: form.managerTotalScore !== null && form.managerTotalScore !== undefined ? `${form.managerTotalScore} / 100đ` : 'Chưa duyệt', bold: true, size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: form.managerGeneralComment ? `${form.managerGeneralComment} (${form.bghClassification || form.leaderClassification || '---'})` : (form.bghClassification || form.leaderClassification || '---'), size: 20, font: 'Times New Roman' })] })] })
                 ]
               }),
               new TableRow({
                 children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Tự xếp loại', bold: true, size: 20, font: 'Times New Roman' })] })] }),
-                  new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: finalClassification, bold: true, size: 20, font: 'Times New Roman', color: '1E3A8A' })] })] })
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'ĐIỂM CHÍNH THỨC CUỐI CÙNG', bold: true, size: 20, font: 'Times New Roman' })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${finalScore} / 100đ`, bold: true, size: 20, font: 'Times New Roman', color: '166534' })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: finalClassification, bold: true, size: 20, font: 'Times New Roman', color: '1E3A8A' })] })] })
                 ]
               })
             ]
@@ -284,18 +285,18 @@ export const exportStaffFormToWord = async (form: KpiStaffForm): Promise<void> =
           new Paragraph({
             spacing: { before: 500 },
             children: [
-              new TextRun({ text: '                  NHÂN VIÊN TỰ ĐÁNH GIÁ                                    BGH PHÊ DUYỆT', bold: true, size: 22, font: 'Times New Roman' })
+              new TextRun({ text: '     NHÂN VIÊN TỰ ĐÁNH GIÁ               TỔ TRƯỞNG VĂN PHÒNG               BGH PHÊ DUYỆT', bold: true, size: 20, font: 'Times New Roman' })
             ]
           }),
           new Paragraph({
             spacing: { after: 700 },
             children: [
-              new TextRun({ text: '                       (Ký và ghi rõ họ tên)                                              (Ký và ghi rõ họ tên)', italics: true, size: 20, font: 'Times New Roman' })
+              new TextRun({ text: '          (Ký và ghi rõ họ tên)                      (Ký và ghi rõ họ tên)                    (Ký và ghi rõ họ tên)', italics: true, size: 18, font: 'Times New Roman' })
             ]
           }),
           new Paragraph({
             children: [
-              new TextRun({ text: `                       ${form.employeeName}                                              ${form.evaluatorName || 'Hiệu trưởng'}`, bold: true, size: 22, font: 'Times New Roman' })
+              new TextRun({ text: `          ${form.employeeName}                                Tổ trưởng Văn phòng                     ${form.evaluatorName || 'Hiệu trưởng'}`, bold: true, size: 20, font: 'Times New Roman' })
             ]
           })
         ]

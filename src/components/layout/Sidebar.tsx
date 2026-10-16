@@ -20,7 +20,8 @@ import {
   Layers,
   FileText,
   UserCheck,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Briefcase
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -49,6 +50,7 @@ export default function Sidebar({ isOpen, setIsOpen, hideOnDesktop = false }: Si
     { name: 'Quản lý tài khoản', href: '/user-accounts', icon: UserCheck },
     { name: 'Quản lý Văn bản', href: '/documents', icon: FileText },
     { name: 'Tổ chuyên môn', href: '/departments', icon: UserSquare2 },
+    { name: 'Tổ Văn phòng', href: '/van-phong', icon: Briefcase },
     { name: 'Nghỉ phép', href: '/leaves', icon: Plane },
     { name: 'Thống kê - Báo cáo', href: '/reports', icon: BarChart3 },
     { name: 'Hệ thống', href: '/settings', icon: Settings },

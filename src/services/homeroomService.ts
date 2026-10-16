@@ -818,9 +818,15 @@ export const homeroomService = {
     }
   },
 
-  async deleteStudentsBulk(ids: string[], classId?: string) {
+  async deleteStudentsBulk(
+    ids: string[],
+    classId?: string,
+    options?: { deleteRecordsAndAssessments?: boolean; className?: string; schoolYear?: string }
+  ) {
     try {
-      if (ids.length === 0) return;
+      if (!ids || ids.length === 0) return;
+
+      // 1. Delete student documents in batches
       for (let i = 0; i < ids.length; i += 400) {
         const batch = writeBatch(db);
         const chunk = ids.slice(i, i + 400);
@@ -830,10 +836,95 @@ export const homeroomService = {
         await batch.commit();
       }
 
+      // 2. Clean up related records if requested
+      if (options?.deleteRecordsAndAssessments !== false && ids.length > 0) {
+        const idSet = new Set(ids);
+
+        // Conduct records
+        try {
+          const recSnap = await getDocs(collection(db, 'conduct_records'));
+          const recDocs = recSnap.docs.filter(d => {
+            const r = d.data();
+            const matchStudent = r.studentId && idSet.has(r.studentId);
+            const matchYear = !options?.schoolYear || !r.schoolYear || r.schoolYear === options.schoolYear;
+            return matchStudent && matchYear;
+          });
+          for (let i = 0; i < recDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            recDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch (e) {
+          console.warn('Error deleting conduct_records in bulk delete:', e);
+        }
+
+        // Conduct evaluations
+        try {
+          const evalSnap = await getDocs(collection(db, 'conduct_evaluations'));
+          const evalDocs = evalSnap.docs.filter(d => {
+            const e = d.data();
+            const matchStudent = e.studentId && idSet.has(e.studentId);
+            const matchYear = !options?.schoolYear || !e.schoolYear || e.schoolYear === options.schoolYear;
+            return matchStudent && matchYear;
+          });
+          for (let i = 0; i < evalDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            evalDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch (e) {
+          console.warn('Error deleting conduct_evaluations in bulk delete:', e);
+        }
+
+        // Teacher assessments
+        try {
+          const taSnap = await getDocs(collection(db, 'teacher_assessments'));
+          const taDocs = taSnap.docs.filter(d => {
+            const a = d.data();
+            const matchStudent = a.studentId && idSet.has(a.studentId);
+            const matchYear = !options?.schoolYear || !a.schoolYear || a.schoolYear === options.schoolYear;
+            return matchStudent && matchYear;
+          });
+          for (let i = 0; i < taDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            taDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch (e) {
+          console.warn('Error deleting teacher_assessments in bulk delete:', e);
+        }
+
+        // Youth discipline violations
+        try {
+          const ydVioSnap = await getDocs(collection(db, 'youth_discipline_violations'));
+          const ydDocs = ydVioSnap.docs.filter(d => {
+            const v = d.data();
+            const matchStudent = v.studentId && idSet.has(v.studentId);
+            const matchYear = !options?.schoolYear || !v.schoolYear || v.schoolYear === options.schoolYear;
+            return matchStudent && matchYear;
+          });
+          for (let i = 0; i < ydDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            ydDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch (e) {
+          console.warn('Error deleting youth_discipline_violations in bulk delete:', e);
+        }
+      }
+
+      // 3. Update class totalStudents count in Firestore
       if (classId) {
-        const q = query(collection(db, 'students'), where('classId', '==', classId));
-        const snap = await getDocs(q);
-        await updateDoc(doc(db, 'classes', classId), { totalStudents: snap.size });
+        try {
+          const stdSnap = await getDocs(collection(db, 'students'));
+          const remainingCount = stdSnap.docs.filter(d => {
+            const s = d.data();
+            return s.classId === classId || (options?.className && s.className && s.className.trim().toLowerCase() === options.className.trim().toLowerCase());
+          }).length;
+          await setDoc(doc(db, 'classes', classId), { totalStudents: remainingCount }, { merge: true });
+        } catch (e) {
+          console.warn('Error updating class student count after bulk delete:', e);
+        }
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students_bulk');
@@ -920,112 +1011,125 @@ export const homeroomService = {
     }
   },
 
-  async deleteAllStudentsOfClass(classId: string, options?: { deleteRecordsAndAssessments?: boolean }) {
+  async deleteAllStudentsOfClass(
+    classId: string,
+    options?: { deleteRecordsAndAssessments?: boolean; className?: string; schoolYear?: string }
+  ): Promise<{ deletedCount: number }> {
     try {
-      if (!classId) return { deletedCount: 0 };
+      if (!classId && !options?.className) return { deletedCount: 0 };
 
-      // 1. Get all students of this class
-      const q = query(collection(db, 'students'), where('classId', '==', classId));
-      const snap = await getDocs(q);
-      const studentIds = snap.docs.map(d => d.id);
+      // 1. Get ALL student documents in 'students' collection matching classId OR className
+      const stdSnap = await getDocs(collection(db, 'students'));
+      const matchingDocs = stdSnap.docs.filter(d => {
+        const s = d.data() as Student;
+        if (classId && s.classId === classId) return true;
+        if (options?.className && s.className && s.className.trim().toLowerCase() === options.className.trim().toLowerCase()) return true;
+        return false;
+      });
 
-      if (studentIds.length > 0) {
-        for (let i = 0; i < snap.docs.length; i += 400) {
+      const studentIds = matchingDocs.map(d => d.id);
+      const studentIdSet = new Set(studentIds);
+
+      // 2. Batch-delete all matching student documents
+      if (matchingDocs.length > 0) {
+        for (let i = 0; i < matchingDocs.length; i += 400) {
           const batch = writeBatch(db);
-          const chunk = snap.docs.slice(i, i + 400);
-          chunk.forEach(d => batch.delete(d.ref));
+          matchingDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
           await batch.commit();
         }
       }
 
-      // 2. Also clean up related conduct records, evaluations, teacher assessments
-      if (options?.deleteRecordsAndAssessments !== false && studentIds.length > 0) {
-        // Conduct records by classId or studentId
-        const recQuery = query(collection(db, 'conduct_records'), where('classId', '==', classId));
-        const recSnap = await getDocs(recQuery);
-        const docsToDelete = [...recSnap.docs];
-
-        // Also query by studentId for each student
-        for (const sId of studentIds) {
-          try {
-            const sRecQ = query(collection(db, 'conduct_records'), where('studentId', '==', sId));
-            const sRecSnap = await getDocs(sRecQ);
-            sRecSnap.docs.forEach(d => {
-              if (!docsToDelete.some(existing => existing.id === d.id)) {
-                docsToDelete.push(d);
-              }
-            });
-          } catch (e) {}
+      // 3. Update class totalStudents count in Firestore
+      if (classId) {
+        try {
+          await setDoc(doc(db, 'classes', classId), { totalStudents: 0 }, { merge: true });
+        } catch (e) {
+          console.warn('Could not reset class totalStudents count:', e);
         }
+      }
 
-        if (docsToDelete.length > 0) {
-          for (let i = 0; i < docsToDelete.length; i += 400) {
+      // 4. Clean up related conduct records, evaluations, teacher assessments, youth violations if enabled
+      if (options?.deleteRecordsAndAssessments !== false) {
+        const targetClassNameLower = options?.className ? options.className.trim().toLowerCase() : '';
+
+        // Conduct records
+        try {
+          const recSnap = await getDocs(collection(db, 'conduct_records'));
+          const recDocsToDelete = recSnap.docs.filter(d => {
+            const r = d.data();
+            const matchClass = (classId && r.classId === classId) || (targetClassNameLower && r.className && r.className.trim().toLowerCase() === targetClassNameLower);
+            const matchStudent = r.studentId && studentIdSet.has(r.studentId);
+            const matchYear = !options?.schoolYear || !r.schoolYear || r.schoolYear === options.schoolYear;
+            return (matchClass || matchStudent) && matchYear;
+          });
+          for (let i = 0; i < recDocsToDelete.length; i += 400) {
             const batch = writeBatch(db);
-            const chunk = docsToDelete.slice(i, i + 400);
-            chunk.forEach(d => batch.delete(d.ref));
+            recDocsToDelete.slice(i, i + 400).forEach(d => batch.delete(d.ref));
             await batch.commit();
           }
+        } catch (e) {
+          console.warn('Error deleting related conduct_records:', e);
         }
 
         // Conduct evaluations
-        const evalQuery = query(collection(db, 'conduct_evaluations'), where('classId', '==', classId));
-        const evalSnap = await getDocs(evalQuery);
-        const evalDocsToDelete = [...evalSnap.docs];
-        for (const sId of studentIds) {
-          try {
-            const sEvalQ = query(collection(db, 'conduct_evaluations'), where('studentId', '==', sId));
-            const sEvalSnap = await getDocs(sEvalQ);
-            sEvalSnap.docs.forEach(d => {
-              if (!evalDocsToDelete.some(existing => existing.id === d.id)) {
-                evalDocsToDelete.push(d);
-              }
-            });
-          } catch (e) {}
-        }
-
-        if (evalDocsToDelete.length > 0) {
+        try {
+          const evalSnap = await getDocs(collection(db, 'conduct_evaluations'));
+          const evalDocsToDelete = evalSnap.docs.filter(d => {
+            const e = d.data();
+            const matchClass = (classId && e.classId === classId) || (targetClassNameLower && e.className && e.className.trim().toLowerCase() === targetClassNameLower);
+            const matchStudent = e.studentId && studentIdSet.has(e.studentId);
+            const matchYear = !options?.schoolYear || !e.schoolYear || e.schoolYear === options.schoolYear;
+            return (matchClass || matchStudent) && matchYear;
+          });
           for (let i = 0; i < evalDocsToDelete.length; i += 400) {
             const batch = writeBatch(db);
-            const chunk = evalDocsToDelete.slice(i, i + 400);
-            chunk.forEach(d => batch.delete(d.ref));
+            evalDocsToDelete.slice(i, i + 400).forEach(d => batch.delete(d.ref));
             await batch.commit();
           }
+        } catch (e) {
+          console.warn('Error deleting related conduct_evaluations:', e);
         }
 
         // Teacher assessments
-        const taQuery = query(collection(db, 'teacher_assessments'), where('classId', '==', classId));
-        const taSnap = await getDocs(taQuery);
-        const taDocsToDelete = [...taSnap.docs];
-        for (const sId of studentIds) {
-          try {
-            const sTaQ = query(collection(db, 'teacher_assessments'), where('studentId', '==', sId));
-            const sTaSnap = await getDocs(sTaQ);
-            sTaSnap.docs.forEach(d => {
-              if (!taDocsToDelete.some(existing => existing.id === d.id)) {
-                taDocsToDelete.push(d);
-              }
-            });
-          } catch (e) {}
-        }
-
-        if (taDocsToDelete.length > 0) {
+        try {
+          const taSnap = await getDocs(collection(db, 'teacher_assessments'));
+          const taDocsToDelete = taSnap.docs.filter(d => {
+            const a = d.data();
+            const matchClass = (classId && a.classId === classId) || (targetClassNameLower && a.className && a.className.trim().toLowerCase() === targetClassNameLower);
+            const matchStudent = a.studentId && studentIdSet.has(a.studentId);
+            const matchYear = !options?.schoolYear || !a.schoolYear || a.schoolYear === options.schoolYear;
+            return (matchClass || matchStudent) && matchYear;
+          });
           for (let i = 0; i < taDocsToDelete.length; i += 400) {
             const batch = writeBatch(db);
-            const chunk = taDocsToDelete.slice(i, i + 400);
-            chunk.forEach(d => batch.delete(d.ref));
+            taDocsToDelete.slice(i, i + 400).forEach(d => batch.delete(d.ref));
             await batch.commit();
           }
+        } catch (e) {
+          console.warn('Error deleting related teacher_assessments:', e);
+        }
+
+        // Youth discipline violations
+        try {
+          const ydVioSnap = await getDocs(collection(db, 'youth_discipline_violations'));
+          const ydDocsToDelete = ydVioSnap.docs.filter(d => {
+            const v = d.data();
+            const matchClass = (classId && v.classId === classId) || (targetClassNameLower && v.className && v.className.trim().toLowerCase() === targetClassNameLower);
+            const matchStudent = v.studentId && studentIdSet.has(v.studentId);
+            const matchYear = !options?.schoolYear || !v.schoolYear || v.schoolYear === options.schoolYear;
+            return (matchClass || matchStudent) && matchYear;
+          });
+          for (let i = 0; i < ydDocsToDelete.length; i += 400) {
+            const batch = writeBatch(db);
+            ydDocsToDelete.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch (e) {
+          console.warn('Error deleting related youth_discipline_violations:', e);
         }
       }
 
-      // 3. Update totalStudents in class
-      try {
-        await updateDoc(doc(db, 'classes', classId), { totalStudents: 0 });
-      } catch (e) {
-        // ignore if class doc missing
-      }
-
-      return { deletedCount: studentIds.length };
+      return { deletedCount: matchingDocs.length };
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students_deleteAll');
       throw err;

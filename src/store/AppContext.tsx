@@ -8,7 +8,7 @@ import { subscribeStaffForms, saveStaffFormsToCache, saveStaffFormToFirestore, l
 import { DEFAULT_TASK_KPIS } from '../lib/kpiTargetAudienceUtils';
 import { OFFICIAL_SCHOOL_TASKS_2026_2027 } from '../utils/sampleSchoolTasks';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc } from 'firebase/firestore';
 
 interface AppState {
   teachers: Teacher[];
@@ -334,14 +334,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const unsub = onSnapshot(q, (snapshot) => {
         let data: any = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (key === 'teachers') {
-          if (!data || data.length === 0) {
-            const cached = getCachedTeachers();
-            if (cached.length > 0) data = cached;
-          } else {
-            try {
-              localStorage.setItem('app_cached_teachers', JSON.stringify(data));
-            } catch (e) {}
-          }
+          try {
+            localStorage.setItem('app_cached_teachers', JSON.stringify(data));
+          } catch (e) {}
         }
         if (key === 'departments') {
           if (!data || data.length === 0) {
@@ -1137,10 +1132,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const seedAndRepairTeachers = async () => {
       try {
+        const stateDocRef = doc(db, 'systemSettings', 'teachersState');
+        const stateSnap = await getDoc(stateDocRef);
+        const isInitialized = stateSnap.exists() && stateSnap.data()?.initialized;
+
         const teacherCol = collection(db, 'teachers');
         const snap = await getDocs(teacherCol);
 
-        if (snap.empty) {
+        if (snap.empty && !isInitialized) {
           const defaultTeachers: Teacher[] = [
             {
               id: 't_ht',
@@ -1197,66 +1196,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             batch.set(doc(db, 'teachers', t.id), sanitize(t));
           });
           await batch.commit();
+          await setDoc(stateDocRef, { initialized: true }, { merge: true });
           console.log('Seeded essential BGH teachers successfully.');
-        } else {
-          // Repair existing teachers and ensure correct BGH names if corrupted (do NOT recreate deleted regular teachers)
+        } else if (!snap.empty) {
+          // Repair existing teachers only if code/name is corrupt
           let hasCorrupted = false;
           const batch = writeBatch(db);
-
-          const bghList: Teacher[] = [
-            {
-              id: 't_ht',
-              username: 'hieutruong',
-              code: 'BGH001',
-              name: 'Nguyễn Quang Sáng',
-              role: 'BGH',
-              position: 'Hiệu trưởng',
-              departmentId: 'd_bgh',
-              departmentName: 'Ban Giám hiệu',
-              status: 'Đang công tác',
-              email: 'nguyenquangsang@sonluong.edu.vn',
-              phone: '0988888888',
-              subject: 'Quản lý giáo dục',
-              joinDate: '2015-09-01',
-              degree: 'Thạc sĩ'
-            },
-            {
-              id: 't_pht1',
-              username: 'phohieutruong1',
-              code: 'BGH002',
-              name: 'Phạm Kim Hùng',
-              role: 'BGH',
-              position: 'Phó Hiệu trưởng',
-              departmentId: 'd_bgh',
-              departmentName: 'Ban Giám hiệu',
-              status: 'Đang công tác',
-              email: 'phamkimhung@sonluong.edu.vn',
-              phone: '0977777777',
-              subject: 'Quản lý chuyên môn',
-              joinDate: '2017-09-01',
-              degree: 'Thạc sĩ'
-            },
-            {
-              id: 't_pht2',
-              username: 'phohieutruong2',
-              code: 'BGH003',
-              name: 'Nguyễn Anh Hòa',
-              role: 'BGH',
-              position: 'Phó Hiệu trưởng',
-              departmentId: 'd_bgh',
-              departmentName: 'Ban Giám hiệu',
-              status: 'Đang công tác',
-              email: 'nguyenanhhoa@sonluong.edu.vn',
-              phone: '0966666666',
-              subject: 'Quản lý cơ sở vật chất',
-              joinDate: '2018-09-01',
-              degree: 'Thạc sĩ'
-            }
-          ];
-
-          bghList.forEach(b => {
-            batch.set(doc(db, 'teachers', b.id), sanitize(b), { merge: true });
-          });
 
           snap.docs.forEach((d, idx) => {
             const t = d.data() as Teacher;
@@ -1271,7 +1216,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               newCode = `GV${100 + (idx % 900)}`;
               changed = true;
             }
-            // Only fix corruption if not deliberately deleted
             if (isNameCorrupt && t.id.startsWith('t_')) {
               newName = 'Chưa cập nhật';
               changed = true;
@@ -1415,20 +1359,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try { localStorage.setItem('app_cached_teachers', JSON.stringify(updated)); } catch (e) {}
       return { ...prev, teachers: updated };
     });
-    try { await deleteDoc(doc(db, 'teachers', id)); } catch (e) { handleDbError(e); }
+    try {
+      await deleteDoc(doc(db, 'teachers', id));
+      await setDoc(doc(db, 'systemSettings', 'teachersState'), { initialized: true }, { merge: true });
+    } catch (e) {
+      handleDbError(e);
+      throw e;
+    }
   };
 
   const deleteAllTeachers = async () => {
-    setState(prev => {
-      try { localStorage.setItem('app_cached_teachers', JSON.stringify([])); } catch (e) {}
-      return { ...prev, teachers: [] };
-    });
     try {
-      const batch = writeBatch(db);
-      state.teachers.forEach(t => {
-        batch.delete(doc(db, 'teachers', t.id));
+      const snap = await getDocs(collection(db, 'teachers'));
+      if (!snap.empty) {
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = writeBatch(db);
+          snap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+      setState(prev => {
+        try { localStorage.setItem('app_cached_teachers', JSON.stringify([])); } catch (e) {}
+        return { ...prev, teachers: [] };
       });
-      await batch.commit();
+      await setDoc(doc(db, 'systemSettings', 'teachersState'), { initialized: true, isEmpty: true }, { merge: true });
     } catch (e) {
       handleDbError(e);
       throw e;
