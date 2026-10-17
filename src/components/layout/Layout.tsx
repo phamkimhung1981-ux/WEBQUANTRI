@@ -17,7 +17,7 @@ function getModuleTitle(pathname: string): string {
   if (pathname.startsWith('/leaves')) return 'Quản lý Nghỉ phép';
   if (pathname.startsWith('/teachers')) return 'Quản lý CBGVNV & Phân công';
   if (pathname.startsWith('/departments')) return 'Tổ Chuyên môn';
-  if (pathname.startsWith('/documents') || pathname.startsWith('/van-ban')) return 'Quản lý Văn bản & Hồ sơ';
+
   if (pathname.startsWith('/reports')) return 'Thống kê - Báo cáo & Thi đua';
   if (pathname.startsWith('/calendar')) return 'Lịch công tác trường';
   if (pathname.startsWith('/analytics')) return 'Phân tích dữ liệu giáo dục';

@@ -80,7 +80,6 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
     { name: 'Trang chủ', path: '/', icon: Home, matchPaths: ['/'] },
     { name: 'Lịch công tác', path: '/calendar', icon: CalendarDays, matchPaths: ['/calendar'] },
     { name: 'CBGVNV', path: '/teachers', icon: Users, matchPaths: ['/teachers'] },
-    { name: 'Văn bản', path: '/documents', icon: FileText, matchPaths: ['/documents', '/van-ban'] },
     { name: 'KPI Giáo viên', path: '/kpi-gvnv', icon: GraduationCap, matchPaths: ['/kpi-gvnv'] },
     { name: 'KPI Nhân viên', path: '/kpi-nv', icon: UserCheck, matchPaths: ['/kpi-nv', '/kpi-nhan-vien', '/kpi-staff'] },
     { name: 'Thống kê', path: '/reports', icon: TrendingUp, matchPaths: ['/reports', '/analytics'] },

@@ -11,13 +11,11 @@ import LeaveTracking from './pages/LeaveTracking';
 import Tasks from './pages/Tasks';
 import Reports from './pages/Reports';
 import Teachers from './pages/Teachers';
-import UserAccounts from './pages/UserAccounts';
 import Departments from './pages/Departments';
-import Documents from './pages/Documents';
-import Calendar from './pages/Calendar';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
 import Notifications from './pages/Notifications';
+import Calendar from './pages/Calendar';
 import KpiCbql from './pages/KpiCbql';
 import KpiTeacherStaff from './pages/KpiTeacherStaff';
 import KpiStaff from './pages/KpiStaff';
@@ -83,16 +81,11 @@ function AppRoutes() {
         <Route path="/work-schedule" element={<SchoolWorkSchedule />} />
         <Route path="/leaves" element={<LeaveTracking />} />
         <Route path="/teachers" element={<Teachers />} />
-        <Route path="/user-accounts" element={<UserAccounts />} />
-        <Route path="/quan-ly-tai-khoan" element={<UserAccounts />} />
-        <Route path="/tai-khoan" element={<UserAccounts />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/van-phong" element={<OfficeDepartment />} />
         <Route path="/to-van-phong" element={<OfficeDepartment />} />
         <Route path="/office-department" element={<OfficeDepartment />} />
         <Route path="/office-staff" element={<OfficeDepartment />} />
-        <Route path="/documents" element={<Documents />} />
-        <Route path="/van-ban" element={<Documents />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/department-schedule" element={<DepartmentSchedule />} />

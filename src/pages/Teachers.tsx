@@ -146,13 +146,7 @@ export default function Teachers() {
             <Upload className="mr-2 h-4 w-4 text-emerald-600" />
             Nhập từ Excel
           </button>
-          <button 
-            onClick={() => navigate('/user-accounts')}
-            className="inline-flex items-center justify-center px-4 py-2.5 border border-indigo-200 rounded-xl shadow-sm text-[13px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-          >
-            <UserCheck className="mr-2 h-4 w-4 text-indigo-600" />
-            Quản lý tài khoản
-          </button>
+
           <button 
             onClick={() => {
               setEditingTeacher(null);
