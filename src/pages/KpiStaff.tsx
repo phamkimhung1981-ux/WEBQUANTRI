@@ -96,6 +96,7 @@ const getBghEvaluationBadge = (f: KpiStaffForm) => {
 
 export default function KpiStaff() {
   const { user } = useAuth();
+  const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
   const { teachers, kpiStaffForms, setKpiStaffForms, kpiStaffPeriods, setKpiStaffPeriods } = useAppContext();
 
   // Active period state
@@ -306,7 +307,7 @@ export default function KpiStaff() {
               <FileSpreadsheet size={15} /> Xuất Excel
             </button>
 
-            {user && (
+            {isAdmin && canEditOrDelete() && !import.meta.env.PROD && (
               <button
                 onClick={() => {
                   setDeleteAllScope('period');
