@@ -644,7 +644,7 @@ export default function KpiTeacherStaff() {
           )}
 
           {/* Nút Xóa toàn bộ phiếu KPI (Admin / BGH only) */}
-          {isAdmin && canEditOrDelete() && (
+          {isAdmin && canEditOrDelete() && !import.meta.env.PROD && (
             <button
               type="button"
               onClick={() => {
@@ -786,14 +786,14 @@ export default function KpiTeacherStaff() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           
           {/* Chọn Kỳ đánh giá */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+          <div className="bg-[#FFF3CD] border-2 border-[#F59E0B] rounded-[10px] p-2 hover:border-[#D97706] hover:shadow-md transition-all duration-200">
+            <label className="block text-[13px] font-bold text-[#B91C1C] uppercase mb-1">
               Kỳ đánh giá:
             </label>
             <select
               value={selectedPeriodId}
               onChange={(e) => setSelectedPeriodId(e.target.value)}
-              className="w-full px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full px-3 py-2 text-[14px] font-bold text-[#1D4ED8] bg-transparent focus:outline-none cursor-pointer"
             >
               <option value="all">Tất cả kỳ đánh giá</option>
               {periods.map(p => (
