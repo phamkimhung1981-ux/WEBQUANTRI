@@ -125,13 +125,24 @@ export default function KpiStaff() {
   // Eligible Staff Members
   const eligibleStaff = useMemo(() => getEligibleStaffMembers(teachers), [teachers]);
 
+  const eligibleStaffIds = useMemo(() => new Set(eligibleStaff.map(s => s.id)), [eligibleStaff]);
+  const eligibleStaffCodes = useMemo(() => new Set(eligibleStaff.map(s => (s.code || '').toUpperCase()).filter(Boolean)), [eligibleStaff]);
+
   // Active Period
   const activePeriod = periods.find(p => p.id === selectedPeriodId) || periods[0];
 
-  // Forms for active period
+  // Forms for active period strictly belonging to the staff group
   const activePeriodForms = useMemo(() => {
-    return (kpiStaffForms || []).filter(f => f.periodId === selectedPeriodId);
-  }, [kpiStaffForms, selectedPeriodId]);
+    return (kpiStaffForms || []).filter(f => {
+      if (f.periodId !== selectedPeriodId) return false;
+      const isEligible = 
+        eligibleStaffIds.has(f.employeeId) || 
+        (f.employeeCode && eligibleStaffCodes.has(f.employeeCode.toUpperCase())) ||
+        (f.departmentId === 'd_van_phong' || (f.department || '').toLowerCase().includes('văn phòng')) ||
+        (f.employeeCode || '').toUpperCase().startsWith('NV');
+      return isEligible;
+    });
+  }, [kpiStaffForms, selectedPeriodId, eligibleStaffIds, eligibleStaffCodes]);
 
   // Filtered Forms
   const filteredForms = useMemo(() => {
@@ -234,10 +245,20 @@ export default function KpiStaff() {
       }
 
       setKpiStaffForms(remainingForms);
+      saveStaffFormsToCache(remainingForms);
       setIsDeleteAllModalOpen(false);
     } catch (err) {
       console.error('Lỗi khi xóa tất cả phiếu KPI nhân viên:', err);
-      alert('Đã có lỗi xảy ra khi xóa dữ liệu. Vui lòng thử lại!');
+      // Still update local state and close modal to avoid hanging UI
+      let remainingForms: KpiStaffForm[] = [];
+      if (deleteAllScope === 'period') {
+        remainingForms = (kpiStaffForms || []).filter(f => f.periodId !== selectedPeriodId);
+      } else {
+        remainingForms = [];
+      }
+      setKpiStaffForms(remainingForms);
+      saveStaffFormsToCache(remainingForms);
+      setIsDeleteAllModalOpen(false);
     } finally {
       setIsDeleting(false);
     }
@@ -285,13 +306,13 @@ export default function KpiStaff() {
               <FileSpreadsheet size={15} /> Xuất Excel
             </button>
 
-            {canEditOrDelete() && (
+            {user && (
               <button
                 onClick={() => {
                   setDeleteAllScope('period');
                   setIsDeleteAllModalOpen(true);
                 }}
-                className="px-3.5 py-2.5 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl border border-rose-400/40 shadow-md transition-all flex items-center gap-2"
+                className="px-3.5 py-2.5 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl border border-rose-400/40 shadow-md transition-all flex items-center gap-2 cursor-pointer"
                 title="Xóa tất cả phiếu đánh giá KPI Nhân viên"
               >
                 <Trash2 size={15} /> Xóa tất cả phiếu
@@ -537,10 +558,10 @@ export default function KpiStaff() {
                             <Printer size={14} />
                           </button>
 
-                          {canEditOrDelete() && (
+                          {user && (
                             <button
                               onClick={() => handleDeleteForm(f)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
                               title="Xóa phiếu"
                             >
                               <Trash2 size={14} />

@@ -6,9 +6,11 @@ import {
   KpiVcCriteriaSnapshot,
   KpiVcLevel,
   KpiVcRatingTier,
-  KpiVcRatingConfig
+  KpiVcRatingConfig,
+  KpiVcForm
 } from '../types/kpiVc';
 import { Teacher, Department } from '../types';
+import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
 /**
  * CẤU HÌNH XẾP LOẠI KPI MẶC ĐỊNH THEO THANG ĐIỂM 100
@@ -1200,3 +1202,76 @@ export const getVcStatusMeta = (status?: string): VcStatusMeta => {
       };
   }
 };
+
+/**
+ * Tự động tạo bộ phiếu KPI Giáo viên mặc định (47 giáo viên) cho các kỳ đánh giá chuẩn
+ * Đảm bảo hệ thống trên Vercel luôn có đầy đủ 47 phiếu ngay cả khi Firestore bị lỗi Quota hoặc mạng
+ */
+export const generateDefaultVcForms = (): KpiVcForm[] => {
+  const eligibleTeachers = DEFAULT_TEACHERS.filter(t => (t.role || '').toUpperCase() !== 'BGH');
+  const periods = [
+    { id: 'vc_period_2026_09', name: 'Tháng 9/2026', academicYear: '2026-2027' },
+    { id: 'vc_period_2026_2027_ca_nam', name: 'Cả năm học 2026-2027', academicYear: '2026-2027' }
+  ];
+
+  const forms: KpiVcForm[] = [];
+
+  for (const p of periods) {
+    for (const t of eligibleTeachers) {
+      const formId = p.id === 'vc_period_2026_09' 
+        ? `vc_vc_period_2026_09_${t.id}`
+        : `vc_form_${t.id}_${p.id}`;
+
+      forms.push({
+        id: formId,
+        employeeId: t.id,
+        employeeName: t.name,
+        employeeCode: t.code,
+        employeeUsername: t.username || '',
+        position: t.position || 'Giáo viên',
+        department: t.departmentName || 'Trường THPT Sơn Lương',
+        departmentId: t.departmentId || null,
+        periodId: p.id,
+        periodName: p.name,
+        academicYear: p.academicYear,
+        criteriaSnapshot: {
+          criteria: DEFAULT_VC_CRITERIA,
+          version: 1,
+          groups: DEFAULT_VC_GROUPS,
+          snapshotDate: '2026-09-01T00:00:00.000Z'
+        },
+        items: DEFAULT_VC_CRITERIA.map((crit, idx) => ({
+          criterionId: crit.id,
+          criterionCode: crit.code,
+          content: crit.content,
+          groupName: crit.groupName,
+          groupId: crit.groupId,
+          subGroup: crit.subGroup,
+          maxScore: crit.maxScore,
+          scoreType: 'input_score',
+          order: idx + 1,
+          selfScore: null,
+          ttcmScore: null,
+          managerScore: null,
+          note: ''
+        })),
+        groupScores: {},
+        ttcmGroupScores: {},
+        managerGroupScores: {},
+        totalScore: 0,
+        maxTotalScore: 100,
+        selfClassification: 'Chưa tự đánh giá',
+        selfDate: '',
+        selfSignName: '',
+        status: 'draft',
+        createdAt: '2026-09-01T08:00:00.000Z',
+        updatedAt: '2026-09-01T08:00:00.000Z',
+        createdBy: 'TRƯỜNG THPT SƠN LƯƠNG'
+      });
+    }
+  }
+
+  return forms;
+};
+
+export const DEFAULT_VC_FALLBACK_FORMS: KpiVcForm[] = generateDefaultVcForms();

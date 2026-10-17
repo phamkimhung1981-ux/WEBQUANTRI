@@ -48,10 +48,10 @@ export interface SchoolStats {
 export interface Teacher extends User {
   code: string;
   subject: string;
-  phone: string;
-  email: string;
-  joinDate: string;
-  degree: string;
+  phone?: string;
+  email?: string;
+  joinDate?: string;
+  degree?: string;
   status: 'Đang công tác' | 'Nghỉ phép' | 'Đã nghỉ việc';
   departmentName?: string;
   position?: string;

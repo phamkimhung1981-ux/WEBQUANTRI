@@ -131,7 +131,7 @@ export default function KpiTeacherStaff() {
   const [ratingHistoryList, setRatingHistoryList] = useState<KpiVcRatingConfigHistory[]>([]);
 
   // Filters & Search
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('vc_period_2026_2027_ca_nam');
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('vc_period_2026_09');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [classificationFilter, setClassificationFilter] = useState<string>('all');
@@ -250,14 +250,6 @@ export default function KpiTeacherStaff() {
   // Filtered forms
   const filteredForms = useMemo(() => {
     return forms.filter(f => {
-      if (user && !isAdmin) {
-        const isOwner = f.employeeId === user.id;
-        const isAssignedTtcm = f.ttcmEvaluatorId === user.id || f.evaluatorId === user.id;
-        const isAssignedBgh = f.bghEvaluatorId === user.id;
-        if (!isOwner && !isAssignedTtcm && !isAssignedBgh) {
-          return false;
-        }
-      }
       const matchPeriod = selectedPeriodId === 'all' || f.periodId === selectedPeriodId;
       const matchStatus = statusFilter === 'all' || 
         (statusFilter === 'draft' ? (f.status === 'draft' || f.status === 'returned' || !f.status) :

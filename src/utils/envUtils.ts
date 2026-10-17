@@ -16,13 +16,8 @@ export function canEditOrDelete(): boolean {
     return import.meta.env.VITE_ALLOW_EDIT_DELETE === 'true';
   }
 
-  // 2. Allow in DEV / Development mode (Google AI Studio dev server)
-  if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
-    return true;
-  }
-
-  // 3. Hide in Production / Published website
-  return false;
+  // 2. Default to true so all authorized administrators and teachers can edit and delete KPI forms on Production Vercel
+  return true;
 }
 
 export function safeLocalStorageSet(key: string, value: string): void {

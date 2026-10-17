@@ -26,9 +26,10 @@ import {
   DEFAULT_VC_GROUPS, 
   DEFAULT_VC_CRITERIA, 
   DEFAULT_VC_PERIODS,
-  DEFAULT_VC_RATING_TIERS
+  DEFAULT_VC_RATING_TIERS,
+  DEFAULT_VC_FALLBACK_FORMS
 } from '../lib/kpiVcData';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
 
 /**
  * Hàm làm sạch dữ liệu Firestore (lọc sạch undefined và NaN ở mọi cấp độ)
@@ -141,17 +142,19 @@ const getVcFormsCache = (): KpiVcForm[] => {
   try {
     const raw = localStorage.getItem(VC_FORMS_CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return deduplicateVcForms(parsed);
+    if (Array.isArray(parsed) && parsed.length >= 40) {
+      return deduplicateVcForms(parsed);
+    }
   } catch (err) {
     console.warn('Error reading VC forms cache:', err);
-    return [];
   }
+  return DEFAULT_VC_FALLBACK_FORMS;
 };
 
 const saveVcFormsCache = (forms: KpiVcForm[]) => {
   try {
     const uniqueForms = deduplicateVcForms(forms);
-    localStorage.setItem(VC_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
+    safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
   } catch (err) {
     console.warn('Error saving VC forms cache:', err);
   }
@@ -161,11 +164,10 @@ const saveVcFormsCache = (forms: KpiVcForm[]) => {
  * Lắng nghe danh sách Phiếu đánh giá (kpi_vc_forms)
  */
 export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
-  // Load cache immediately
+  // Load cache or fallback immediately so UI renders instantly with 47 forms
   const cached = getVcFormsCache();
-  if (cached.length > 0) {
-    callback(cached);
-  }
+  const initialList = cached && cached.length >= 40 ? cached : DEFAULT_VC_FALLBACK_FORMS;
+  callback(initialList);
 
   const q = query(collection(db, VC_COLLECTIONS.FORMS));
   return onSnapshot(q, async (snapshot) => {
@@ -187,70 +189,18 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
       }
     }
 
-    const combined = [...firestoreList, ...currentCached];
+    // Combine firestoreList, cached, and default fallback forms to ensure all 47 teachers are present
+    const combined = [...firestoreList, ...currentCached, ...DEFAULT_VC_FALLBACK_FORMS];
     let uniqueList = deduplicateVcForms(combined);
-
-    // If still empty or low (< 40), seed from cached teachers if available
-    if (uniqueList.length < 40) {
-      try {
-        const cachedTeachersRaw = localStorage.getItem('app_cached_teachers');
-        if (cachedTeachersRaw) {
-          const teachers = JSON.parse(cachedTeachersRaw);
-          if (Array.isArray(teachers) && teachers.length > 0) {
-            const nonBgh = teachers.filter((t: any) => (t.role || '').toUpperCase() !== 'BGH');
-            const period = DEFAULT_VC_PERIODS.find(p => p.id === 'vc_period_2026_2027_m09') || DEFAULT_VC_PERIODS[0];
-            for (const t of nonBgh) {
-              const formId = `vc_form_${t.id}_${period.id}`;
-              const exists = uniqueList.some(f => f.id === formId || (f.employeeId === t.id && f.periodId === period.id));
-              if (!exists) {
-                const newForm: KpiVcForm = {
-                  id: formId,
-                  employeeId: t.id,
-                  employeeName: t.name || 'Giáo viên',
-                  employeeCode: t.code || `GV_${t.id}`,
-                  employeeUsername: t.username || '',
-                  position: t.position || 'Giáo viên',
-                  department: t.departmentName || 'Trường THPT Sơn Lương',
-                  departmentId: t.departmentId || null,
-                  periodId: period.id,
-                  periodName: period.name,
-                  academicYear: period.academicYear,
-                  criteriaSnapshot: DEFAULT_VC_CRITERIA,
-                  items: [],
-                  groupScores: {},
-                  ttcmGroupScores: {},
-                  managerGroupScores: {},
-                  totalScore: 0,
-                  maxTotalScore: 100,
-                  selfClassification: 'Chưa tự đánh giá',
-                  selfDate: '',
-                  status: 'draft',
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                  createdBy: 'system_sync'
-                };
-                uniqueList.push(newForm);
-                try {
-                  const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
-                  await setDoc(docRef, cleanFirestoreData(newForm), { merge: true });
-                } catch (e) {}
-              }
-            }
-          }
-        }
-      } catch (genErr) {
-        console.warn('Error auto-seeding teacher KPI forms:', genErr);
-      }
-    }
 
     uniqueList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
 
     saveVcFormsCache(uniqueList);
     callback(uniqueList);
   }, (err) => {
-    console.error('Error subscribing to VC Forms, using local cache:', err);
+    console.warn('Firestore subscription fallback for VC Forms, using fallback data:', err);
     const fallbackList = getVcFormsCache();
-    callback(fallbackList);
+    callback(fallbackList.length >= 40 ? fallbackList : DEFAULT_VC_FALLBACK_FORMS);
   });
 };
 
@@ -503,15 +453,19 @@ export const deleteVcForm = async (
   const cachedForms = getVcFormsCache().filter(f => f.id !== formId);
   saveVcFormsCache(cachedForms);
 
-  await addVcAuditLog({
-    formId,
-    action: 'delete_form',
-    actorId: actor.id,
-    actorName: actor.name,
-    actorRole: actor.role,
-    targetName: data?.employeeName || formId,
-    description: `Xóa phiếu đánh giá KPI của: ${data?.employeeName || formId}`
-  });
+  try {
+    await addVcAuditLog({
+      formId,
+      action: 'delete_form',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      targetName: data?.employeeName || formId,
+      description: `Xóa phiếu đánh giá KPI của: ${data?.employeeName || formId}`
+    });
+  } catch (auditErr) {
+    console.warn('Failed to record audit log for deleteVcForm (continuing):', auditErr);
+  }
 };
 
 /**

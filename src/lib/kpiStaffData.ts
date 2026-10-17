@@ -321,32 +321,179 @@ export const detectPositionKey = (positionStr: string): StaffPositionKey => {
 };
 
 /**
- * Lấy danh sách nhân viên hợp lệ thuộc Khối Nhân viên / Tổ Văn phòng
+ * Danh mục chuẩn 4 Nhân viên thuộc Khối Nhân viên / Tổ Văn phòng Trường THPT Sơn Lương
+ */
+export const DEFAULT_STAFF_MEMBERS: Teacher[] = [
+  {
+    id: 't1792151918417_melmyz',
+    username: 'hadangquy',
+    code: 'NV01',
+    name: 'Hà Đăng Quy',
+    role: 'NHAN_VIEN',
+    position: 'Tổ trưởng Văn phòng - Kế toán',
+    departmentId: 'd_van_phong',
+    departmentName: 'Tổ Văn phòng',
+    status: 'Đang công tác',
+    subject: 'Kế toán',
+    degree: 'Cử nhân'
+  },
+  {
+    id: 't1792151918417_6fdpqz',
+    username: 'nguyenthithuhuong_vp',
+    code: 'NV02',
+    name: 'Nguyễn Thị Thu Hương',
+    role: 'NHAN_VIEN',
+    position: 'Văn thư - Lưu trữ',
+    departmentId: 'd_van_phong',
+    departmentName: 'Tổ Văn phòng',
+    status: 'Đang công tác',
+    subject: 'Văn thư',
+    degree: 'Cử nhân'
+  },
+  {
+    id: 't1792151918417_r0q0m1',
+    username: 'duongthithanhhuong',
+    code: 'NV03',
+    name: 'Dương Thị Thanh Hương',
+    role: 'NHAN_VIEN',
+    position: 'Thư viện',
+    departmentId: 'd_van_phong',
+    departmentName: 'Tổ Văn phòng',
+    status: 'Đang công tác',
+    subject: 'Thư viện',
+    degree: 'Cử nhân'
+  },
+  {
+    id: 't1792151918417_ek1t68',
+    username: 'hoangtronghuong',
+    code: 'NV04',
+    name: 'Hoàng Trọng Hưởng',
+    role: 'NHAN_VIEN',
+    position: 'Thiết bị',
+    departmentId: 'd_van_phong',
+    departmentName: 'Tổ Văn phòng',
+    status: 'Đang công tác',
+    subject: 'Thiết bị',
+    degree: 'Cử nhân'
+  }
+];
+
+/**
+ * Tiêu chuẩn phân loại chính xác nhân viên hợp lệ thuộc Khối Nhân viên:
+ * - Kế toán, Văn thư, Thủ quỹ, Y tế, Bảo vệ, Phục vụ, Thư viện, Thiết bị
+ * - Loại trừ hoàn toàn BGH, CBQL và toàn bộ Giáo viên giảng dạy (GV01 - GV48)
  */
 export const isEligibleStaffEmployee = (t: Teacher): boolean => {
   if (!t) return false;
-  const roleStr = (t.role || '').toUpperCase();
-  const posStr = (t.position || '').toLowerCase();
-  const deptStr = (t.departmentName || '').toLowerCase();
 
-  if (roleStr === 'BGH' || posStr.includes('hiệu trưởng') || posStr.includes('phó hiệu trưởng')) {
+  // 1. Loại trừ Cán bộ quản lý (BGH)
+  const roleUpper = (t.role || '').toUpperCase();
+  const posLower = (t.position || '').toLowerCase();
+  if (
+    roleUpper === 'BGH' || 
+    posLower.includes('hiệu trưởng') || 
+    posLower.includes('phó hiệu trưởng') ||
+    (t.code || '').toUpperCase().startsWith('BGH')
+  ) {
     return false;
   }
 
-  const keywords = ['nhân viên', 'kế toán', 'văn thư', 'thủ quỹ', 'y tế', 'thư viện', 'thiết bị', 'bảo vệ', 'tạp vụ', 'phục vụ', 'lái xe', 'tổ văn phòng'];
-  if (keywords.some(kw => posStr.includes(kw) || deptStr.includes(kw))) {
+  // 2. Loại trừ giáo viên giảng dạy thuộc các tổ chuyên môn
+  const deptIdLower = (t.departmentId || '').toLowerCase();
+  const deptNameLower = (t.departmentName || '').toLowerCase();
+  const isTeachingDept = 
+    deptIdLower === 'd_toan_ly_tin_cn' ||
+    deptIdLower === 'd_van_su_dia_gdkt_pl_an' ||
+    deptIdLower === 'd_hoa_sinh_gdtc_qpan_nn' ||
+    deptIdLower === 'd_hoa_ly_sinh_gdqpan_nn' ||
+    deptNameLower.includes('toán') ||
+    deptNameLower.includes('văn-sử') ||
+    deptNameLower.includes('hóa-sinh');
+
+  if (isTeachingDept) {
+    return false;
+  }
+
+  // 3. Loại trừ mã nhân sự bắt đầu bằng GV (Giáo viên)
+  const codeUpper = (t.code || '').toUpperCase();
+  if (codeUpper.startsWith('GV')) {
+    return false;
+  }
+
+  // 4. Đạt chuẩn nếu có mã nhân viên NVxx hoặc vai trò NHAN_VIEN
+  if (codeUpper.startsWith('NV') || roleUpper === 'NHAN_VIEN' || roleUpper === 'NV') {
     return true;
   }
 
-  if (t.departmentId === 'd_van_phong' || t.departmentId === 'van_phong') {
+  // 5. Đạt chuẩn nếu thuộc Tổ Văn phòng
+  if (
+    deptIdLower === 'd_van_phong' || 
+    deptIdLower === 'van_phong' || 
+    deptIdLower === 'vp' ||
+    deptNameLower.includes('văn phòng') ||
+    deptNameLower.includes('van phong')
+  ) {
+    return true;
+  }
+
+  // 6. Đạt chuẩn nếu chức danh vị trí việc làm thuộc 8 vị trí khối nhân viên
+  const staffKeywords = [
+    'kế toán', 'ke toan',
+    'văn thư', 'van thu', 'lưu trữ',
+    'thủ quỹ', 'thu quy',
+    'y tế', 'y te',
+    'thư viện', 'thu vien',
+    'thiết bị', 'thiet bi', 'thí nghiệm',
+    'bảo vệ', 'bao ve',
+    'phục vụ', 'phuc vu', 'tạp vụ', 'lao công'
+  ];
+
+  if (staffKeywords.some(kw => posLower.includes(kw))) {
     return true;
   }
 
   return false;
 };
 
+/**
+ * Lấy danh sách nhân viên thực tế thuộc Khối Nhân viên (đảm bảo đúng 4 nhân viên thực tế)
+ * Deduplicate theo ID và Code để tránh đếm trùng từ nhiều nguồn
+ */
 export const getEligibleStaffMembers = (teachers: Teacher[]): Teacher[] => {
-  return teachers.filter(t => (t.role || '').toUpperCase() !== 'BGH');
+  if (!teachers || teachers.length === 0) {
+    return DEFAULT_STAFF_MEMBERS;
+  }
+
+  // Lọc chỉ những hồ sơ thực tế thuộc khối nhân viên
+  const staff = teachers.filter(t => isEligibleStaffEmployee(t));
+
+  // Chống đếm trùng theo ID và Mã nhân sự
+  const seenIds = new Set<string>();
+  const seenCodes = new Set<string>();
+  const uniqueStaff: Teacher[] = [];
+
+  for (const s of staff) {
+    const idKey = (s.id || '').trim();
+    const codeKey = (s.code || '').trim().toUpperCase();
+
+    if (idKey && seenIds.has(idKey)) continue;
+    if (codeKey && seenCodes.has(codeKey)) continue;
+
+    if (idKey) seenIds.add(idKey);
+    if (codeKey) seenCodes.add(codeKey);
+
+    uniqueStaff.push(s);
+  }
+
+  // Nếu mảng teachers truyền vào chưa đồng bộ được khối nhân viên, fallback về danh sách chuẩn 4 nhân viên
+  if (uniqueStaff.length === 0) {
+    return DEFAULT_STAFF_MEMBERS;
+  }
+
+  // Sắp xếp ổn định theo mã NV (NV01, NV02, NV03, NV04)
+  uniqueStaff.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+
+  return uniqueStaff;
 };
 
 /**
@@ -419,3 +566,26 @@ export const getClassificationByScore = (score: number): string => {
   if (score >= 70) return 'Hoàn thành nhiệm vụ';
   return 'Chưa hoàn thành nhiệm vụ';
 };
+
+/**
+ * Tạo danh sách phiếu KPI mẫu cho 4 nhân viên thực tế
+ */
+export const generateDefaultStaffForms = (): KpiStaffForm[] => {
+  const staff = DEFAULT_STAFF_MEMBERS;
+  const targetPeriods = [
+    DEFAULT_STAFF_PERIODS.find(p => p.id === 'period_staff_2026_2027') || DEFAULT_STAFF_PERIODS[0],
+    DEFAULT_STAFF_PERIODS.find(p => p.id === 'period_staff_m09_2026') || DEFAULT_STAFF_PERIODS[4]
+  ].filter(Boolean);
+
+  const forms: KpiStaffForm[] = [];
+
+  for (const p of targetPeriods) {
+    for (const s of staff) {
+      forms.push(createInitialStaffForm(s, p));
+    }
+  }
+
+  return forms;
+};
+
+export const DEFAULT_STAFF_FALLBACK_FORMS: KpiStaffForm[] = generateDefaultStaffForms();

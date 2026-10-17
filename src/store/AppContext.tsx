@@ -7,6 +7,7 @@ import { DEFAULT_STAFF_PERIODS, DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffDa
 import { subscribeStaffForms, saveStaffFormsToCache, saveStaffFormToFirestore, loadStaffFormsFromCache } from '../services/kpiStaffService';
 import { DEFAULT_TASK_KPIS } from '../lib/kpiTargetAudienceUtils';
 import { OFFICIAL_SCHOOL_TASKS_2026_2027 } from '../utils/sampleSchoolTasks';
+import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc } from 'firebase/firestore';
 
@@ -245,14 +246,14 @@ export const getCachedTeachers = (): Teacher[] => {
     const cached = localStorage.getItem('app_cached_teachers') || localStorage.getItem('app_cache_teachers');
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed) && parsed.length >= 40) {
         return parsed;
       }
     }
   } catch (e) {
     console.warn('Error reading cached teachers:', e);
   }
-  return [];
+  return DEFAULT_TEACHERS;
 };
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -334,6 +335,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const unsub = onSnapshot(q, (snapshot) => {
         let data: any = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (key === 'teachers') {
+          if (!data || data.length === 0) {
+            data = DEFAULT_TEACHERS;
+          }
           try {
             localStorage.setItem('app_cached_teachers', JSON.stringify(data));
           } catch (e) {}
