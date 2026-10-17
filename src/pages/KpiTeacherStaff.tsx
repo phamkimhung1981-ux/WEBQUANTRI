@@ -953,7 +953,7 @@ export default function KpiTeacherStaff() {
             )}
 
             {/* Nút Xóa tất cả */}
-            {canEditOrDelete() && isAdmin && (
+            {canEditOrDelete() && isAdmin && !import.meta.env.PROD && (
               <button
                 type="button"
                 disabled={filteredForms.length === 0}
@@ -1409,7 +1409,7 @@ export default function KpiTeacherStaff() {
                             </button>
                           )}
 
-                          {canDeleteForm(form) && (
+                          {canDeleteForm(form) && !import.meta.env.PROD && (
                             <button
                               type="button"
                               onClick={() => handleRequestDeleteForm(form)}
