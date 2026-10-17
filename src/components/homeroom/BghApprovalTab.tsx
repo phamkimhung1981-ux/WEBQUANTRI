@@ -36,6 +36,8 @@ import {
   TeacherAssessmentCompletion,
   RatingTierItem
 } from '../../types/homeroom';
+import { YouthViolationRecord } from '../../types/youthDiscipline';
+import { studentViolationService } from '../../services/studentViolationService';
 import { homeroomService } from '../../services/homeroomService';
 import { calculateConductScore, isDatChuaDatCategory, evaluateStudent6Groups, DEFAULT_RATING_TIERS } from '../../lib/homeroomData';
 import { ALL_MONTH_OPTIONS } from '../../utils/schoolWeekUtils';
@@ -45,6 +47,7 @@ interface BghApprovalTabProps {
   evaluations: ConductEvaluation[];
   students: Student[];
   classes: ClassInfo[];
+  youthViolations?: YouthViolationRecord[];
   teacherAssessments?: TeacherAssessment[];
   assessmentCompletions?: TeacherAssessmentCompletion[];
   selectedMonth?: string;
@@ -62,6 +65,7 @@ export default function BghApprovalTab({
   evaluations,
   students,
   classes,
+  youthViolations = [],
   teacherAssessments = [],
   assessmentCompletions = [],
   selectedMonth = 'Tháng 09',
@@ -157,13 +161,17 @@ export default function BghApprovalTab({
       clsStudents.forEach(st => {
         const stAssessment = clsAssessments.find(a => a.studentId === st.id);
         const stRecords = clsRecords.filter(r => r.studentId === st.id);
-        let plus = 0, minus = 0;
+        let plus = 0;
         stRecords.forEach(r => {
-          if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-          if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-          if (r.pointType === 'plus') plus += Math.abs(r.point);
-          else minus += Math.abs(r.point);
+          if (r.recordType === 'TICH_CUC' || r.pointType === 'plus') {
+            plus += Math.abs(r.point || 0);
+          }
         });
+        let minus = 0;
+        if (youthViolations && youthViolations.length > 0) {
+          const yRes = studentViolationService.getMonthlyDeduction(st, selectedSchoolYear || '2026–2027', selMonthNum, youthViolations);
+          minus = yRes.totalDeduction;
+        }
         const evalResult = evaluateStudent6Groups(stRecords);
         const { classification } = calculateConductScore(100, plus, minus, undefined, false, undefined, evalResult);
 
@@ -1156,13 +1164,17 @@ export default function BghApprovalTab({
                             return clsStudents.map((st, idx) => {
                               const stAssessment = clsAssessments.find(a => a.studentId === st.id);
                               const stRecords = clsRecords.filter(r => r.studentId === st.id);
-                              let plus = 0, minus = 0;
+                              let plus = 0;
                               stRecords.forEach(r => {
-                                if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-                                if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-                                if (r.pointType === 'plus') plus += Math.abs(r.point);
-                                else minus += Math.abs(r.point);
+                                if (r.recordType === 'TICH_CUC' || r.pointType === 'plus') {
+                                  plus += Math.abs(r.point || 0);
+                                }
                               });
+                              let minus = 0;
+                              if (youthViolations && youthViolations.length > 0) {
+                                const yRes = studentViolationService.getMonthlyDeduction(st, selectedSchoolYear || '2026–2027', selMonthNum, youthViolations);
+                                minus = yRes.totalDeduction;
+                              }
                               const evalResult = evaluateStudent6Groups(stRecords);
                               const { totalScore, classification } = calculateConductScore(100, plus, minus, undefined, false, undefined, evalResult);
 

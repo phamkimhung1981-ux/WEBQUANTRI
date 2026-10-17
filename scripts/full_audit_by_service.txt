@@ -1,0 +1,1212 @@
+Classes: 24, Students: 1074, Violations: 116, ConductRecords: 152, Evaluations: 49
+
+=================== MONTH 9 ===================
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_10_dhxw Hà Huy Cường
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_11_afl7 Hà Thị Kim Dung
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_12_1m9s Đỗ Anh Duy
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_13_9zru Nguyễn Ngọc Duyên
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_14_wtrx Lê Ngọc Hoàng Hà
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_15_7mwc Bùi Minh Hải
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_16_omk9 Nguyễn Ngọc Hải
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_17_62qm Nguyễn Thị Phương Hạnh
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_18_fmz9 Nguyễn Việt Hoàng
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1789828776820_9_rbwg Trần Thị Quỳnh Chi
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465642_11_yuwy Nguyễn Duy Hiếu
+Monthly violations: [ { date: '2026-09-20', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465642_1_zxhm Ngô Hà Quỳnh Anh
+Monthly violations: [
+  {
+    date: '2026-09-21',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  },
+  {
+    date: '2026-09-24',
+    points: -2,
+    criterion: 'Không thực hiện nhiệm vụ học tập'
+  }
+]
+Monthly deduction: -12
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465642_2_fkn2 Trần Tuấn Anh
+Monthly violations: [
+  {
+    date: '2026-09-12',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  },
+  {
+    date: '2026-09-09',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  },
+  {
+    date: '2026-09-15',
+    points: -50,
+    criterion: 'Gây gổ, xích mích, bạo lực học đường'
+  }
+]
+Monthly deduction: -62
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465642_3_rg9u Nguyễn Ngọc Ánh
+Monthly violations: [
+  {
+    date: '2026-09-23',
+    points: -5,
+    criterion: 'Không thực hiện nội quy trường'
+  },
+  {
+    date: '2026-09-21',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  },
+  { date: '2026-09-16', points: -2, criterion: 'Đi học muộn' }
+]
+Monthly deduction: -17
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465642_4_0uyc Sa Đình Bảo
+Monthly violations: [
+  {
+    date: '2026-09-25',
+    points: -3,
+    criterion: 'Đầu tóc / tác phong không phù hợp nội quy'
+  },
+  {
+    date: '2026-09-15',
+    points: -2,
+    criterion: 'Không chuẩn bị bài / không làm bài tập'
+  }
+]
+Monthly deduction: -5
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465643_29_6gaw Trần Huệ Phương
+Monthly violations: [
+  {
+    date: '2026-09-24',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465643_32_c2ae Lê Quang Thắng
+Monthly violations: [
+  {
+    date: '2026-09-12',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  },
+  {
+    date: '2026-09-15',
+    points: -2,
+    criterion: 'Không chuẩn bị bài / không làm bài tập'
+  },
+  {
+    date: '2026-09-07',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -6
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465643_35_b1o5 Nguyễn Thúy Trà
+Monthly violations: [
+  { date: '2026-09-15', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-09-21',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  },
+  {
+    date: '2026-09-24',
+    points: -5,
+    criterion: 'Không thực hiện nội quy trường'
+  }
+]
+Monthly deduction: -17
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465643_37_vlek Nguyễn Thị Như Trang
+Monthly violations: [
+  {
+    date: '2026-09-21',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  },
+  {
+    date: '2026-09-15',
+    points: -2,
+    criterion: 'Không chuẩn bị bài / không làm bài tập'
+  }
+]
+Monthly deduction: -12
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 9
+Selected week: undefined
+Student: std_1790411465643_43_wn8n Nguyễn Hà Quốc Uy
+Monthly violations: [
+  {
+    date: '2026-09-24',
+    points: -5,
+    criterion: 'Không thực hiện nội quy trường'
+  }
+]
+Monthly deduction: -5
+Total students with deduction in Month 9: 10
+- [12C] Nguyễn Duy Hiếu (HS012) => -2đ (1 vios)
+    * yv_1791812324425_57vq0: 2026-09-20 | Đi học muộn | -2đ | st on vio: Nguyễn Duy Hiếu (HS012, 12C)
+- [12C] Ngô Hà Quỳnh Anh (HS002) => -12đ (2 vios)
+    * yv_1791812036462_zb9px: 2026-09-24 | Không thực hiện nhiệm vụ học tập | -2đ | st on vio: Ngô Hà Quỳnh Anh (HS002, 12C)
+    * yv_1791811938291_526sf: 2026-09-21 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Ngô Hà Quỳnh Anh (HS002, 12C)
+- [12C] Trần Tuấn Anh (HS003) => -62đ (3 vios)
+    * yv_1791771664903_6rsou: 2026-09-15 | Gây gổ, xích mích, bạo lực học đường | -50đ | st on vio: Trần Tuấn Anh (HS003, 12C)
+    * yv_1791771585362_tkj3d: 2026-09-12 | Trang phục không đúng quy định | -2đ | st on vio: Trần Tuấn Anh (HS003, 12C)
+    * yv_1791771632567_02ead: 2026-09-09 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Trần Tuấn Anh (HS003, 12C)
+- [12C] Nguyễn Ngọc Ánh (HS004) => -17đ (3 vios)
+    * yv_1791812586086_lblyh: 2026-09-23 | Không thực hiện nội quy trường | -5đ | st on vio: Nguyễn Ngọc Ánh (HS004, 12C)
+    * yv_1791812603806_s7ese: 2026-09-21 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Nguyễn Ngọc Ánh (HS004, 12C)
+    * yv_1791812644235_kktv9: 2026-09-16 | Đi học muộn | -2đ | st on vio: Nguyễn Ngọc Ánh (HS004, 12C)
+- [12C] Sa Đình Bảo (HS005) => -5đ (2 vios)
+    * yv_1791812446076_81ftz: 2026-09-25 | Đầu tóc / tác phong không phù hợp nội quy | -3đ | st on vio: Sa Đình Bảo (HS005, 12C)
+    * yv_1791812487019_5f2zc: 2026-09-15 | Không chuẩn bị bài / không làm bài tập | -2đ | st on vio: Sa Đình Bảo (HS005, 12C)
+- [12C] Trần Huệ Phương (HS030) => -2đ (1 vios)
+    * yv_1791812544568_78bv8: 2026-09-24 | Trang phục không đúng quy định | -2đ | st on vio: Trần Huệ Phương (HS030, 12C)
+- [12C] Lê Quang Thắng (HS033) => -6đ (3 vios)
+    * yv_1791812295228_ye866: 2026-09-15 | Không chuẩn bị bài / không làm bài tập | -2đ | st on vio: Lê Quang Thắng (HS033, 12C)
+    * yv_1791812267702_f4s4r: 2026-09-12 | Trang phục không đúng quy định | -2đ | st on vio: Lê Quang Thắng (HS033, 12C)
+    * yv_1791812397786_3ilv9: 2026-09-07 | Trang phục không đúng quy định | -2đ | st on vio: Lê Quang Thắng (HS033, 12C)
+- [12C] Nguyễn Thúy Trà (HS036) => -17đ (3 vios)
+    * yv_1791811910501_shpno: 2026-09-24 | Không thực hiện nội quy trường | -5đ | st on vio: Nguyễn Thúy Trà (HS036, 12C)
+    * yv_1791811766124_jh2pw: 2026-09-21 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Nguyễn Thúy Trà (HS036, 12C)
+    * yv_1791811680259_aw4os: 2026-09-15 | Đi học muộn | -2đ | st on vio: Nguyễn Thúy Trà (HS036, 12C)
+- [12C] Nguyễn Thị Như Trang (HS038) => -12đ (2 vios)
+    * yv_1791812700192_l281p: 2026-09-21 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Nguyễn Thị Như Trang (HS038, 12C)
+    * yv_1791812758888_830ib: 2026-09-15 | Không chuẩn bị bài / không làm bài tập | -2đ | st on vio: Nguyễn Thị Như Trang (HS038, 12C)
+- [12C] Nguyễn Hà Quốc Uy (HS044) => -5đ (1 vios)
+    * yv_1791812795943_5c788: 2026-09-24 | Không thực hiện nội quy trường | -5đ | st on vio: Nguyễn Hà Quốc Uy (HS044, 12C)
+
+=================== MONTH 10 ===================
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_10_dhxw Hà Huy Cường
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_11_afl7 Hà Thị Kim Dung
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_12_1m9s Đỗ Anh Duy
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_13_9zru Nguyễn Ngọc Duyên
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_14_wtrx Lê Ngọc Hoàng Hà
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_15_7mwc Bùi Minh Hải
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_16_omk9 Nguyễn Ngọc Hải
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_17_62qm Nguyễn Thị Phương Hạnh
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_18_fmz9 Nguyễn Việt Hoàng
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_23_npv4 Bùi Quốc Lâm
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789828776820_9_rbwg Trần Thị Quỳnh Chi
+Monthly violations: []
+Monthly deduction: -0
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789831181702_19_9uuj Nguyễn Thị Uyên Linh
+Monthly violations: [
+  {
+    date: '2026-10-09',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  },
+  { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789831181703_30_8o4k Nguyễn Duy Quang
+Monthly violations: [ { date: '2026-10-14', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789831181703_32_fgfe Bùi Hoàng Quân
+Monthly violations: [ { date: '2026-10-06', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789831181703_39_4i5h Nguyễn Thị Phương Thúy
+Monthly violations: [
+  {
+    date: '2026-10-09',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  },
+  { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789831181703_41_tcyn Phạm Thị Thu Trang
+Monthly violations: [
+  { date: '2026-10-09', points: -5, criterion: 'Bỏ tiết / Trốn tiết' },
+  {
+    date: '2026-10-09',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  }
+]
+Monthly deduction: -6
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1789831181704_45_l4wb Hà Ngọc Vi
+Monthly violations: [ { date: '2026-10-14', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790179115702_13_me1m Đặng Tường Linh
+Monthly violations: [
+  { date: '2026-10-15', points: -5, criterion: 'Nghỉ học không phép' }
+]
+Monthly deduction: -5
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790179115702_23_l7hw Trần Quỳnh Nga
+Monthly violations: [
+  {
+    date: '2026-10-09',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790179115702_28_eox1 Nguyễn Hữu Phương
+Monthly violations: [
+  { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-08',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  },
+  {
+    date: '2026-10-14',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  }
+]
+Monthly deduction: -5
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790179115702_29_axjk Hà Bùi Văn Quân
+Monthly violations: [ { date: '2026-10-14', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790179115702_30_0pkq Nguyễn Mạnh Quân
+Monthly violations: [
+  { date: '2026-10-05', points: -2, criterion: 'Đi học muộn' },
+  { date: '2026-10-06', points: -2, criterion: 'Đi học muộn' }
+]
+Monthly deduction: -4
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790179115702_4_1hcv Hoàng Thị Thanh Chúc
+Monthly violations: [ { date: '2026-10-07', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408764783_1_sj73 Nguyễn Thị Lan Anh
+Monthly violations: [ { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408764784_14_hksw Nguyễn Thu Huyền
+Monthly violations: [
+  { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-15',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408764784_18_9klu Nguyễn Thị Lan
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408764784_22_yv77 Nguyễn Trà My
+Monthly violations: [
+  { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-12',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408764784_26_tyw2 Hoàng Thị Ánh Nguyệt
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408764784_9_srbh Đinh Huy Hoàng
+Monthly violations: [ { date: '2026-10-05', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790408944859_21_n5b0 Trần Diệu Linh
+Monthly violations: [ { date: '2026-10-14', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409438512_17_nkt5 Trần Duy Khánh
+Monthly violations: [
+  {
+    date: '2026-10-07',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  }
+]
+Monthly deduction: -10
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409551431_10_fiu0 Đinh Thùy Dương
+Monthly violations: [
+  {
+    date: '2026-10-09',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  },
+  {
+    date: '2026-10-16',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -4
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409551431_19_olkk Trần Anh Huy
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409551431_29_clul Bùi Hằng Nga
+Monthly violations: [ { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409551431_2_a6ol Nguyễn Quỳnh Anh
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409551431_32_qqvj Trần Thị Ngọc
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409551431_5_lqt3 Nguyễn Thị Ngọc Bích
+Monthly violations: [ { date: '2026-10-05', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409668500_25_0o3o Lý Gia Minh
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409668501_32_kq2w Nguyễn Thị Thảo
+Monthly violations: [ { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409668501_34_rtug Nguyễn Thị Thanh Thảo
+Monthly violations: [ { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409668501_36_utdj Hoàng Thị Huyền Trang
+Monthly violations: [
+  { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-09',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409668501_37_7a77 Nguyễn Phú Trọng
+Monthly violations: [ { date: '2026-10-07', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790409668501_41_xu8u Sa Hải Yến
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411222710_18_293j Hà Gia Duy Hoàng
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411222710_19_awcx Nguyễn Việt Hoàng
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411222710_8_hksq Lê Tiến Đức
+Monthly violations: [ { date: '2026-10-14', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411347641_15_70q0 Nguyễn Đức Mạnh
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411347641_28_m53u Nguyễn Văn Thái
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411347641_32_egbb Trần Văn Toản
+Monthly violations: [
+  {
+    date: '2026-10-07',
+    points: -10,
+    criterion: 'Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)'
+  }
+]
+Monthly deduction: -10
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411347641_34_i58v Nguyễn Chí Trường
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411465643_36_gyv1 Hà Thị Quỳnh Trang
+Monthly violations: [
+  {
+    date: '2026-10-12',
+    points: -5,
+    criterion: 'Không thực hiện nội quy trường'
+  }
+]
+Monthly deduction: -5
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411465643_40_47g1 Hà Đinh Ngọc Tú
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_0_o089 Trần Đại An
+Monthly violations: [
+  { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-08',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  },
+  {
+    date: '2026-10-14',
+    points: -50,
+    criterion: 'Gây gổ, xích mích, bạo lực học đường'
+  }
+]
+Monthly deduction: -53
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_14_l77h Nguyễn Thảo Hiền
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_24_s18e Hoàng Anh Lâm
+Monthly violations: [ { date: '2026-10-05', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_29_5ysf Kiều Phương Ly
+Monthly violations: [
+  { date: '2026-10-06', points: -2, criterion: 'Đi học muộn' },
+  { date: '2026-10-07', points: -2, criterion: 'Đi học muộn' },
+  { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' }
+]
+Monthly deduction: -6
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_32_scnd Đinh Thị Yến Nhi
+Monthly violations: [ { date: '2026-10-07', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_33_cte7 Phan Hồng Sơn
+Monthly violations: [ { date: '2026-10-06', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_4_zxnn Bùi Anh Dũng
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411644813_8_b2h0 Đinh Nguyễn Tiến Đạt
+Monthly violations: [
+  { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-08',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411909133_18_o00c Đinh Thanh Lam
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411909133_42_a42s Trần Thị Phi Yến
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790411909133_4_7n5o Nguyễn Ngọc Anh
+Monthly violations: [ { date: '2026-10-07', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412020495_8_4l8n Hồ Huy Hoàng
+Monthly violations: [
+  { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' },
+  {
+    date: '2026-10-08',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  },
+  {
+    date: '2026-10-14',
+    points: -50,
+    criterion: 'Gây gổ, xích mích, bạo lực học đường'
+  }
+]
+Monthly deduction: -53
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412020496_26_prnz Đinh Văn Tài
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412122994_17_2la4 Lã Quang Huy
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412122994_26_4ozz Phan Quang Minh
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412638403_13_5qby Trần Văn Hòa
+Monthly violations: [
+  {
+    date: '2026-10-14',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412778798_10_b4zg Bùi Ngọc Hà
+Monthly violations: [ { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412778798_13_e3pi Hà Huy Hoàng
+Monthly violations: [ { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412778798_31_zkkb Đỗ Thanh Ngọc
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412916898_18_p7fa Lê Ngọc Linh
+Monthly violations: [ { date: '2026-10-15', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790412916898_8_o3of Ngô Duy Dương
+Monthly violations: [ { date: '2026-10-05', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413022071_0_a5ti Hà Hải An
+Monthly violations: [
+  {
+    date: '2026-10-15',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413022071_12_j4ws Nguyễn Tài Hoàn
+Monthly violations: [
+  {
+    date: '2026-10-09',
+    points: -2,
+    criterion: 'Không thực hiện nhiệm vụ học tập'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413022071_31_yu3t Nguyễn Quang Minh
+Monthly violations: [
+  {
+    date: '2026-10-08',
+    points: -2,
+    criterion: 'Không chuẩn bị bài / không làm bài tập'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413022071_34_hgjq Vương Ánh Ngọc
+Monthly violations: [
+  {
+    date: '2026-10-08',
+    points: -2,
+    criterion: 'Không thực hiện nhiệm vụ học tập'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413022071_36_zvdi Trần Mai Nhi
+Monthly violations: [
+  {
+    date: '2026-10-08',
+    points: -2,
+    criterion: 'Không thực hiện nhiệm vụ học tập'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413022071_41_rlli Lê Văn Thông
+Monthly violations: [
+  {
+    date: '2026-10-08',
+    points: -2,
+    criterion: 'Không thực hiện nhiệm vụ học tập'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413441941_10_1iih Bùi Thị Thanh Hằng
+Monthly violations: [ { date: '2026-10-12', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790413441941_7_1lw1 Nguyễn Ngọc Hà
+Monthly violations: [
+  {
+    date: '2026-10-08',
+    points: -1,
+    criterion: 'Không đeo thẻ học sinh'
+  },
+  { date: '2026-10-09', points: -2, criterion: 'Đi học muộn' }
+]
+Monthly deduction: -3
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790699772030_23_1v32 Nguyễn Thảo Ly
+Monthly violations: [
+  {
+    date: '2026-10-15',
+    points: -2,
+    criterion: 'Trang phục không đúng quy định'
+  }
+]
+Monthly deduction: -2
+=== MONTHLY DEDUCTION DEBUG ===
+Evaluation mode: month
+Selected month: 10
+Selected week: undefined
+Student: std_1790699772030_34_3ddq Nguyễn Hữu Quân
+Monthly violations: [ { date: '2026-10-08', points: -2, criterion: 'Đi học muộn' } ]
+Monthly deduction: -2
+Total students with deduction in Month 10: 75
+- [10A] Hà Huy Cường (HS077811) => -2đ (1 vios)
+    * yv_1791456224281_yc53m: 2026-10-08 | Đi học muộn | -2đ | st on vio: Hà Huy Cường (HS077811, 10A)
+- [10A] Nguyễn Việt Hoàng (HS077819) => -2đ (1 vios)
+    * yv_1791456582225_jocab: 2026-10-08 | Đi học muộn | -2đ | st on vio: Nguyễn Việt Hoàng (HS077819, 10A)
+- [10A] Bùi Quốc Lâm (HS077824) => -2đ (1 vios)
+    * yv_1791815759625_gaevs: 2026-10-12 | Đi học muộn | -2đ | st on vio: Bùi Quốc Lâm (HS077824, 10A)
+- [10B] Nguyễn Thị Uyên Linh (2573121988) => -3đ (2 vios)
+    * yv_1791555043494_rqvr0: 2026-10-09 | Không đeo thẻ học sinh | -1đ | st on vio: Nguyễn Thị Uyên Linh (2573121988, 10B)
+    * yv_1791555129706_cg6od: 2026-10-09 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Uyên Linh (2573121988, 10B)
+- [10B] Nguyễn Duy Quang (2569528308) => -2đ (1 vios)
+    * yv_1791987844140_tadb5: 2026-10-14 | Đi học muộn | -2đ | st on vio: Nguyễn Duy Quang (2569528308, 10B)
+- [10B] Bùi Hoàng Quân (2576073132) => -2đ (1 vios)
+    * yv_1791445241236_jeniy: 2026-10-06 | Đi học muộn | -2đ | st on vio: Bùi Hoàng Quân (2576073132, 10B)
+- [10B] Nguyễn Thị Phương Thúy (2573121996) => -3đ (2 vios)
+    * yv_1791555042188_hugrx: 2026-10-09 | Không đeo thẻ học sinh | -1đ | st on vio: Nguyễn Thị Phương Thúy (2573121996, 10B)
+    * yv_1791555130543_yslyu: 2026-10-09 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Phương Thúy (2573121996, 10B)
+- [10B] Phạm Thị Thu Trang (2575535118) => -6đ (2 vios)
+    * yv_1791555262796_o2nf2: 2026-10-09 | Bỏ tiết / Trốn tiết | -5đ | st on vio: Phạm Thị Thu Trang (2575535118, 10B)
+    * yv_1791555297646_qpbs6: 2026-10-09 | Không đeo thẻ học sinh | -1đ | st on vio: Phạm Thị Thu Trang (2575535118, 10B)
+- [10B] Hà Ngọc Vi (2569532934) => -2đ (1 vios)
+    * yv_1791987417120_wd6pm: 2026-10-14 | Đi học muộn | -2đ | st on vio: Hà Ngọc Vi (2569532934, 10B)
+- [12D] Đặng Tường Linh (HS014) => -5đ (1 vios)
+    * yv_1792032520783_gt9l4: 2026-10-15 | Nghỉ học không phép | -5đ | st on vio: Đặng Tường Linh (HS014, 12D)
+- [12D] Trần Quỳnh Nga (HS024) => -2đ (1 vios)
+    * yv_1791555437212_dclud: 2026-10-09 | Trang phục không đúng quy định | -2đ | st on vio: Trần Quỳnh Nga (HS024, 12D)
+- [12D] Nguyễn Hữu Phương (HS029) => -5đ (3 vios)
+    * yv_1791987484795_p9w1d: 2026-10-14 | Không đeo thẻ học sinh | -1đ | st on vio: Nguyễn Hữu Phương (HS029, 12D)
+    * yv_1791456324302_bkhm9: 2026-10-08 | Đi học muộn | -2đ | st on vio: Nguyễn Hữu Phương (HS029, 12D)
+    * yv_1791456441691_nqco8: 2026-10-08 | Trang phục không đúng quy định | -2đ | st on vio: Nguyễn Hữu Phương (HS029, 12D)
+- [12D] Hà Bùi Văn Quân (HS030) => -2đ (1 vios)
+    * yv_1791987932012_m3336: 2026-10-14 | Đi học muộn | -2đ | st on vio: Hà Bùi Văn Quân (HS030, 12D)
+- [12D] Nguyễn Mạnh Quân (HS031) => -4đ (2 vios)
+    * yv_1791445641705_4eve1: 2026-10-06 | Đi học muộn | -2đ | st on vio: Nguyễn Mạnh Quân (HS031, 12D)
+    * yv_1791444846952_shc5s: 2026-10-05 | Đi học muộn | -2đ | st on vio: Nguyễn Mạnh Quân (HS031, 12D)
+- [12D] Hoàng Thị Thanh Chúc (HS005) => -2đ (1 vios)
+    * yv_1791446378838_n711m: 2026-10-07 | Đi học muộn | -2đ | st on vio: Hoàng Thị Thanh Chúc (HS005, 12D)
+- [10C] Nguyễn Thị Lan Anh (HS002) => -2đ (1 vios)
+    * yv_1792046698692_zpdx4: 2026-10-15 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Lan Anh (HS002, 10C)
+- [10C] Nguyễn Thu Huyền (HS015) => -3đ (2 vios)
+    * yv_1792046699423_sltcl: 2026-10-15 | Đi học muộn | -2đ | st on vio: Nguyễn Thu Huyền (HS015, 10C)
+    * yv_1792046747453_knec5: 2026-10-15 | Không đeo thẻ học sinh | -1đ | st on vio: Nguyễn Thu Huyền (HS015, 10C)
+- [10C] Nguyễn Thị Lan (HS019) => -2đ (1 vios)
+    * yv_1791815835404_x3abg: 2026-10-12 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Lan (HS019, 10C)
+- [10C] Nguyễn Trà My (HS023) => -3đ (2 vios)
+    * yv_1791815834666_eju72: 2026-10-12 | Đi học muộn | -2đ | st on vio: Nguyễn Trà My (HS023, 10C)
+    * yv_1791816318817_umtn7: 2026-10-12 | Không đeo thẻ học sinh | -1đ | st on vio: Nguyễn Trà My (HS023, 10C)
+- [10C] Hoàng Thị Ánh Nguyệt (HS027) => -2đ (1 vios)
+    * yv_1791554830221_z8sqh: 2026-10-09 | Đi học muộn | -2đ | st on vio: Hoàng Thị Ánh Nguyệt (HS027, 10C)
+- [10C] Đinh Huy Hoàng (HS010) => -2đ (1 vios)
+    * yv_1791444614793_cf16f: 2026-10-05 | Đi học muộn | -2đ | st on vio: Đinh Huy Hoàng (HS010, 10C)
+- [10D] Trần Diệu Linh (HS022) => -2đ (1 vios)
+    * yv_1791987751314_rwglt: 2026-10-14 | Đi học muộn | -2đ | st on vio: Trần Diệu Linh (HS022, 10D)
+- [10G] Trần Duy Khánh (HS018) => -10đ (1 vios)
+    * yv_1791446004194_h68tz: 2026-10-07 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Trần Duy Khánh (HS018, 10G)
+- [10H] Đinh Thùy Dương (HS011) => -4đ (2 vios)
+    * yv_1792138317683_wweiu: 2026-10-16 | Trang phục không đúng quy định | -2đ | st on vio: Đinh Thùy Dương (HS011, 10H)
+    * yv_1791554988286_2z1vd: 2026-10-09 | Trang phục không đúng quy định | -2đ | st on vio: Đinh Thùy Dương (HS011, 10H)
+- [10H] Trần Anh Huy (HS020) => -2đ (1 vios)
+    * yv_1791815523919_ejhgw: 2026-10-12 | Đi học muộn | -2đ | st on vio: Trần Anh Huy (HS020, 10H)
+- [10H] Bùi Hằng Nga (HS030) => -2đ (1 vios)
+    * yv_1792046815319_7qtgb: 2026-10-15 | Đi học muộn | -2đ | st on vio: Bùi Hằng Nga (HS030, 10H)
+- [10H] Nguyễn Quỳnh Anh (HS003) => -2đ (1 vios)
+    * yv_1791815522952_5kx3v: 2026-10-12 | Đi học muộn | -2đ | st on vio: Nguyễn Quỳnh Anh (HS003, 10H)
+- [10H] Trần Thị Ngọc (HS033) => -2đ (1 vios)
+    * yv_1791554870022_cqnga: 2026-10-09 | Đi học muộn | -2đ | st on vio: Trần Thị Ngọc (HS033, 10H)
+- [10H] Nguyễn Thị Ngọc Bích (HS006) => -2đ (1 vios)
+    * yv_1791444944913_92fp6: 2026-10-05 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Ngọc Bích (HS006, 10H)
+- [10I] Lý Gia Minh (HS026) => -2đ (1 vios)
+    * yv_1791445914933_twio0: 2026-10-08 | Đi học muộn | -2đ | st on vio: Lý Gia Minh (HS026, 10I)
+- [10I] Nguyễn Thị Thảo (HS033) => -2đ (1 vios)
+    * yv_1792046580999_dqcjc: 2026-10-15 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Thảo (HS033, 10I)
+- [10I] Nguyễn Thị Thanh Thảo (HS035) => -2đ (1 vios)
+    * yv_1792046580269_pqys2: 2026-10-15 | Đi học muộn | -2đ | st on vio: Nguyễn Thị Thanh Thảo (HS035, 10I)
+- [10I] Hoàng Thị Huyền Trang (HS037) => -3đ (2 vios)
+    * yv_1791555201330_obpyo: 2026-10-09 | Đi học muộn | -2đ | st on vio: Hoàng Thị Huyền Trang (HS037, 10I)
+    * yv_1791555230721_p3vai: 2026-10-09 | Không đeo thẻ học sinh | -1đ | st on vio: Hoàng Thị Huyền Trang (HS037, 10I)
+- [10I] Nguyễn Phú Trọng (HS038) => -2đ (1 vios)
+    * yv_1791445942145_e3u57: 2026-10-07 | Đi học muộn | -2đ | st on vio: Nguyễn Phú Trọng (HS038, 10I)
+- [10I] Sa Hải Yến (HS042) => -2đ (1 vios)
+    * yv_1791456263044_zqrgl: 2026-10-08 | Đi học muộn | -2đ | st on vio: Sa Hải Yến (HS042, 10I)
+- [12A] Hà Gia Duy Hoàng (HS019) => -2đ (1 vios)
+    * yv_1791456465039_khie2: 2026-10-08 | Đi học muộn | -2đ | st on vio: Hà Gia Duy Hoàng (HS019, 12A)
+- [12A] Nguyễn Việt Hoàng (HS020) => -2đ (1 vios)
+    * yv_1791455967310_ne290: 2026-10-08 | Đi học muộn | -2đ | st on vio: Nguyễn Việt Hoàng (HS020, 12A)
+- [12A] Lê Tiến Đức (HS009) => -2đ (1 vios)
+    * yv_1791987573146_6la3s: 2026-10-14 | Đi học muộn | -2đ | st on vio: Lê Tiến Đức (HS009, 12A)
+- [12B] Nguyễn Đức Mạnh (HS016) => -2đ (1 vios)
+    * yv_1791445492202_6gv5a: 2026-10-08 | Đi học muộn | -2đ | st on vio: Nguyễn Đức Mạnh (HS016, 12B)
+- [12B] Nguyễn Văn Thái (HS029) => -2đ (1 vios)
+    * yv_1791554914832_e47ph: 2026-10-09 | Đi học muộn | -2đ | st on vio: Nguyễn Văn Thái (HS029, 12B)
+- [12B] Trần Văn Toản (HS033) => -10đ (1 vios)
+    * yv_1791446055634_7ks9p: 2026-10-07 | Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn) | -10đ | st on vio: Trần Văn Toản (HS033, 12B)
+- [12B] Nguyễn Chí Trường (HS035) => -2đ (1 vios)
+    * yv_1791815580467_7vr0m: 2026-10-12 | Đi học muộn | -2đ | st on vio: Nguyễn Chí Trường (HS035, 12B)
+- [12C] Hà Thị Quỳnh Trang (HS037) => -5đ (1 vios)
+    * yv_1791812856811_1u6qf: 2026-10-12 | Không thực hiện nội quy trường | -5đ | st on vio: Hà Thị Quỳnh Trang (HS037, 12C)
+- [12C] Hà Đinh Ngọc Tú (HS041) => -2đ (1 vios)
+    * yv_1791554888516_izilw: 2026-10-09 | Đi học muộn | -2đ | st on vio: Hà Đinh Ngọc Tú (HS041, 12C)
+- [12E] Trần Đại An (HS001) => -53đ (3 vios)
+    * yv_1792149128992_sylvt: 2026-10-14 | Gây gổ, xích mích, bạo lực học đường | -50đ | st on vio: Trần Đại An (HS001, 12E)
+    * yv_1791456632372_78vc4: 2026-10-08 | Đi học muộn | -2đ | st on vio: Trần Đại An (HS001, 12E)
+    * yv_1791456995131_ssz2x: 2026-10-08 | Không đeo thẻ học sinh | -1đ | st on vio: Trần Đại An (HS001, 12E)
+- [12E] Nguyễn Thảo Hiền (HS015) => -2đ (1 vios)
+    * yv_1791456557043_cslvf: 2026-10-08 | Đi học muộn | -2đ | st on vio: Nguyễn Thảo Hiền (HS015, 12E)
+- [12E] Hoàng Anh Lâm (HS025) => -2đ (1 vios)
+    * yv_1791444769984_v6m5a: 2026-10-05 | Đi học muộn | -2đ | st on vio: Hoàng Anh Lâm (HS025, 12E)
+- [12E] Kiều Phương Ly (HS030) => -6đ (3 vios)
+    * yv_1791815865621_kjswx: 2026-10-12 | Đi học muộn | -2đ | st on vio: Kiều Phương Ly (HS030, 12E)
+    * yv_1791445821913_7voic: 2026-10-07 | Đi học muộn | -2đ | st on vio: Kiều Phương Ly (HS030, 12E)
+    * yv_1791445533424_ke79o: 2026-10-06 | Đi học muộn | -2đ | st on vio: Kiều Phương Ly (HS030, 12E)
+- [12E] Đinh Thị Yến Nhi (HS033) => -2đ (1 vios)
+    * yv_1791445786779_vqehp: 2026-10-07 | Đi học muộn | -2đ | st on vio: Đinh Thị Yến Nhi (HS033, 12E)
+- [12E] Phan Hồng Sơn (HS034) => -2đ (1 vios)
+    * yv_1791445362670_sapnm: 2026-10-06 | Đi học muộn | -2đ | st on vio: Phan Hồng Sơn (HS034, 12E)
+- [12E] Bùi Anh Dũng (HS005) => -2đ (1 vios)
+    * yv_1791456847104_gsgx1: 2026-10-08 | Đi học muộn | -2đ | st on vio: Bùi Anh Dũng (HS005, 12E)
+- [12E] Đinh Nguyễn Tiến Đạt (HS009) => -3đ (2 vios)
+    * yv_1791456697414_hmlxd: 2026-10-08 | Đi học muộn | -2đ | st on vio: Đinh Nguyễn Tiến Đạt (HS009, 12E)
+    * yv_1791457050040_0otw9: 2026-10-08 | Không đeo thẻ học sinh | -1đ | st on vio: Đinh Nguyễn Tiến Đạt (HS009, 12E)
+- [12H] Đinh Thanh Lam (2587619012) => -2đ (1 vios)
+    * yv_1791554787048_ey2wz: 2026-10-09 | Đi học muộn | -2đ | st on vio: Đinh Thanh Lam (2587619012, 12H)
+- [12H] Trần Thị Phi Yến (2565847080) => -2đ (1 vios)
+    * yv_1791554787877_0p8wg: 2026-10-09 | Đi học muộn | -2đ | st on vio: Trần Thị Phi Yến (2565847080, 12H)
+- [12H] Nguyễn Ngọc Anh (2587619004) => -2đ (1 vios)
+    * yv_1791446318974_5kb7p: 2026-10-07 | Đi học muộn | -2đ | st on vio: Nguyễn Ngọc Anh (2587619004, 12H)
+- [12I] Hồ Huy Hoàng (2591199127) => -53đ (3 vios)
+    * yv_1792149171331_n7h16: 2026-10-14 | Gây gổ, xích mích, bạo lực học đường | -50đ | st on vio: Hồ Huy Hoàng (2591199127, 12I)
+    * yv_1791456662751_3lkfp: 2026-10-08 | Đi học muộn | -2đ | st on vio: Hồ Huy Hoàng (2591199127, 12I)
+    * yv_1791457023906_jh0bd: 2026-10-08 | Không đeo thẻ học sinh | -1đ | st on vio: Hồ Huy Hoàng (2591199127, 12I)
+- [12I] Đinh Văn Tài (2591199139) => -2đ (1 vios)
+    * yv_1791816241059_461g3: 2026-10-12 | Đi học muộn | -2đ | st on vio: Đinh Văn Tài (2591199139, 12I)
+- [11A] Lã Quang Huy (2591379948) => -2đ (1 vios)
+    * yv_1791815795631_ukhkz: 2026-10-12 | Đi học muộn | -2đ | st on vio: Lã Quang Huy (2591379948, 11A)
+- [11A] Phan Quang Minh (2526690934) => -2đ (1 vios)
+    * yv_1791815796340_3d594: 2026-10-12 | Đi học muộn | -2đ | st on vio: Phan Quang Minh (2526690934, 11A)
+- [11B] Trần Văn Hòa (2591380019) => -2đ (1 vios)
+    * yv_1791987800963_x0f5g: 2026-10-14 | Trang phục không đúng quy định | -2đ | st on vio: Trần Văn Hòa (2591380019, 11B)
+- [11C] Bùi Ngọc Hà (2548462024) => -2đ (1 vios)
+    * yv_1791554932283_0wxy0: 2026-10-09 | Đi học muộn | -2đ | st on vio: Bùi Ngọc Hà (2548462024, 11C)
+- [11C] Hà Huy Hoàng (2528156483) => -2đ (1 vios)
+    * yv_1792046780214_2slcx: 2026-10-15 | Đi học muộn | -2đ | st on vio: Hà Huy Hoàng (2528156483, 11C)
+- [11C] Đỗ Thanh Ngọc (2500922192) => -2đ (1 vios)
+    * yv_1791456534556_eg060: 2026-10-08 | Đi học muộn | -2đ | st on vio: Đỗ Thanh Ngọc (2500922192, 11C)
+- [11D] Lê Ngọc Linh (2591380060) => -2đ (1 vios)
+    * yv_1792046661577_8aurp: 2026-10-15 | Đi học muộn | -2đ | st on vio: Lê Ngọc Linh (2591380060, 11D)
+- [11D] Ngô Duy Dương (2508233733) => -2đ (1 vios)
+    * yv_1791444878337_hjv56: 2026-10-05 | Đi học muộn | -2đ | st on vio: Ngô Duy Dương (2508233733, 11D)
+- [11E] Hà Hải An (2500776751) => -2đ (1 vios)
+    * yv_1792046525550_xzogm: 2026-10-15 | Trang phục không đúng quy định | -2đ | st on vio: Hà Hải An (2500776751, 11E)
+- [11E] Nguyễn Tài Hoàn (2591380071) => -2đ (1 vios)
+    * yv_1791507918789_1f0a0: 2026-10-09 | Không thực hiện nhiệm vụ học tập | -2đ | st on vio: Nguyễn Tài Hoàn (2591380071, 11E)
+- [11E] Nguyễn Quang Minh (2591380077) => -2đ (1 vios)
+    * yv_1791507655945_q4wp8: 2026-10-08 | Không chuẩn bị bài / không làm bài tập | -2đ | st on vio: Nguyễn Quang Minh (2591380077, 11E)
+- [11E] Vương Ánh Ngọc (2500922199) => -2đ (1 vios)
+    * yv_1791507612655_6024n: 2026-10-08 | Không thực hiện nhiệm vụ học tập | -2đ | st on vio: Vương Ánh Ngọc (2500922199, 11E)
+- [11E] Trần Mai Nhi (2591380079) => -2đ (1 vios)
+    * yv_1791507950568_ey7a9: 2026-10-08 | Không thực hiện nhiệm vụ học tập | -2đ | st on vio: Trần Mai Nhi (2591380079, 11E)
+- [11E] Lê Văn Thông (2501551263) => -2đ (1 vios)
+    * yv_1791507875859_6jm1i: 2026-10-08 | Không thực hiện nhiệm vụ học tập | -2đ | st on vio: Lê Văn Thông (2501551263, 11E)
+- [11I] Bùi Thị Thanh Hằng (2504173369) => -2đ (1 vios)
+    * yv_1791816279313_suiuj: 2026-10-12 | Đi học muộn | -2đ | st on vio: Bùi Thị Thanh Hằng (2504173369, 11I)
+- [11I] Nguyễn Ngọc Hà (2504173363) => -3đ (2 vios)
+    * yv_1791555328430_rhxp9: 2026-10-09 | Đi học muộn | -2đ | st on vio: Nguyễn Ngọc Hà (2504173363, 11I)
+    * yv_1791446153508_7msoy: 2026-10-08 | Không đeo thẻ học sinh | -1đ | st on vio: Nguyễn Ngọc Hà (2504173363, 11I)
+- [11H] Nguyễn Thảo Ly (1526031638) => -2đ (1 vios)
+    * yv_1792138270723_iu1rg: 2026-10-15 | Trang phục không đúng quy định | -2đ | st on vio: Nguyễn Thảo Ly (1526031638, 11H)
+- [11H] Nguyễn Hữu Quân (2591052032) => -2đ (1 vios)
+    * yv_1791456401238_715sw: 2026-10-08 | Đi học muộn | -2đ | st on vio: Nguyễn Hữu Quân (2591052032, 11H)

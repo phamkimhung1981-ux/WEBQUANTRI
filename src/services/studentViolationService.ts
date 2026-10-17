@@ -99,24 +99,100 @@ export function parseViolationDateInfo(dateStr?: string): {
 }
 
 /**
- * Kiểm tra xem bản ghi vi phạm có thuộc về học sinh hay không (theo ID, mã HS, hoặc họ tên)
+ * Chuẩn hóa chuỗi tên hoặc ID lớp học để so sánh
+ */
+export function normalizeClassStr(s?: string): string {
+  if (!s) return '';
+  return s.toLowerCase().replace(/^(lớp|lop|class|c_|c-)\s*/i, '').replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Kiểm tra xem lớp của bản ghi vi phạm có khớp với lớp của học sinh không
+ */
+export function isClassMatch(vClassId?: string, vClassName?: string, sClassId?: string, sClassName?: string): boolean {
+  if (!vClassId && !vClassName) return false;
+  if (!sClassId && !sClassName) return false;
+
+  if (vClassId && sClassId && vClassId.trim().toLowerCase() === sClassId.trim().toLowerCase()) return true;
+
+  const vNormName = normalizeClassStr(vClassName);
+  const sNormName = normalizeClassStr(sClassName);
+  if (vNormName && sNormName && vNormName === sNormName) return true;
+
+  const vNormId = normalizeClassStr(vClassId);
+  const sNormId = normalizeClassStr(sClassId);
+  if (vNormId && sNormId && vNormId === sNormId) return true;
+  if (vNormName && sNormId && vNormName === sNormId) return true;
+  if (vNormId && sNormName && vNormId === sNormName) return true;
+
+  return false;
+}
+
+/**
+ * Kiểm tra xem bản ghi vi phạm có thuộc về học sinh hay không.
+ * BẮT BUỘC KHỚP LỚP HỌC (classId / className) để tránh vi phạm của học sinh lớp này bị gán sang học sinh trùng mã/STT (HS001, HS002...) ở các lớp khác.
  */
 export function isStudentMatch(v: YouthViolationRecord, student: Student): boolean {
-  if (v.studentId && student.id && v.studentId === student.id) return true;
-  if (v.studentCode && student.code && v.studentCode === student.code) return true;
-  if (v.studentId && student.code && v.studentId === student.code) return true;
-  if (v.studentCode && student.id && v.studentCode === student.id) return true;
+  // 1. Vi phạm tập thể lớp KHÔNG PHẢI là vi phạm cá nhân của từng học sinh
+  if (v.isWholeClass || (v as any).is_whole_class || v.studentId === 'ALL_CLASS' || (v as any).student_id === 'ALL_CLASS') {
+    return false;
+  }
+  const vStdName = (v.studentName || (v as any).student_name || '').trim().toLowerCase();
+  if (vStdName.includes('tập thể') || vStdName.includes('toàn trường') || vStdName.includes('cả lớp')) {
+    return false;
+  }
 
-  // Đối soát theo họ tên (nếu trùng họ tên và lớp)
-  const vName = (v.studentName || '').toLowerCase().trim();
-  const sName = (student.fullName || student.name || '').toLowerCase().trim();
-  if (vName && sName && vName === sName) {
-    const vClass = (v.className || '').toLowerCase().replace(/\s/g, '');
-    const sClass = (student.className || '').toLowerCase().replace(/\s/g, '');
-    if (!vClass || !sClass || vClass === sClass) {
+  // 2. Không bao giờ match bản ghi sample cho học sinh thật
+  if (v.id && String(v.id).startsWith('yv_sample_')) {
+    if (!student.id || v.studentId !== student.id) return false;
+  }
+
+  const vId = (v.studentId || (v as any).student_id || '').trim();
+  const sId = (student.id || '').trim();
+
+  // 3. Nếu cả 2 đều có ID học sinh Firestore dạng std_ và khác nhau -> KHÔNG MATCH
+  if (vId && sId && vId.startsWith('std_') && sId.startsWith('std_') && vId !== sId) {
+    return false;
+  }
+
+  // 4. Nếu có cùng ID duy nhất Firestore dạng std_ -> Đã là cùng một học sinh
+  if (vId && sId && vId.startsWith('std_') && vId === sId) {
+    return true;
+  }
+
+  // 5. Đối soát lớp học BẮT BUỘC: Nếu không khớp lớp -> KHÔNG MATCH
+  const vClassId = v.classId || (v as any).class_id;
+  const vClassName = v.className || (v as any).class_name;
+  const sClassId = student.classId || (student as any).class_id;
+  const sClassName = student.className || (student as any).class_name;
+
+  if (!isClassMatch(vClassId, vClassName, sClassId, sClassName)) {
+    return false;
+  }
+
+  // 6. Sau khi LỚP ĐÃ KHỚP CHÍNH XÁC:
+  if (vId && sId && vId === sId) {
+    return true;
+  }
+
+  const sName = (student.fullName || student.name || '').trim().toLowerCase();
+  const vCode = (v.studentCode || (v as any).student_code || '').trim().toLowerCase();
+  const sCode = (student.code || '').trim().toLowerCase();
+
+  // Khớp qua mã học sinh trong cùng lớp (chỉ khi tên không mâu thuẫn hoàn toàn)
+  if (vCode && sCode && vCode === sCode) {
+    if (!vStdName || !sName || vStdName === sName) {
       return true;
     }
+    // Nếu tên khác nhau hoàn toàn trong cùng 1 lớp (ví dụ gõ nhầm mã), không tự tiện match
+    return false;
   }
+
+  // Khớp qua họ và tên trong cùng lớp
+  if (vStdName && sName && vStdName === sName) {
+    return true;
+  }
+
   return false;
 }
 
@@ -143,7 +219,7 @@ export function getViolationMinusPoints(v: YouthViolationRecord): number {
 }
 
 export const studentViolationService = {
-  // 1. TÍNH ĐIỂM TRỪ THÁNG RIÊNG BIỆT - TUYỆT ĐỐI KHÔNG DÙNG BỘ LỌC TUẦN
+  // 1. TÍNH ĐIỂM TRỪ THÁNG CHÍNH XÁC - CHỈ TỔNG HỢP VI PHẠM THUỘC ĐÚNG THÁNG ĐÓ
   getMonthlyDeduction(
     student: Student | string,
     schoolYear: string = '2026–2027',
@@ -154,38 +230,48 @@ export const studentViolationService = {
       ? { id: student, code: student, name: student, fullName: student, className: '', classId: '', gender: 'Nam', dob: '' }
       : student;
 
-    const startYear = parseStartYear(schoolYear);
-    const yr = monthNumber >= 8 ? startYear : startYear + 1;
-    const monthStartIso = `${yr}-${String(monthNumber).padStart(2, '0')}-01`;
-    const lastDay = new Date(yr, monthNumber, 0).getDate();
-    const monthEndIso = `${yr}-${String(monthNumber).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    const targetWeeks = getWeeksForMonth(monthNumber, schoolYear);
-
     const monthlyViolations = violations.filter(v => {
       if (v.status === 'TU_CHOI') return false;
+      // Exclude sample records unless explicitly matching student id
+      if (v.id && String(v.id).startsWith('yv_sample_')) {
+        if (!studentObj.id || v.studentId !== studentObj.id) return false;
+      }
 
-      // 1. Lọc theo học sinh
+      // 1. Lọc theo học sinh (bắt buộc kiểm tra khớp lớp học và danh tính)
       if (!isStudentMatch(v, studentObj)) return false;
 
       // 2. Lọc theo năm học
       if (!isSchoolYearMatch(v.schoolYear, schoolYear)) return false;
 
-      // 3. Lọc theo tháng: Phải rơi vào tháng đang chọn (ngày ISO hoặc parsed date hoặc week thuộc tháng)
-      const dInfo = parseViolationDateInfo(v.violationDate);
-      const matchByParsedMonth = dInfo ? (dInfo.month === monthNumber) : false;
-      const matchByParsedDate = dInfo ? (dInfo.isoDate >= monthStartIso && dInfo.isoDate <= monthEndIso) : false;
-      const matchByMonthNum = Number(v.monthNumber) === Number(monthNumber);
-      const matchByWeek = targetWeeks.includes(Number(v.weekNumber)) || isWeekInMonth(Number(v.weekNumber), monthNumber, schoolYear);
+      // 3. Lọc theo tháng: Phải thuộc đúng tháng đang đánh giá
+      const dInfo = parseViolationDateInfo(v.violationDate || (v as any).violation_date);
+      if (dInfo) {
+        return dInfo.month === monthNumber;
+      }
 
-      return matchByParsedMonth || matchByParsedDate || matchByMonthNum || matchByWeek;
+      const mNum = Number(v.monthNumber || (v as any).month_number);
+      if (mNum && mNum === monthNumber) return true;
+
+      return false;
     });
 
-    const totalDeduction = monthlyViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
+    // Deduplicate by violation id (mỗi bản ghi chỉ được tính một lần duy nhất)
+    const seenIds = new Set<string>();
+    const deduplicatedViolations: YouthViolationRecord[] = [];
+    for (const v of monthlyViolations) {
+      const vKey = v.id || `${v.violationDate}_${v.studentId}_${v.criterionId}`;
+      if (!seenIds.has(vKey)) {
+        seenIds.add(vKey);
+        deduplicatedViolations.push(v);
+      }
+    }
 
-    return { totalDeduction, violations: monthlyViolations };
+    const totalDeduction = deduplicatedViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
+
+    return { totalDeduction, violations: deduplicatedViolations };
   },
 
-  // 2. TÍNH ĐIỂM TRỪ TUẦN RIÊNG BIỆT - CHỈ DÙNG KHI CHỌN CHẾ ĐỘ TUẦN
+  // 2. TÍNH ĐIỂM TRỪ TUẦN CHÍNH XÁC - CHỈ DÙNG KHI CHỌN CHẾ ĐỘ TUẦN
   getWeeklyDeduction(
     student: Student | string,
     schoolYear: string = '2026–2027',
@@ -200,19 +286,33 @@ export const studentViolationService = {
 
     const weeklyViolations = violations.filter(v => {
       if (v.status === 'TU_CHOI') return false;
+      if (v.id && String(v.id).startsWith('yv_sample_')) {
+        if (!studentObj.id || v.studentId !== studentObj.id) return false;
+      }
       if (!isStudentMatch(v, studentObj)) return false;
       if (!isSchoolYearMatch(v.schoolYear, schoolYear)) return false;
 
-      const dInfo = parseViolationDateInfo(v.violationDate);
-      const matchByDate = dInfo ? (dInfo.isoDate >= wInfo.startDateIso && dInfo.isoDate <= wInfo.endDateIso) : false;
-      const matchByWeekNum = Number(v.weekNumber) === Number(weekNumber);
-
-      return matchByDate || matchByWeekNum;
+      const dInfo = parseViolationDateInfo(v.violationDate || (v as any).violation_date);
+      if (dInfo) {
+        return dInfo.isoDate >= wInfo.startDateIso && dInfo.isoDate <= wInfo.endDateIso;
+      }
+      return Number(v.weekNumber || (v as any).week_number) === Number(weekNumber);
     });
 
-    const totalDeduction = weeklyViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
+    // Deduplicate by violation id
+    const seenIds = new Set<string>();
+    const deduplicatedViolations: YouthViolationRecord[] = [];
+    for (const v of weeklyViolations) {
+      const vKey = v.id || `${v.violationDate}_${v.studentId}_${v.criterionId}`;
+      if (!seenIds.has(vKey)) {
+        seenIds.add(vKey);
+        deduplicatedViolations.push(v);
+      }
+    }
 
-    return { totalDeduction, violations: weeklyViolations };
+    const totalDeduction = deduplicatedViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
+
+    return { totalDeduction, violations: deduplicatedViolations };
   },
 
   // 3. TÍNH ĐIỂM TRỪ CẢ NĂM HỌC
@@ -227,14 +327,28 @@ export const studentViolationService = {
 
     const yearlyViolations = violations.filter(v => {
       if (v.status === 'TU_CHOI') return false;
+      if (v.id && String(v.id).startsWith('yv_sample_')) {
+        if (!studentObj.id || v.studentId !== studentObj.id) return false;
+      }
       if (!isStudentMatch(v, studentObj)) return false;
       if (!isSchoolYearMatch(v.schoolYear, schoolYear)) return false;
       return true;
     });
 
-    const totalDeduction = yearlyViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
+    // Deduplicate by violation id
+    const seenIds = new Set<string>();
+    const deduplicatedViolations: YouthViolationRecord[] = [];
+    for (const v of yearlyViolations) {
+      const vKey = v.id || `${v.violationDate}_${v.studentId}_${v.criterionId}`;
+      if (!seenIds.has(vKey)) {
+        seenIds.add(vKey);
+        deduplicatedViolations.push(v);
+      }
+    }
 
-    return { totalDeduction, violations: yearlyViolations };
+    const totalDeduction = deduplicatedViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
+
+    return { totalDeduction, violations: deduplicatedViolations };
   },
 
   // Helper tương thích cũ
@@ -372,12 +486,18 @@ export const studentViolationService = {
 
     for (const w of weeksToUse) {
       const wInfo = getWeekInfoByNumber(w, academicYear);
-      // Violations in week w
-      const wViolations = monthViolationSummary.violations.filter(
+      // Violations in week w from monthViolationSummary
+      const wViolationsRaw = monthViolationSummary.violations.filter(
         v => Number(v.weekNumber) === w || (v.violationDate && v.violationDate >= wInfo.startDateIso && v.violationDate <= wInfo.endDateIso)
       );
-
-      const wDeduction = wViolations.reduce((sum, v) => sum + Math.abs(Number(v.minusPoints) || 0), 0);
+      const seenW = new Set<string>();
+      const wViolations = wViolationsRaw.filter(v => {
+        const k = v.id || `${v.violationDate}_${v.studentId}_${v.criterionId}`;
+        if (seenW.has(k)) return false;
+        seenW.add(k);
+        return true;
+      });
+      const wDeduction = wViolations.reduce((sum, v) => sum + getViolationMinusPoints(v), 0);
 
       // Find teacher / Đoàn TN assessment for week w
       const wAssessment = teacherAssessments.find(a =>

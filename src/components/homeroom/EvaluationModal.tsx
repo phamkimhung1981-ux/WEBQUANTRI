@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { X, Award, CheckCircle, ShieldCheck, AlertCircle, FileText, Send } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Award, CheckCircle, ShieldCheck, AlertCircle, FileText, Send, ShieldAlert } from 'lucide-react';
 import { Student, ConductEvaluation, ConductRecord, ClassificationType, ConfirmationStatus, ClassInfo } from '../../types/homeroom';
 import { calculateConductScore, evaluateStudentConductRules, checkStudentHasSpecialWarning, isDatChuaDatCategory, evaluateStudent6Groups } from '../../lib/homeroomData';
+import { YouthViolationRecord } from '../../types/youthDiscipline';
+import { studentViolationService } from '../../services/studentViolationService';
 import { useAuth } from '../../store/AuthContext';
 
 interface EvaluationModalProps {
@@ -10,6 +12,9 @@ interface EvaluationModalProps {
   selectedClass: ClassInfo | null;
   student: Student | null;
   records: ConductRecord[];
+  youthViolations?: YouthViolationRecord[];
+  monthNumber?: number;
+  schoolYear?: string;
   existingEvaluation?: ConductEvaluation;
   periodLabel: string;
   onSaveEvaluation: (evaluation: Omit<ConductEvaluation, 'id' | 'createdAt'> & { id?: string }) => Promise<void>;
@@ -22,6 +27,9 @@ export default function EvaluationModal({
   selectedClass,
   student,
   records,
+  youthViolations,
+  monthNumber,
+  schoolYear,
   existingEvaluation,
   periodLabel,
   onSaveEvaluation,
@@ -36,22 +44,39 @@ export default function EvaluationModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Calculate totals from records
+  const targetMonthNum = monthNumber || parseInt(periodLabel.replace(/\D/g, ''), 10) || 9;
+  const targetSchoolYear = schoolYear || selectedClass?.schoolYear || '2026–2027';
+
+  // 1. TÍNH ĐIỂM TRỪ CHÍNH XÁC TỪ ĐOÀN THANH NIÊN CHO ĐÚNG HỌC SINH VÀ ĐÚNG THÁNG
+  const youthDeductionInfo = useMemo(() => {
+    if (!student || !youthViolations || youthViolations.length === 0) {
+      return { totalDeduction: 0, violations: [] as YouthViolationRecord[] };
+    }
+    return studentViolationService.getMonthlyDeduction(
+      student,
+      targetSchoolYear,
+      targetMonthNum,
+      youthViolations
+    );
+  }, [student, youthViolations, targetSchoolYear, targetMonthNum]);
+
+  const totalMinus = youthDeductionInfo.totalDeduction;
+  const studentViolations = youthDeductionInfo.violations;
+
+  // 2. TÍNH ĐIỂM CỘNG (TỪ BẢN GHI KHEN THƯỞNG / TÍCH CỰC)
   let totalPlus = 0;
-  let totalMinus = 0;
-  const studentRecords = student ? records.filter(r => r.studentId === student.id) : [];
-  const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords);
-
-  const evalResult = evaluateStudent6Groups(studentRecords);
-
   if (student) {
+    const studentRecords = records.filter(r => r.studentId === student.id);
     studentRecords.forEach(r => {
-      if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-      if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-      if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
-      else totalMinus += Math.abs(r.point);
+      if (r.recordType === 'TICH_CUC' || r.pointType === 'plus') {
+        totalPlus += Math.abs(r.point || 0);
+      }
     });
   }
+
+  const studentRecords = student ? records.filter(r => r.studentId === student.id) : [];
+  const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords) || studentViolations.some(v => v.severity === 'Nghiêm trọng' || (v.minusPoints && v.minusPoints >= 15));
+  const evalResult = evaluateStudent6Groups(studentRecords);
 
   const { totalScore, classification: calcClass } = calculateConductScore(100, totalPlus, totalMinus, undefined, hasSpecialWarning, undefined, evalResult);
 
@@ -198,13 +223,39 @@ export default function EvaluationModal({
               <span className="text-base font-bold text-emerald-700">+{totalPlus}</span>
             </div>
             <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl">
-              <span className="text-rose-700 font-semibold block">Điểm trừ</span>
+              <span className="text-rose-700 font-semibold block">Điểm trừ nền nếp</span>
               <span className="text-base font-bold text-rose-700">-{totalMinus}</span>
             </div>
             <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
               <span className="text-amber-700 font-semibold block">Xếp loại tự động</span>
               <span className="text-base font-bold text-amber-800">{calcClass}</span>
             </div>
+          </div>
+
+          {/* Chi tiết vi phạm từ Đoàn thanh niên (Nguồn dữ liệu thực tế) */}
+          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-2">
+            <span className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+              <span>Vi phạm nền nếp trong {periodLabel}:</span>
+              <span className="text-slate-500 font-medium">{studentViolations.length} lượt vi phạm</span>
+            </span>
+            {studentViolations.length === 0 ? (
+              <p className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 py-1">
+                <CheckCircle size={14} className="text-emerald-600" />
+                <span>Không có vi phạm nền nếp nào được Đoàn thanh niên ghi nhận trong {periodLabel}.</span>
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {studentViolations.map((v, i) => (
+                  <div key={v.id || i} className="flex items-center justify-between bg-white border border-rose-200 rounded-lg p-2 text-xs">
+                    <div>
+                      <span className="font-bold text-slate-800">{v.criterionName}</span>
+                      <span className="text-[10px] text-slate-500 block">{v.violationDate} • {v.content || v.criterionName}</span>
+                    </div>
+                    <span className="text-rose-600 font-black shrink-0">-{v.minusPoints}đ</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* GVCN Proposed Classification & Comments */}

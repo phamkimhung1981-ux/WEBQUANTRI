@@ -1,0 +1,502 @@
+=== DATA SUMMARY ===
+violationsCount: 116
+conductRecordsCount: 152
+conductEvaluationsCount: 49
+studentTrainingEvaluationsCount: 1
+
+--- ALL CONDUCT RECORDS ---
+[REC] ID: crec_1790539138155_1ew7l, std: std_1790409223220_4_9610 (Lê Hoàng Anh), class: 10E (class_11a1), point: -15, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790539247468_fet0e, std: std_1790409223220_10_hgcg (Phạm Hải Đăng), class: 10E (class_11a1), point: -10, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790539300667_yg5sg, std: std_1790409223221_37_khhl (Dương Ngọc Bảo Trang), class: 10E (class_11a1), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790539352604_3o73c, std: std_1790409223220_22_4kb2 (Phùng Văn Long), class: 10E (class_11a1), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790539371792_o9gbk, std: std_1790409223221_30_uq3s (Phạm Hòa Phong), class: 10E (class_11a1), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790692472790_m5vdf, std: std_1790179115702_29_axjk (Hà Bùi Văn Quân), class: 12D (class_12d_1789829842973), point: -2, type: undefined, date: 2026-09-23, week: 4, month: 9, notes: undefined
+[REC] ID: crec_1790692534487_v3jiw, std: std_1790179115702_15_0oec (Nguyễn Thị Khánh Linh), class: 12D (class_12d_1789829842973), point: -2, type: undefined, date: 2026-09-23, week: 4, month: 9, notes: undefined
+[REC] ID: crec_1790692552606_l8hwh, std: std_1790179115702_43_4nrl (Nguyễn Thị Ánh Tuyết), class: 12D (class_12d_1789829842973), point: -2, type: undefined, date: 2026-09-23, week: 4, month: 9, notes: undefined
+[REC] ID: crec_1790693074132_m4qc9, std: std_1790179115702_13_me1m (Đặng Tường Linh), class: 12D (class_12d_1789829842973), point: 5, type: undefined, date: 2026-09-02, week: 1, month: 9, notes: undefined
+[REC] ID: crec_1790693074478_xohoy, std: std_1790179115702_26_gck5 (Đặng Yến Phương), class: 12D (class_12d_1789829842973), point: 5, type: undefined, date: 2026-09-02, week: 1, month: 9, notes: undefined
+[REC] ID: crec_1790693074610_r1cqz, std: std_1790179115702_14_nq4g (Đỗ Thùy Linh), class: 12D (class_12d_1789829842973), point: 5, type: undefined, date: 2026-09-02, week: 1, month: 9, notes: undefined
+[REC] ID: crec_1790693074753_xsiuw, std: std_1790179115702_28_eox1 (Nguyễn Hữu Phương), class: 12D (class_12d_1789829842973), point: 5, type: undefined, date: 2026-09-02, week: 1, month: 9, notes: undefined
+[REC] ID: crec_1790693074888_weljs, std: std_1790179115702_21_pd36 (Nguyễn Thị Ngọc Mai), class: 12D (class_12d_1789829842973), point: 5, type: undefined, date: 2026-09-02, week: 1, month: 9, notes: undefined
+[REC] ID: crec_1790693075039_05mm3, std: std_1790179115702_16_44eg (Trần Thị Thùy Linh), class: 12D (class_12d_1789829842973), point: 5, type: undefined, date: 2026-09-02, week: 1, month: 9, notes: undefined
+[REC] ID: crec_1790720519203_plfij, std: std_1790409551431_1_e1fu (Đinh Tuấn Anh), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720583269_28tsp, std: std_1790409551431_1_e1fu (Đinh Tuấn Anh), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720631389_066de, std: std_1790409551431_2_a6ol (Nguyễn Quỳnh Anh), class: 10H (class_11a2), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720689987_f29qw, std: std_1790409551431_3_hxcz (Đoàn Thị Ngọc Ánh), class: 10H (class_11a2), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720715615_l9u6n, std: std_1790409551431_11_xg10 (Nguyễn Thạc Giang), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720742577_lt9id, std: std_1790409551431_11_xg10 (Nguyễn Thạc Giang), class: 10H (class_11a2), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720764319_c1uqe, std: std_1790409551431_12_1vou (Lê Quang Hải), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720776823_j7ow3, std: std_1790409551431_13_k55i (Nguyễn Đức Hải), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720786757_1x37p, std: std_1790409551431_14_els7 (Nguyễn Ngọc Gia Hân), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720804197_q4xut, std: std_1790409551431_17_2nx1 (Trần Huy Hoàng), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720817341_a3vhv, std: std_1790409551431_19_olkk (Trần Anh Huy), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720842479_kai5m, std: std_1790409551431_24_yipo (Trần Thị Mai Lan), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720864397_iqigv, std: std_1790409551431_31_wgcu (Nguyễn Văn Ngọc), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790720989835_b0zge, std: std_1790409551431_37_r2d1 (Cù Tiến Phú), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790721001611_3u0m9, std: std_1790409551431_39_3yyr (Nguyễn Anh Quân), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790721017809_rxxv8, std: std_1790409551431_44_01ds (Nguyễn Văn Trung), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790721133682_hi72t, std: std_1790409551431_44_01ds (Nguyễn Văn Trung), class: 10H (class_11a2), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790721145690_m2bsk, std: std_1790409551431_45_i5wr (Ngô Duy Tú), class: 10H (class_11a2), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790721161457_i7fcs, std: std_1790409551431_45_i5wr (Ngô Duy Tú), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790722285634_ab08n, std: std_1790413441941_13_wcv4 (Nguyễn Huy Hiếu), class: 11I (class_11i_1789829698565), point: -5, type: undefined, date: 2026-09-28, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790728738753_naek3, std: std_1790412122994_20_jkar (Phan Sơn Tùng Lâm), class: 11A (class_11a1_1789826390017_0), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790728977447_7ftrm, std: std_1790412122994_7_hwlq (Lê Đức Đạt), class: 11A (class_11a1_1789826390017_0), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730125962_onhc1, std: std_1790409551431_20_84t3 (Hoàng Thị Thu Huyền), class: 10H (class_11a2), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730150649_x5prb, std: std_1790409551431_10_fiu0 (Đinh Thùy Dương), class: 10H (class_11a2), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730173984_hkvjb, std: std_1790409551431_40_br6r (Hà Như Quỳnh), class: 10H (class_11a2), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730191015_6hr38, std: std_1790409551431_7_1cro (Đinh Thị Thanh Chúc), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730276264_mmy4q, std: std_1790409551431_32_qqvj (Trần Thị Ngọc), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730296433_wcgwe, std: std_1790409551431_24_yipo (Trần Thị Mai Lan), class: 10H (class_11a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730720767_0f8fa, std: std_1790411909133_20_evkc (Hà Thanh Long), class: 12H (class_12h_1789829899972), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730729983_gctz5, std: std_1790411909133_20_evkc (Hà Thanh Long), class: 12H (class_12h_1789829899972), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730841312_83jnt, std: std_1790411909133_32_f6y2 (Hà Thị Quỳnh), class: 12H (class_12h_1789829899972), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730875367_mvoz8, std: std_1790411909133_10_aacm (Lê Trung Dũng), class: 12H (class_12h_1789829899972), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790730950352_uc2zc, std: std_1790411909133_9_af8u (Đinh Tiến Dũng), class: 12H (class_12h_1789829899972), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790731056326_5jrpi, std: std_1790408944859_4_l80k (Trần Nam Cường), class: 10D (class_10b_1789816830004), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790731391791_xla6x, std: std_1790408944859_8_vj3u (Nguyễn Thị Ngọc Hà), class: 10D (class_10b_1789816830004), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790731447294_bogod, std: std_1790408944859_38_ooxy (Hà Thị Huyền Trang), class: 10D (class_10b_1789816830004), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737474660_aeq7j, std: std_1789831181702_4_ha9l (Nguyễn Thị Thanh Chúc), class: 10B (class_10a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737680193_bzfsd, std: std_1790411909133_24_i5rf (Bùi Thị Nhật Mỹ), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737698433_xmt0g, std: std_1790411909133_25_cvuf (Đinh Hà Lê Na), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737718817_bpxf6, std: std_1790411909133_27_2ngw (Nguyễn Văn Ngọc), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737776457_onhmx, std: std_1790411909133_32_f6y2 (Hà Thị Quỳnh), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737814465_onq44, std: std_1790411909133_37_1wah (Nguyễn Minh Thư), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737840049_y9ay0, std: std_1790411909133_38_rsnw (Nguyễn Thành Trung), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737851481_guv3g, std: std_1790411909133_39_lc7m (Nguyễn Văn Tú), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790737867801_5h55d, std: std_1790411909133_40_ti60 (Nguyễn Quang Tuấn), class: 12H (class_12h_1789829899972), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790754461868_f3rnw, std: std_1790411222710_36_mfld (Nguyễn Kim Thuý), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790754499907_bh3ty, std: std_1790411222710_44_6xta (Nguyễn Hán Việt), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790754607893_gt48y, std: std_1790411222710_25_dh8p (Đào Thị Mai Linh), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790754741748_3y8wp, std: std_1790411222710_12_4q47 (Mai Thu Hằng), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790754775100_n0x8r, std: std_1790411222710_26_f3y1 (Hán Phương Linh), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790754944887_cqlml, std: std_1790411222710_37_tsrx (Nguyễn Anh Thư), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790755062384_t64xk, std: std_1790411222710_30_q6db (Nguyễn Phương Thảo), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790774947196_fq7fq, std: std_1790411644813_0_o089 (Trần Đại An), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775072196_1a3cv, std: std_1790411644813_39_j8fp (Phạm Văn Tuấn), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775396274_a9tvn, std: std_1790411644813_39_j8fp (Phạm Văn Tuấn), class: 12E (class_12e_1789829862828), point: -10, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775499176_y5x13, std: std_1790411644813_4_zxnn (Bùi Anh Dũng), class: 12E (class_12e_1789829862828), point: -20, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775537508_o2x7o, std: std_1790411644813_36_7gdq (Bùi Thị Minh Thư), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775614650_e2kmp, std: std_1790411644813_10_160l (Nguyễn Văn Đạt), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775623670_gi8sw, std: std_1790411644813_10_160l (Nguyễn Văn Đạt), class: 12E (class_12e_1789829862828), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775635470_vg4a5, std: std_1790411644813_10_160l (Nguyễn Văn Đạt), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775668082_vaor7, std: std_1790411644813_41_0ups (Hoàng Văn Vinh), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775686258_v50nk, std: std_1790411644813_2_kzjj (Phùng Thị Chuyển), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775702112_4abp6, std: std_1790411644813_33_cte7 (Phan Hồng Sơn), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775827808_4dcyi, std: std_1790411644813_37_ynvh (Hà Anh Tú), class: 12E (class_12e_1789829862828), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775868872_c5d2n, std: std_1790411644813_37_ynvh (Hà Anh Tú), class: 12E (class_12e_1789829862828), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775887656_3gaqd, std: std_1790411644813_9_fvam (Hà Tiến Đạt), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775912765_pnbqr, std: std_1790411644813_22_jqpr (Phùng Duy Khang), class: 12E (class_12e_1789829862828), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775934335_mce2t, std: std_1790411644813_6_6kca (Đinh Văn Duy), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790775939050_69v0o, std: std_1790411644813_6_6kca (Đinh Văn Duy), class: 12E (class_12e_1789829862828), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776068201_qhefa, std: std_1790411644813_40_tn69 (Hoàng Huy Vân), class: 12E (class_12e_1789829862828), point: -4, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776093371_eysp0, std: std_1790411644813_5_728s (Đỗ Anh Dũng), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776111035_8dvsf, std: std_1790411644813_5_728s (Đỗ Anh Dũng), class: 12E (class_12e_1789829862828), point: -10, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776359343_a44xs, std: std_1790411644813_25_xvtt (Triệu Mỹ Lệ), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776406871_ysb3g, std: std_1790411644813_1_wwgf (Nguyễn Thị Ngọc Anh), class: 12E (class_12e_1789829862828), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776420995_4nnyu, std: std_1790411644813_16_iz49 (Phùng Thị Hòa), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776464325_zggnz, std: std_1790411644813_38_0r80 (Hà Anh Tuấn), class: 12E (class_12e_1789829862828), point: -15, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776467820_vjayd, std: std_1790411644813_38_0r80 (Hà Anh Tuấn), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790776485345_qnhjh, std: std_1790411644813_18_s4ws (Hà Văn Hùng), class: 12E (class_12e_1789829862828), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819197850_pc1kr, std: std_1790411797499_23_p7zb (Hà Phương Nam), class: 12G (class_12g_1789829884189), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819241979_h5w7v, std: std_1790411797499_23_p7zb (Hà Phương Nam), class: 12G (class_12g_1789829884189), point: -10, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819303765_4yiz3, std: std_1790411797499_23_p7zb (Hà Phương Nam), class: 12G (class_12g_1789829884189), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819341287_c8mbz, std: std_1790411797498_12_nfai (Nguyễn Công Hạo), class: 12G (class_12g_1789829884189), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819355595_9qdku, std: std_1790411797499_25_46b2 (Đinh Minh Nhẫn), class: 12G (class_12g_1789829884189), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819358317_nif3r, std: std_1790411797499_25_46b2 (Đinh Minh Nhẫn), class: 12G (class_12g_1789829884189), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819403033_83f2p, std: std_1790411797499_34_baaz (Bùi Thị Phương Thảo), class: 12G (class_12g_1789829884189), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819425254_79b61, std: std_1790411797499_33_wcw1 (Nguyễn Việt Sơn), class: 12G (class_12g_1789829884189), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819451113_rcnz9, std: std_1790411797499_41_srpg (Đào Hữu Quốc Việt), class: 12G (class_12g_1789829884189), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790819673470_zwu2l, std: std_1790411797499_31_x8ur (Sa Mạnh Quang), class: 12G (class_12g_1789829884189), point: -15, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790839381453_i4flx, std: std_1789828776819_2_9o0o (Đinh Công Anh), class: 10A (class_10a1_1789825862712_0), point: -5, type: undefined, date: 2026-10-15, week: 1, month: 10, notes: undefined
+[REC] ID: crec_1790842857349_v67yd, std: std_1789831181702_1_0rgh (Lê Thị Ngọc Anh), class: 10B (class_10a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790843062029_qv6qi, std: std_1789831181702_10_s4io (Nguyễn Ngọc Hân), class: 10B (class_10a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790843285379_47nhu, std: std_1789831181702_14_o8yb (Lê Anh Huy), class: 10B (class_10a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790843499291_idfjd, std: std_1789831181703_30_8o4k (Nguyễn Duy Quang), class: 10B (class_10a2), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790843572809_blyye, std: std_1789831181703_36_a5h4 (Dư Đức Tài), class: 10B (class_10a2), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790843628678_jxupv, std: std_1789831181703_42_bgm8 (Nguyễn Anh Tuấn), class: 10B (class_10a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790843701739_g74y2, std: std_1789831181704_44_vwq6 (Phạm Sơn Tùng), class: 10B (class_10a2), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790846989235_m5j02, std: std_1790413194349_1_s6vo (Sa Đình An), class: 11G (class_11g_1789829634430), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847062794_wp09o, std: std_1790413194349_1_s6vo (Sa Đình An), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-10, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847147210_1o584, std: std_1790413194349_3_0l9a (Phạm Khánh Duy), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847186146_tuhiz, std: std_1790413194349_12_fscq (Dương Thị Thu Huyền), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847237842_4rpp5, std: std_1790413194349_12_fscq (Dương Thị Thu Huyền), class: 11G (class_11g_1789829634430), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847314706_erk7m, std: std_1790413194349_24_midf (Đinh Thị Lụa), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847396402_2xi50, std: std_1790413194349_28_ooyd (Trần Thị Ánh Nguyệt), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847401834_rlggq, std: std_1790413194349_28_ooyd (Trần Thị Ánh Nguyệt), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847611058_50s31, std: std_1790413194349_44_8q88 (Hà Quang Vinh), class: 11G (class_11g_1789829634430), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847626298_vopxz, std: std_1790413194349_36_wv38 (Nguyễn Thị Mỹ Tâm), class: 11G (class_11g_1789829634430), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847642618_likk4, std: std_1790413194349_37_bp7o (Nguyễn Thị Thanh Tâm), class: 11G (class_11g_1789829634430), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790847659282_dp29h, std: std_1790413194349_0_ek1p (Nguyễn Thị Duy An), class: 11G (class_11g_1789829634430), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790864500652_wipdh, std: std_1790412778798_5_fgxa (Hoàng Gia Bảo), class: 11C (class_11a3_1789826390017_2), point: -15, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790868116933_fh3in, std: std_1790412916898_18_p7fa (Lê Ngọc Linh), class: 11D (class_11a4_1789826390017_3), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790903724973_7cit5, std: std_1790411465642_0_ane5 (Hà Thái An), class: 12C (class_12c_1789829822676), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790903743860_r2ovi, std: std_1790411465642_0_ane5 (Hà Thái An), class: 12C (class_12c_1789829822676), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904310757_7t7bc, std: std_1790413022071_13_7s2o (Bùi Việt Hoàng), class: 11E (class_11a5_1789826390017_4), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904322237_21a2d, std: std_1790411465643_35_b1o5 (Nguyễn Thúy Trà), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904389126_umm31, std: std_1790411465643_35_b1o5 (Nguyễn Thúy Trà), class: 12C (class_12c_1789829822676), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904419909_nnm4v, std: std_1790413022071_4_95bm (Vi Chí Dũng), class: 11E (class_11a5_1789826390017_4), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904784504_5c9zt, std: std_1790411465642_2_fkn2 (Trần Tuấn Anh), class: 12C (class_12c_1789829822676), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904857459_lihsm, std: std_1790411465642_2_fkn2 (Trần Tuấn Anh), class: 12C (class_12c_1789829822676), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904902021_0pjbc, std: std_1790411465643_35_b1o5 (Nguyễn Thúy Trà), class: 12C (class_12c_1789829822676), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790904932864_klnmp, std: std_1790411465643_35_b1o5 (Nguyễn Thúy Trà), class: 12C (class_12c_1789829822676), point: -5, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905054637_vuvop, std: std_1790411465642_2_fkn2 (Trần Tuấn Anh), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905076743_6yh22, std: std_1790411465643_32_c2ae (Lê Quang Thắng), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905091165_mx0vw, std: std_1790411465642_14_bn88 (Nguyễn Gia Huy), class: 12C (class_12c_1789829822676), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905099856_c00bd, std: std_1790411465642_14_bn88 (Nguyễn Gia Huy), class: 12C (class_12c_1789829822676), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905142658_idvno, std: std_1790411465642_1_zxhm (Ngô Hà Quỳnh Anh), class: 12C (class_12c_1789829822676), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905147888_6vi6b, std: std_1790411465642_1_zxhm (Ngô Hà Quỳnh Anh), class: 12C (class_12c_1789829822676), point: -3, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905224549_54v90, std: std_1790411465642_3_rg9u (Nguyễn Ngọc Ánh), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905244106_810cu, std: std_1790411465642_3_rg9u (Nguyễn Ngọc Ánh), class: 12C (class_12c_1789829822676), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905255016_4b7fd, std: std_1790411465642_11_yuwy (Nguyễn Duy Hiếu), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905269989_kkfhl, std: std_1790411465643_29_6gaw (Trần Huệ Phương), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905310033_vz8k8, std: std_1790411465643_39_vqx3 (Nguyễn Hoàng Trung), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905320888_eu3cu, std: std_1790411465642_12_a8dr (Nguyễn Anh Hùng), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905323821_y8wgi, std: std_1790411465642_12_a8dr (Nguyễn Anh Hùng), class: 12C (class_12c_1789829822676), point: 0, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790905355824_gemcf, std: std_1790411465642_4_0uyc (Sa Đình Bảo), class: 12C (class_12c_1789829822676), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790948939406_v69fb, std: std_1790411222710_19_awcx (Nguyễn Việt Hoàng), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790949053955_tlg6j, std: std_1790411222710_8_hksq (Lê Tiến Đức), class: 12A (class_12a_1789829757781), point: -2, type: undefined, date: 2026-09-16, week: 3, month: 9, notes: undefined
+[REC] ID: crec_1790999455576_1aj9g, std: std_1789828776820_18_fmz9 (Nguyễn Việt Hoàng), class: 10A (class_10a1_1789825862712_0), point: -6, type: undefined, date: 2026-09-30, week: 4, month: 9, notes: undefined
+[REC] ID: crec_1790999831353_xulm0, std: std_1789828776820_25_kibs (Nguyễn Công Minh), class: 10A (class_10a1_1789825862712_0), point: 0, type: undefined, date: 2026-09-23, week: 4, month: 9, notes: undefined
+
+--- ALL CONDUCT EVALUATIONS ---
+[EVAL] ID: eval_std_1790179115702_0_dciv_Tháng_09_2026_2027, std: std_1790179115702_0_dciv, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_10_xnls_Tháng_09_2026_2027, std: std_1790179115702_10_xnls, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_11_3ct0_Tháng_09_2026_2027, std: std_1790179115702_11_3ct0, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_12_226g_Tháng_09_2026_2027, std: std_1790179115702_12_226g, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_13_me1m_Tháng_09_2026_2027, std: std_1790179115702_13_me1m, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_14_nq4g_Tháng_09_2026_2027, std: std_1790179115702_14_nq4g, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_15_0oec_Tháng_09_2026_2027, std: std_1790179115702_15_0oec, class: class_12d_1789829842973, totalScore: 98, totalMinus: 2, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_16_44eg_Tháng_09_2026_2027, std: std_1790179115702_16_44eg, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_17_2s91_Tháng_09_2026_2027, std: std_1790179115702_17_2s91, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_18_dy9z_Tháng_09_2026_2027, std: std_1790179115702_18_dy9z, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_19_3t8y_Tháng_09_2026_2027, std: std_1790179115702_19_3t8y, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_1_dpo2_Tháng_09_2026_2027, std: std_1790179115702_1_dpo2, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_20_2c4z_Tháng_09_2026_2027, std: std_1790179115702_20_2c4z, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_21_pd36_Tháng_09_2026_2027, std: std_1790179115702_21_pd36, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_22_8vnl_Tháng_09_2026_2027, std: std_1790179115702_22_8vnl, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_23_l7hw_Tháng_09_2026_2027, std: std_1790179115702_23_l7hw, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_24_p6o5_Tháng_09_2026_2027, std: std_1790179115702_24_p6o5, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_25_dbg2_Tháng_09_2026_2027, std: std_1790179115702_25_dbg2, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_26_gck5_Tháng_09_2026_2027, std: std_1790179115702_26_gck5, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_27_wlr0_Tháng_09_2026_2027, std: std_1790179115702_27_wlr0, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_28_eox1_Tháng_09_2026_2027, std: std_1790179115702_28_eox1, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_29_axjk_Tháng_09_2026_2027, std: std_1790179115702_29_axjk, class: class_12d_1789829842973, totalScore: 98, totalMinus: 2, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_2_5nb8_Tháng_09_2026_2027, std: std_1790179115702_2_5nb8, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_30_0pkq_Tháng_09_2026_2027, std: std_1790179115702_30_0pkq, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_31_m2v8_Tháng_09_2026_2027, std: std_1790179115702_31_m2v8, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_32_4nrk_Tháng_09_2026_2027, std: std_1790179115702_32_4nrk, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_33_7llc_Tháng_09_2026_2027, std: std_1790179115702_33_7llc, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_34_1h0k_Tháng_09_2026_2027, std: std_1790179115702_34_1h0k, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_35_pbun_Tháng_09_2026_2027, std: std_1790179115702_35_pbun, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_36_gorf_Tháng_09_2026_2027, std: std_1790179115702_36_gorf, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_37_85rc_Tháng_09_2026_2027, std: std_1790179115702_37_85rc, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_38_uxve_Tháng_09_2026_2027, std: std_1790179115702_38_uxve, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_39_z994_Tháng_09_2026_2027, std: std_1790179115702_39_z994, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_3_muri_Tháng_09_2026_2027, std: std_1790179115702_3_muri, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_40_v19r_Tháng_09_2026_2027, std: std_1790179115702_40_v19r, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_41_woho_Tháng_09_2026_2027, std: std_1790179115702_41_woho, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_42_oepn_Tháng_09_2026_2027, std: std_1790179115702_42_oepn, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_43_4nrl_Tháng_09_2026_2027, std: std_1790179115702_43_4nrl, class: class_12d_1789829842973, totalScore: 98, totalMinus: 2, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_44_okkr_Tháng_09_2026_2027, std: std_1790179115702_44_okkr, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_4_1hcv_Tháng_09_2026_2027, std: std_1790179115702_4_1hcv, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_5_rr92_Tháng_09_2026_2027, std: std_1790179115702_5_rr92, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_6_rpqa_Tháng_09_2026_2027, std: std_1790179115702_6_rpqa, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_7_qhao_Tháng_09_2026_2027, std: std_1790179115702_7_qhao, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_8_b5ds_Tháng_09_2026_2027, std: std_1790179115702_8_b5ds, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115702_9_pvnq_Tháng_09_2026_2027, std: std_1790179115702_9_pvnq, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790179115703_45_q8nt_Tháng_09_2026_2027, std: std_1790179115703_45_q8nt, class: class_12d_1789829842973, totalScore: 100, totalMinus: 0, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790408764783_0_jier_Tháng_10_2026_2027, std: std_1790408764783_0_jier, class: class_10a3, totalScore: 100, totalMinus: 0, period: Tháng 10, rating: undefined
+[EVAL] ID: eval_std_1790412122994_20_jkar_Tháng_09_2026_2027, std: std_1790412122994_20_jkar, class: class_11a1_1789826390017_0, totalScore: 95, totalMinus: 5, period: Tháng 09, rating: undefined
+[EVAL] ID: eval_std_1790412122994_7_hwlq_Tháng_09_2026_2027, std: std_1790412122994_7_hwlq, class: class_11a1_1789826390017_0, totalScore: 98, totalMinus: 2, period: Tháng 09, rating: undefined
+
+--- VIOLATIONS GROUPED BY STUDENT ---
+
+Student: std_1790408764784_9_srbh | Đinh Huy Hoàng | 10C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-05, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411644813_24_s18e | Hoàng Anh Lâm | 12E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-05, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790179115702_30_0pkq | Nguyễn Mạnh Quân | 12D -> Count: 2, TotalMinus: 4
+   - Date: 2026-10-05, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-06, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412916898_8_o3of | Ngô Duy Dương | 11D -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-05, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409551431_5_lqt3 | Nguyễn Thị Ngọc Bích | 10H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-05, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789831181703_32_fgfe | Bùi Hoàng Quân | 10B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-06, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411644813_33_cte7 | Phan Hồng Sơn | 12E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-06, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411347641_15_70q0 | Nguyễn Đức Mạnh | 12B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411644813_29_5ysf | Kiều Phương Ly | 12E -> Count: 3, TotalMinus: 6
+   - Date: 2026-10-06, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411644813_32_scnd | Đinh Thị Yến Nhi | 12E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409668500_25_0o3o | Lý Gia Minh | 10I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409668501_37_7a77 | Nguyễn Phú Trọng | 10I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409438512_17_nkt5 | Trần Duy Khánh | 10G -> Count: 1, TotalMinus: 10
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+
+Student: std_1790411347641_32_egbb | Trần Văn Toản | 12B -> Count: 1, TotalMinus: 10
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+
+Student: std_1790413441941_7_1lw1 | Nguyễn Ngọc Hà | 11I -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411909133_4_7n5o | Nguyễn Ngọc Anh | 12H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790179115702_4_1hcv | Hoàng Thị Thanh Chúc | 12D -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-07, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411222710_19_awcx | Nguyễn Việt Hoàng | 12A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789828776819_0_93ff | Bùi Tuấn Anh | 10A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789828776820_10_dhxw | Hà Huy Cường | 10A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409668501_41_xu8u | Sa Hải Yến | 10I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790179115702_28_eox1 | Nguyễn Hữu Phương | 12D -> Count: 3, TotalMinus: 5
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: dép không đúng quy định
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+
+Student: std_1790699772030_34_3ddq | Nguyễn Hữu Quân | 11H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411222710_18_293j | Hà Gia Duy Hoàng | 12A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412778798_31_zkkb | Đỗ Thanh Ngọc | 11C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411644813_14_l77h | Nguyễn Thảo Hiền | 12E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789828776820_18_fmz9 | Nguyễn Việt Hoàng | 10A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411644813_0_o089 | Trần Đại An | 12E -> Count: 3, TotalMinus: 53
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 50, Crit: [KL07] Gây gổ, xích mích, bạo lực học đường, Content: Gây gổ, xích mích, bạo lực học đường
+
+Student: std_1790412020495_8_4l8n | Hồ Huy Hoàng | 12I -> Count: 3, TotalMinus: 53
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 50, Crit: [KL07] Gây gổ, xích mích, bạo lực học đường, Content: Gây gổ, xích mích, bạo lực học đường
+
+Student: std_1790411644813_8_b2h0 | Đinh Nguyễn Tiến Đạt | 12E -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+
+Student: std_1790411644813_4_zxnn | Bùi Anh Dũng | 12E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: ALL_CLASS | Tập thể 10D | 10D -> Count: 1, TotalMinus: 3
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 3, Crit: [VS04] Vi phạm vệ sinh khu vực được phân công, Content: đổ rác muộn
+
+Student: std_1790413022071_34_hgjq | Vương Ánh Ngọc | 11E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT03] Không thực hiện nhiệm vụ học tập, Content: Không thực hiện nhiệm vụ học tập
+
+Student: std_1790413022071_31_yu3t | Nguyễn Quang Minh | 11E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT01] Không chuẩn bị bài / không làm bài tập, Content: Không chuẩn bị bài / không làm bài tập
+
+Student: std_1790413022071_41_rlli | Lê Văn Thông | 11E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT03] Không thực hiện nhiệm vụ học tập, Content: Không thực hiện nhiệm vụ học tập
+
+Student: std_1790413022071_12_j4ws | Nguyễn Tài Hoàn | 11E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT03] Không thực hiện nhiệm vụ học tập, Content: Không thực hiện nhiệm vụ học tập
+
+Student: std_1790413022071_36_zvdi | Trần Mai Nhi | 11E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-08, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT03] Không thực hiện nhiệm vụ học tập, Content: Không thực hiện nhiệm vụ học tập
+
+Student: std_1790411909133_18_o00c | Đinh Thanh Lam | 12H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411909133_42_a42s | Trần Thị Phi Yến | 12H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790408764784_26_tyw2 | Hoàng Thị Ánh Nguyệt | 10C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409551431_32_qqvj | Trần Thị Ngọc | 10H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411465643_40_47g1 | Hà Đinh Ngọc Tú | 12C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411347641_28_m53u | Nguyễn Văn Thái | 12B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412778798_10_b4zg | Bùi Ngọc Hà | 11C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409551431_10_fiu0 | Đinh Thùy Dương | 10H -> Count: 2, TotalMinus: 4
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: quần sai quy định
+   - Date: 2026-10-16, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: quần sai quy định
+
+Student: std_1789831181703_39_4i5h | Nguyễn Thị Phương Thúy | 10B -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789831181702_19_9uuj | Nguyễn Thị Uyên Linh | 10B -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409668501_36_utdj | Hoàng Thị Huyền Trang | 10I -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+
+Student: std_1789831181703_41_tcyn | Phạm Thị Thu Trang | 10B -> Count: 2, TotalMinus: 6
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 5, Crit: [CC03] Bỏ tiết / Trốn tiết, Content: Bỏ tiết / Trốn tiết
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+
+Student: std_1790179115702_23_l7hw | Trần Quỳnh Nga | 12D -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-09, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: dép sai quy định
+
+Student: std_1790411465642_2_fkn2 | Trần Tuấn Anh | 12C -> Count: 3, TotalMinus: 62
+   - Date: 2026-09-12, Week: 1, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: Trang phục không đúng quy định
+   - Date: 2026-09-09, Week: 1, Month: 9, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+   - Date: 2026-09-15, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 50, Crit: [KL07] Gây gổ, xích mích, bạo lực học đường, Content: Gây gổ, xích mích, bạo lực học đường
+
+Student: std_1790411465643_35_b1o5 | Nguyễn Thúy Trà | 12C -> Count: 3, TotalMinus: 17
+   - Date: 2026-09-15, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-09-21, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+   - Date: 2026-09-24, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 5, Crit: [KL01] Không thực hiện nội quy trường, Content: Không thực hiện nội quy trường
+
+Student: std_1790411465642_1_zxhm | Ngô Hà Quỳnh Anh | 12C -> Count: 2, TotalMinus: 12
+   - Date: 2026-09-21, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+   - Date: 2026-09-24, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT03] Không thực hiện nhiệm vụ học tập, Content: Không thực hiện nhiệm vụ học tập
+
+Student: std_1790411465643_32_c2ae | Lê Quang Thắng | 12C -> Count: 3, TotalMinus: 6
+   - Date: 2026-09-12, Week: 1, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: Trang phục không đúng quy định
+   - Date: 2026-09-15, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT01] Không chuẩn bị bài / không làm bài tập, Content: Không chuẩn bị bài / không làm bài tập
+   - Date: 2026-09-07, Week: 1, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: Trang phục không đúng quy định
+
+Student: std_1790411465642_11_yuwy | Nguyễn Duy Hiếu | 12C -> Count: 1, TotalMinus: 2
+   - Date: 2026-09-20, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411465642_4_0uyc | Sa Đình Bảo | 12C -> Count: 2, TotalMinus: 5
+   - Date: 2026-09-25, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 3, Crit: [TP04] Đầu tóc / tác phong không phù hợp nội quy, Content: Đầu tóc / tác phong không phù hợp nội quy
+   - Date: 2026-09-15, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT01] Không chuẩn bị bài / không làm bài tập, Content: Không chuẩn bị bài / không làm bài tập
+
+Student: std_1790411465643_29_6gaw | Trần Huệ Phương | 12C -> Count: 1, TotalMinus: 2
+   - Date: 2026-09-24, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: Trang phục không đúng quy định
+
+Student: std_1790411465642_3_rg9u | Nguyễn Ngọc Ánh | 12C -> Count: 3, TotalMinus: 17
+   - Date: 2026-09-23, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 5, Crit: [KL01] Không thực hiện nội quy trường, Content: Không thực hiện nội quy trường
+   - Date: 2026-09-21, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+   - Date: 2026-09-16, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411465643_37_vlek | Nguyễn Thị Như Trang | 12C -> Count: 2, TotalMinus: 12
+   - Date: 2026-09-21, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 10, Crit: [KL05] Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn), Content: Vi phạm an toàn giao thông (không đội MBH / đi xe phân khối lớn)
+   - Date: 2026-09-15, Week: 2, Month: 9, Status: DA_XAC_NHAN, Minus: 2, Crit: [HT01] Không chuẩn bị bài / không làm bài tập, Content: Không chuẩn bị bài / không làm bài tập
+
+Student: std_1790411465643_43_wn8n | Nguyễn Hà Quốc Uy | 12C -> Count: 1, TotalMinus: 5
+   - Date: 2026-09-24, Week: 3, Month: 9, Status: DA_XAC_NHAN, Minus: 5, Crit: [KL01] Không thực hiện nội quy trường, Content: Không thực hiện nội quy trường
+
+Student: std_1790411465643_36_gyv1 | Hà Thị Quỳnh Trang | 12C -> Count: 1, TotalMinus: 5
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 5, Crit: [KL01] Không thực hiện nội quy trường, Content: Không thực hiện nội quy trường
+
+Student: std_1790409551431_2_a6ol | Nguyễn Quỳnh Anh | 10H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409551431_19_olkk | Trần Anh Huy | 10H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411347641_34_i58v | Nguyễn Chí Trường | 12B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789828776820_23_npv4 | Bùi Quốc Lâm | 10A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412122994_17_2la4 | Lã Quang Huy | 11A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412122994_26_4ozz | Phan Quang Minh | 11A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790408764784_22_yv77 | Nguyễn Trà My | 10C -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+
+Student: std_1790408764784_18_9klu | Nguyễn Thị Lan | 10C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412020496_26_prnz | Đinh Văn Tài | 12I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790413441941_10_1iih | Bùi Thị Thanh Hằng | 11I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-12, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1789831181704_45_l4wb | Hà Ngọc Vi | 10B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790411222710_8_hksq | Lê Tiến Đức | 12A -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790408944859_21_n5b0 | Trần Diệu Linh | 10D -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412638403_13_5qby | Trần Văn Hòa | 11B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: dép sai quy định
+
+Student: std_1789831181703_30_8o4k | Nguyễn Duy Quang | 10B -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790179115702_29_axjk | Hà Bùi Văn Quân | 12D -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-14, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790179115702_13_me1m | Đặng Tường Linh | 12D -> Count: 1, TotalMinus: 5
+   - Date: 2026-10-15, Week: 5, Month: 10, Status: DA_XAC_NHAN, Minus: 5, Crit: [CC01] Nghỉ học không phép, Content: Nghỉ học không phép
+
+Student: std_1790413022071_0_a5ti | Hà Hải An | 11E -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: dép sai quy định
+
+Student: std_1790409668501_34_rtug | Nguyễn Thị Thanh Thảo | 10I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409668501_32_kq2w | Nguyễn Thị Thảo | 10I -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790412916898_18_p7fa | Lê Ngọc Linh | 11D -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790408764783_1_sj73 | Nguyễn Thị Lan Anh | 10C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790408764784_14_hksw | Nguyễn Thu Huyền | 10C -> Count: 2, TotalMinus: 3
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 1, Crit: [TP02] Không đeo thẻ học sinh, Content: Không đeo thẻ học sinh
+
+Student: std_1790412778798_13_e3pi | Hà Huy Hoàng | 11C -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790409551431_29_clul | Bùi Hằng Nga | 10H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [CC02] Đi học muộn, Content: Đi học muộn
+
+Student: std_1790699772030_23_1v32 | Nguyễn Thảo Ly | 11H -> Count: 1, TotalMinus: 2
+   - Date: 2026-10-15, Week: 6, Month: 10, Status: DA_XAC_NHAN, Minus: 2, Crit: [TP03] Trang phục không đúng quy định, Content: quần sai quy định

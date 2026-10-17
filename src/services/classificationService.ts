@@ -21,6 +21,23 @@ const CACHE_KEYS = {
   CLASSIFICATIONS: 'cached_classification_configs'
 };
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return null;
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, val: string): void => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      window.localStorage.setItem(key, val);
+    } catch {}
+  }
+};
+
 export const DEFAULT_CLASSIFICATIONS: Omit<YouthClassificationConfig, 'id'>[] = [
   {
     academicYear: '2026–2027',
@@ -97,7 +114,7 @@ export const classificationService = {
 
         const currentCache = this.getLocalCached();
         const updated = [...currentCache.filter(c => (c.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim() !== normYear), ...seedItems];
-        localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(updated));
+        safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(updated));
       }
     } catch (e) {
       console.warn('Firestore classification seed error, using local fallback:', e);
@@ -110,13 +127,13 @@ export const classificationService = {
           academicYear,
           createdAt: new Date().toISOString()
         }));
-        localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify([...currentCache, ...seedItems]));
+        safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify([...currentCache, ...seedItems]));
       }
     }
   },
 
   getLocalCached(): YouthClassificationConfig[] {
-    const cached = localStorage.getItem(CACHE_KEYS.CLASSIFICATIONS);
+    const cached = safeStorage.getItem(CACHE_KEYS.CLASSIFICATIONS);
     if (cached) {
       try {
         return JSON.parse(cached) as YouthClassificationConfig[];
@@ -135,7 +152,7 @@ export const classificationService = {
       const snap = await getDocs(collection(db, COLLECTIONS.CLASSIFICATIONS));
       if (!snap.empty) {
         const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as YouthClassificationConfig));
-        localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(all));
+        safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(all));
 
         let filtered = all.filter(c => {
           const cY = (c.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
@@ -314,7 +331,7 @@ export const classificationService = {
 
     const current = this.getLocalCached();
     current.push(record);
-    localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
 
     try {
       await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(record));
@@ -360,7 +377,7 @@ export const classificationService = {
     } else {
       current.push(updatedRecord);
     }
-    localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
 
     try {
       await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(updatedRecord), { merge: true });
@@ -396,7 +413,7 @@ export const classificationService = {
 
     target.active = false;
     target.updatedAt = new Date().toISOString();
-    localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
 
     try {
       await updateDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), {
@@ -433,7 +450,7 @@ export const classificationService = {
 
     target.active = true;
     target.updatedAt = new Date().toISOString();
-    localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
 
     try {
       await updateDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), {
@@ -479,7 +496,7 @@ export const classificationService = {
     }));
 
     const combined = [...remaining, ...defaultItems];
-    localStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(combined));
+    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(combined));
 
     try {
       // Delete old from firestore

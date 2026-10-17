@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
 import { Student, ConductRecord, ConductCriterion, ClassificationType, EvaluationRatingConfig } from '../types/homeroom';
 import { calculateConductScore, checkStudentHasSpecialWarning, isDatChuaDatCategory, evaluateStudent6Groups } from '../lib/homeroomData';
+import { YouthViolationRecord } from '../types/youthDiscipline';
+import { studentViolationService } from '../services/studentViolationService';
 
 interface ExportData {
   className: string;
@@ -9,6 +11,7 @@ interface ExportData {
   homeroomTeacherName?: string;
   students: Student[];
   records: ConductRecord[];
+  youthViolations?: YouthViolationRecord[];
   criteria: ConductCriterion[];
   baseScore?: number;
   ratingConfig?: EvaluationRatingConfig | null;
@@ -21,6 +24,7 @@ export function exportHomeroomToExcel({
   homeroomTeacherName,
   students,
   records,
+  youthViolations,
   criteria,
   baseScore = 100,
   ratingConfig
@@ -70,8 +74,6 @@ export function exportHomeroomToExcel({
   // Student rows
   students.forEach((student, index) => {
     const studentRecords = records.filter(r => r.studentId === student.id);
-    const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords);
-
     let totalMinus = 0;
     let totalPlus = 0;
 
@@ -80,23 +82,37 @@ export function exportHomeroomToExcel({
       criterionCounts[c.key] = 0;
     });
 
-    studentRecords.forEach(r => {
-      if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-      if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-      if (r.pointType === 'plus') {
-        totalPlus += Math.abs(r.point);
-      } else {
-        totalMinus += Math.abs(r.point);
-      }
+    // 1. Calculate minus points from Youth Discipline (Single Source of Truth)
+    if (youthViolations && youthViolations.length > 0) {
+      const monthNum = parseInt(periodLabel.replace(/\D/g, ''), 10) || 9;
+      const youthDeduction = studentViolationService.getMonthlyDeduction(
+        student,
+        schoolYear,
+        monthNum,
+        youthViolations
+      );
+      totalMinus = youthDeduction.totalDeduction;
 
-      // Find matching criteria column key
-      const match = criteriaColumns.find(col => col.key === r.criterionId) ||
-                    criteriaColumns.find(col => r.criterionName?.toLowerCase().includes(col.header.toLowerCase().substring(0, 10)));
-      if (match) {
-        criterionCounts[match.key] += 1;
+      youthDeduction.violations.forEach(v => {
+        const match = criteriaColumns.find(col => col.header.toLowerCase().includes((v.criterionName || '').toLowerCase().substring(0, 10))) ||
+                      criteriaColumns.find(col => (v.content || '').toLowerCase().includes(col.header.toLowerCase().substring(0, 10)));
+        if (match) {
+          criterionCounts[match.key] += 1;
+        } else {
+          criterionCounts['crit_16'] = (criterionCounts['crit_16'] || 0) + 1;
+        }
+      });
+    }
+
+    // 2. Calculate plus points from homeroom records
+    studentRecords.forEach(r => {
+      if (r.recordType === 'TICH_CUC' || r.pointType === 'plus') {
+        totalPlus += Math.abs(r.point || 0);
+        criterionCounts['crit_6'] = (criterionCounts['crit_6'] || 0) + 1;
       }
     });
 
+    const hasSpecialWarning = checkStudentHasSpecialWarning(studentRecords) || totalMinus >= 50;
     const evalResult = evaluateStudent6Groups(studentRecords);
     const { totalScore, classification } = calculateConductScore(baseScore, totalPlus, totalMinus, undefined, hasSpecialWarning, ratingConfig, evalResult);
 

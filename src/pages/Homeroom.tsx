@@ -52,7 +52,7 @@ import {
 } from '../types/homeroom';
 import { homeroomService, subscribeQuotaStatus, normalizeYear } from '../services/homeroomService';
 import { youthDisciplineService } from '../services/youthDisciplineService';
-import { studentViolationService, StudentViolationSummary, MonthlyConductSummary } from '../services/studentViolationService';
+import { studentViolationService, StudentViolationSummary, MonthlyConductSummary, parseViolationDateInfo } from '../services/studentViolationService';
 import { YouthViolationRecord, YouthDisciplineCriterion } from '../types/youthDiscipline';
 import {
   calculateConductScore,
@@ -261,6 +261,8 @@ export default function Homeroom() {
   // Initial Firestore subscriptions
   useEffect(() => {
     homeroomService.seedIfEmpty();
+    youthDisciplineService.seedIfEmpty();
+    youthDisciplineService.cleanupSampleViolations();
     homeroomService.syncAllClassStudentCounts();
 
     const unsubCls = homeroomService.subscribeClasses(setClasses);
@@ -294,18 +296,15 @@ export default function Homeroom() {
     };
   }, []);
 
-  // Load Youth Discipline Violations (Single Source of Truth)
-  const loadYouthViolations = async () => {
-    try {
-      const list = await youthDisciplineService.getViolations({ schoolYear: selectedSchoolYear });
-      setYouthViolations(list);
-    } catch (e) {
-      console.warn('Error loading youth violations:', e);
-    }
-  };
-
+  // Realtime subscription for Youth Discipline Violations (Single Source of Truth)
   useEffect(() => {
-    loadYouthViolations();
+    const unsubVios = youthDisciplineService.subscribeViolations(
+      (list) => {
+        setYouthViolations(list);
+      },
+      { schoolYear: selectedSchoolYear }
+    );
+    return () => unsubVios();
   }, [selectedSchoolYear]);
 
   // Set default class once loaded (restore from localStorage if valid)
@@ -2148,40 +2147,36 @@ export default function Homeroom() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {classStudents.map((st, idx) => {
-                  const stWeekRecords = classRecords.filter(r => {
-                    if (r.studentId !== st.id) return false;
-                    if (Number(r.weekNumber) !== Number(selectedWeek)) return false;
-                    const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
-                    return rMonth === selMonthNum;
-                  });
+                  const stWeekDeduction = studentViolationService.getWeeklyDeduction(st, selectedSchoolYear, selectedWeek, youthViolations);
+                  const stWeekVios = stWeekDeduction.violations;
                   const days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6'];
 
                   return (
                     <tr key={st.id} className="hover:bg-slate-50">
                       <td className="p-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="p-3 font-bold text-slate-800">{st.name}</td>
+                      <td className="p-3 font-bold text-slate-800">{st.fullName || st.name}</td>
                       {days.map((day, dIdx) => {
-                        // Check if records fall on day of week
-                        const dayRecords = stWeekRecords.filter(r => {
-                          const dt = new Date(r.recordDate);
+                        // Check if violations fall on day of week
+                        const dayVios = stWeekVios.filter(v => {
+                          const dInfo = parseViolationDateInfo(v.violationDate);
+                          if (!dInfo) return false;
+                          const dt = new Date(dInfo.isoDate);
                           return dt.getDay() === dIdx + 1; // 1 = Mon, 5 = Fri
                         });
 
                         return (
                           <td key={dIdx} className="p-3 text-center">
-                            {dayRecords.length === 0 ? (
+                            {dayVios.length === 0 ? (
                               <span className="text-slate-300">—</span>
                             ) : (
                               <div className="flex flex-col gap-1 items-center">
-                                {dayRecords.map(r => (
+                                {dayVios.map(v => (
                                   <span
-                                    key={r.id}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                      r.pointType === 'plus' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                    }`}
-                                    title={r.criterionName}
+                                    key={v.id}
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200"
+                                    title={`${v.criterionName}: -${v.minusPoints}đ`}
                                   >
-                                    {r.pointType === 'plus' ? `+${r.point}` : `${r.point}`}
+                                    -{v.minusPoints}đ
                                   </span>
                                 ))}
                               </div>
@@ -2189,8 +2184,12 @@ export default function Homeroom() {
                           </td>
                         );
                       })}
-                      <td className="p-3 text-center font-bold text-rose-700">
-                        {stWeekRecords.filter(r => r.pointType === 'minus').length} lượt
+                      <td className="p-3 text-center font-bold">
+                        {stWeekVios.length > 0 ? (
+                          <span className="text-rose-600 font-black">-{stWeekDeduction.totalDeduction}đ ({stWeekVios.length} lượt)</span>
+                        ) : (
+                          <span className="text-slate-400 font-bold">0</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -2216,6 +2215,7 @@ export default function Homeroom() {
                 homeroomTeacherName,
                 students: classStudents,
                 records: monthClassRecords,
+                youthViolations,
                 criteria,
                 baseScore: settings.baseScore || 100,
                 ratingConfig: activeMonthRatingConfig
@@ -2233,18 +2233,8 @@ export default function Homeroom() {
             </div>
             {(activeMonthRatingConfig?.tiers && activeMonthRatingConfig.tiers.length > 0 ? activeMonthRatingConfig.tiers : DEFAULT_RATING_TIERS).map(tier => {
               const tierCount = classStudents.filter(s => {
-                let plus = 0, minus = 0;
-                const stRecs = monthClassRecords.filter(r => r.studentId === s.id);
-                const hasSpecial = checkStudentHasSpecialWarning(stRecs);
-                stRecs.forEach(r => {
-                  if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-                  if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-                  if (r.pointType === 'plus') plus += Math.abs(r.point);
-                  else minus += Math.abs(r.point);
-                });
-                const evalResult = evaluateStudent6Groups(stRecs);
-                const scoreResult = calculateConductScore(settings.baseScore || 100, plus, minus, undefined, hasSpecial, activeMonthRatingConfig, evalResult);
-                const cls = scoreResult.classification;
+                const scoreInfo = classStudentScores.get(s.id);
+                const cls = scoreInfo?.classification || 'Tốt';
                 if (cls === tier.name) return true;
                 if (cls.includes('CHƯA ĐẠT') && tier.name.toLowerCase().includes('chưa đạt')) return true;
                 if (cls.includes('ĐẠT') && tier.name.toLowerCase().trim() === 'đạt') return true;
@@ -2282,17 +2272,12 @@ export default function Homeroom() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-2">
               {classStudents
                 .map(st => {
-                  let plus = 0, minus = 0;
-                  const stRecs = monthClassRecords.filter(r => r.studentId === st.id);
-                  const hasSpecial = checkStudentHasSpecialWarning(stRecs);
-                  stRecs.forEach(r => {
-                    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-                    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-                    if (r.pointType === 'plus') plus += Math.abs(r.point);
-                    else minus += Math.abs(r.point);
-                  });
-                  const evalResult = evaluateStudent6Groups(stRecs);
-                  return { student: st, ...calculateConductScore(100, plus, minus, undefined, hasSpecial, undefined, evalResult) };
+                  const scoreInfo = classStudentScores.get(st.id) || {
+                    totalScore: 100,
+                    classification: 'Tốt',
+                    totalMinus: 0
+                  };
+                  return { student: st, totalScore: scoreInfo.totalScore, classification: scoreInfo.classification };
                 })
                 .sort((a, b) => b.totalScore - a.totalScore)
                 .slice(0, 3)
@@ -2304,7 +2289,7 @@ export default function Homeroom() {
                     <div className="w-14 h-14 bg-amber-400 text-slate-900 rounded-full font-black text-xl flex items-center justify-center mx-auto mb-3 shadow-md border-2 border-white">
                       {idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}
                     </div>
-                    <h4 className="font-bold text-slate-900 text-sm">{item.student.name}</h4>
+                    <h4 className="font-bold text-slate-900 text-sm">{item.student.fullName || item.student.name}</h4>
                     <span className="text-xs text-slate-500 block mb-2">{item.student.code}</span>
                     <div className="inline-block bg-white px-3 py-1 rounded-xl shadow-sm font-black text-amber-700 text-lg border border-amber-200">
                       {item.totalScore} điểm
@@ -2340,31 +2325,27 @@ export default function Homeroom() {
               </thead>
               <tbody className="divide-y divide-rose-100">
                 {classStudents.map(st => {
-                  let plus = 0, minus = 0;
-                  const stRecs = monthClassRecords.filter(r => r.studentId === st.id);
-                  const hasSpecial = checkStudentHasSpecialWarning(stRecs);
-                  stRecs.forEach(r => {
-                    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-                    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-                    if (r.pointType === 'plus') plus += Math.abs(r.point);
-                    else minus += Math.abs(r.point);
-                  });
-                  const evalResult = evaluateStudent6Groups(stRecs);
-                  const { totalScore, classification } = calculateConductScore(100, plus, minus, undefined, hasSpecial, undefined, evalResult);
-                  if (!hasSpecial && !evalResult.hasChuaDat && totalScore >= 80 && stRecs.filter(r => r.recordType !== 'TICH_CUC' && r.pointType === 'minus').length < 3) return null;
+                  const scoreInfo = classStudentScores.get(st.id);
+                  const totalMinus = scoreInfo?.totalMinus || 0;
+                  const totalScore = scoreInfo?.totalScore || 100;
+                  const classification = scoreInfo?.classification || 'Tốt';
+                  const violationCount = scoreInfo?.violationCount || 0;
+
+                  // Chỉ cảnh báo khi thực tế có vi phạm hoặc điểm rèn luyện dưới 80
+                  if (totalMinus === 0 && totalScore >= 80) return null;
 
                   return (
                     <tr key={st.id} className="hover:bg-rose-50/50">
-                      <td className="p-3 font-bold text-slate-800">{st.name} ({st.code})</td>
+                      <td className="p-3 font-bold text-slate-800">{st.fullName || st.name} ({st.code})</td>
                       <td className="p-3 text-center font-black text-rose-700">{totalScore}</td>
                       <td className="p-3 text-center font-bold">{classification}</td>
-                      <td className="p-3 text-center font-bold">{stRecs.filter(r => r.pointType === 'minus').length} lần</td>
+                      <td className="p-3 text-center font-bold text-rose-700">{violationCount} lượt (-{totalMinus}đ)</td>
                       <td className="p-3 text-right">
                         <button
-                          onClick={() => handleOpenProfile(st)}
-                          className="px-3 py-1 bg-rose-600 text-white font-bold rounded-lg text-xs hover:bg-rose-700"
+                          onClick={() => handleViewStudentViolations(st)}
+                          className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
                         >
-                          Xử lý & Chi tiết
+                          Chi tiết vi phạm
                         </button>
                       </td>
                     </tr>
@@ -2525,32 +2506,16 @@ export default function Homeroom() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {classStudents.map((st, idx) => {
-                  let plus = 0, minus = 0;
-                  const stRecs = classRecords.filter(r => {
-                    if (r.studentId !== st.id) return false;
-                    if (studentTableScope === 'year') return true;
-                    const rMonth = Number(r.monthNumber) || (r.recordDate ? (new Date(r.recordDate).getMonth() + 1) : null);
-                    if (rMonth !== selMonthNum) return false;
-                    if (studentTableScope === 'week') return Number(r.weekNumber) === Number(selectedWeek);
-                    return true;
-                  });
-                  const hasSpecial = checkStudentHasSpecialWarning(stRecs);
-                  stRecs.forEach(r => {
-                    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-                    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-                    if (r.pointType === 'plus') plus += Math.abs(r.point);
-                    else minus += Math.abs(r.point);
-                  });
-                  const evalResult = evaluateStudent6Groups(stRecs);
-                  const { totalScore, classification, ratingResult } = calculateConductScore(
-                    settings.baseScore || 100,
-                    plus,
-                    minus,
-                    undefined,
-                    hasSpecial,
-                    activeRatingConfig,
-                    evalResult
-                  );
+                  const scoreInfo = classStudentScores.get(st.id) || {
+                    totalScore: 100,
+                    classification: 'Tốt',
+                    badgeStyle: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                    totalPlus: 0,
+                    totalMinus: 0
+                  };
+                  const totalScore = scoreInfo.totalScore;
+                  const classification = scoreInfo.classification;
+                  const badgeStyle = scoreInfo.badgeStyle;
 
                   const evalItem = evaluations.find(e => 
                     e.studentId === st.id && 
@@ -2562,10 +2527,10 @@ export default function Homeroom() {
                   return (
                     <tr key={st.id} className="hover:bg-slate-50">
                       <td className="p-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="p-3 font-bold text-slate-800">{st.name} ({st.code})</td>
+                      <td className="p-3 font-bold text-slate-800">{st.fullName || st.name} ({st.code})</td>
                       <td className="p-3 text-center font-black text-blue-700">{totalScore}</td>
                       <td className="p-3 text-center">
-                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border inline-block ${ratingResult.badge_style || 'bg-slate-100 text-slate-800 border-slate-300'}`}>
+                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border inline-block ${badgeStyle}`}>
                           {evalItem?.classification || classification}
                         </span>
                       </td>
@@ -2604,6 +2569,7 @@ export default function Homeroom() {
           evaluations={evaluations}
           students={students}
           classes={classes}
+          youthViolations={youthViolations}
           teacherAssessments={teacherAssessments}
           assessmentCompletions={assessmentCompletions}
           selectedMonth={selectedMonth}
@@ -2658,6 +2624,9 @@ export default function Homeroom() {
           onClose={() => setIsProfileModalOpen(false)}
           student={selectedStudentForProfile}
           records={records}
+          youthViolations={youthViolations}
+          selectedMonth={selectedMonth}
+          selectedSchoolYear={selectedSchoolYear}
           settings={settings}
           onDeleteRecord={handleDeleteRecord}
           onUpdateRecord={async (id, updates) => {
@@ -2992,6 +2961,9 @@ export default function Homeroom() {
           selectedClass={selectedClass}
           student={selectedStudentForEval}
           records={monthClassRecords}
+          youthViolations={youthViolations}
+          monthNumber={selMonthNum}
+          schoolYear={selectedSchoolYear}
           existingEvaluation={evaluations.find(e => 
             e.studentId === selectedStudentForEval.id && 
             e.period === selectedMonth &&

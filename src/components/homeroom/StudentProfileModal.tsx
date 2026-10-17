@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Award, AlertTriangle, User, Phone, MapPin, PlusCircle, MinusCircle, FileText, CheckCircle2, Edit2, Trash2, Sparkles, AlertCircle, ShieldCheck } from 'lucide-react';
 import { Student, ConductRecord, ConductSettings } from '../../types/homeroom';
+import { YouthViolationRecord } from '../../types/youthDiscipline';
+import { studentViolationService } from '../../services/studentViolationService';
 import { calculateConductScore, checkStudentHasSpecialWarning, isDatChuaDatCategory, evaluateStudent6Groups } from '../../lib/homeroomData';
 import { homeroomService } from '../../services/homeroomService';
 import BackButton from '../ui/BackButton';
@@ -10,6 +12,9 @@ interface StudentProfileModalProps {
   onClose: () => void;
   student: Student;
   records: ConductRecord[];
+  youthViolations?: YouthViolationRecord[];
+  selectedMonth?: string;
+  selectedSchoolYear?: string;
   settings: ConductSettings;
   onDeleteRecord?: (id: string) => void | Promise<void>;
   onUpdateRecord?: (id: string, updates: Partial<ConductRecord>) => void | Promise<void>;
@@ -29,6 +34,9 @@ export default function StudentProfileModal({
   onClose,
   student,
   records,
+  youthViolations,
+  selectedMonth,
+  selectedSchoolYear,
   settings,
   onDeleteRecord,
   onUpdateRecord
@@ -74,17 +82,24 @@ export default function StudentProfileModal({
   const plusCount = allStudentRecords.filter(r => r.recordType !== 'TICH_CUC' && r.pointType === 'plus' && r.point > 0).length;
 
   let totalPlus = 0;
-  let totalMinus = 0;
-  const hasSpecialWarning = checkStudentHasSpecialWarning(allStudentRecords);
-
-  // Requirement: Không tính điểm trừ từ 6 nhóm ĐẠT / CHƯA ĐẠT và bản ghi tích cực TICH_CUC
   allStudentRecords.forEach(r => {
-    if (r.recordType === 'TICH_CUC' || r.point === 0) return;
-    if (isDatChuaDatCategory(r.categoryId, r.categoryName) || Boolean(r.evaluationStatus)) return;
-    if (r.pointType === 'plus') totalPlus += Math.abs(r.point);
-    else totalMinus += Math.abs(r.point);
+    if (r.recordType === 'TICH_CUC' || r.pointType === 'plus') {
+      totalPlus += Math.abs(r.point || 0);
+    }
   });
 
+  const targetMonthNum = selectedMonth ? (parseInt(selectedMonth.replace(/\D/g, ''), 10) || 9) : 9;
+  const targetSchoolYear = selectedSchoolYear || (student as any).schoolYear || '2026–2027';
+
+  let totalMinus = 0;
+  let youthViosCount = 0;
+  if (youthViolations && youthViolations.length > 0) {
+    const youthRes = studentViolationService.getMonthlyDeduction(student, targetSchoolYear, targetMonthNum, youthViolations);
+    totalMinus = youthRes.totalDeduction;
+    youthViosCount = youthRes.violations.length;
+  }
+
+  const hasSpecialWarning = checkStudentHasSpecialWarning(allStudentRecords) || totalMinus >= 50;
   const evalResult = evaluateStudent6Groups(allStudentRecords);
 
   const { totalScore, classification, ratingResult } = calculateConductScore(

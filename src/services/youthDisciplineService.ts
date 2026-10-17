@@ -9,7 +9,8 @@ import {
   query,
   where,
   orderBy,
-  limit
+  limit,
+  onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import {
@@ -496,6 +497,116 @@ export const youthDisciplineService = {
 
     // Sort descending by date & created time
     return list.sort((a, b) => new Date(b.violationDate + 'T' + (b.violationTime || '00:00')).getTime() - new Date(a.violationDate + 'T' + (a.violationTime || '00:00')).getTime());
+  },
+
+  // 3.1 REALTIME SUBSCRIPTION FOR VIOLATIONS
+  subscribeViolations(
+    callback: (violations: YouthViolationRecord[]) => void,
+    filters?: { schoolYear?: string }
+  ): () => void {
+    const q = collection(db, COLLECTIONS.VIOLATIONS);
+    return onSnapshot(
+      q,
+      (snap) => {
+        const list: YouthViolationRecord[] = snap.docs.map(d => {
+          const raw = d.data();
+          const stdId = raw.studentId || raw.student_id || '';
+          const stdName = raw.studentName || raw.student_name || '';
+          const stdCode = raw.studentCode || raw.student_code || '';
+          const clsId = raw.classId || raw.class_id || '';
+          const clsName = raw.className || raw.class_name || '';
+          const vDate = raw.violationDate || raw.violation_date || '';
+          const vTime = raw.violationTime || raw.violation_time || '07:15';
+          const pSlot = raw.periodSlot || raw.period_slot || 'Sáng';
+          const critId = raw.criterionId || raw.criterion_id || '';
+          const critCode = raw.criterionCode || raw.criterion_code || '';
+          const critName = raw.criterionName || raw.criterion_name || '';
+          const cat = raw.category || 'CHUYEN_CAN';
+          const catName = raw.categoryName || raw.category_name || 'Chuyên cần';
+          const sev = raw.severity || 'Nhẹ';
+          const minus = Math.abs(Number(raw.minusPoints ?? raw.minus_points ?? 0));
+          const loc = raw.location || '';
+          const cnt = raw.content || critName || '';
+          const recBy = raw.recordedBy || raw.recorded_by || '';
+          const recByName = raw.recordedByName || raw.recorded_by_name || 'Cán bộ ghi nhận';
+          const recByRole = raw.recordedByRole || raw.recorded_by_role || 'CAN_BO_DOAN';
+          const stat = raw.status || 'CHO_XAC_NHAN';
+          const cAt = raw.createdAt || raw.created_at || new Date().toISOString();
+          const uAt = raw.updatedAt || raw.updated_at || new Date().toISOString();
+
+          return {
+            id: d.id,
+            schoolYear: raw.schoolYear || raw.school_year || '2026–2027',
+            weekNumber: Number(raw.weekNumber ?? raw.week_number ?? 1),
+            monthNumber: Number(raw.monthNumber ?? raw.month_number ?? 1),
+            violationDate: vDate,
+            violationTime: vTime,
+            periodSlot: pSlot,
+            classId: clsId,
+            className: clsName,
+            studentId: stdId,
+            studentName: stdName,
+            studentCode: stdCode,
+            isWholeClass: Boolean(raw.isWholeClass ?? raw.is_whole_class ?? false),
+            criterionId: critId,
+            criterionCode: critCode,
+            criterionName: critName,
+            category: cat,
+            categoryName: catName,
+            severity: sev,
+            minusPoints: minus,
+            location: loc,
+            content: cnt,
+            evidenceUrl: raw.evidenceUrl || raw.evidence_url || '',
+            evidenceName: raw.evidenceName || raw.evidence_name || '',
+            recordedBy: recBy,
+            recordedByName: recByName,
+            recordedByRole: recByRole,
+            confirmedBy: raw.confirmedBy || raw.confirmed_by || '',
+            confirmedByName: raw.confirmedByName || raw.confirmed_by_name || '',
+            confirmedAt: raw.confirmedAt || raw.confirmed_at || '',
+            status: stat,
+            notes: raw.notes || '',
+            teacherComment: raw.teacherComment || raw.teacher_comment || '',
+            youthComment: raw.youthComment || raw.youth_comment || '',
+            createdAt: cAt,
+            updatedAt: uAt,
+            student_id: stdId,
+            student_name: stdName,
+            student_code: stdCode,
+            class_id: clsId,
+            class_name: clsName,
+            violation_date: vDate,
+            violation_time: vTime,
+            minus_points: minus,
+            recorded_by: recBy,
+            recorded_by_name: recByName,
+            created_at: cAt
+          } as unknown as YouthViolationRecord;
+        });
+
+        // Update local storage cache
+        safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
+
+        let filtered = list;
+        if (filters?.schoolYear && filters.schoolYear !== 'All') {
+          const fY = filters.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
+          filtered = list.filter(v => {
+            if (!v.schoolYear) return true;
+            const vY = v.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
+            return vY === fY;
+          });
+        }
+
+        // Sort descending
+        filtered.sort((a, b) => new Date(b.violationDate + 'T' + (b.violationTime || '00:00')).getTime() - new Date(a.violationDate + 'T' + (a.violationTime || '00:00')).getTime());
+
+        callback(filtered);
+      },
+      (err) => {
+        console.warn('subscribeViolations listener error:', err);
+      }
+    );
   },
 
   async saveViolation(

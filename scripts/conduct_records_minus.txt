@@ -1,0 +1,147 @@
+conduct_records with minus points: 146
+ID: crec_1790539138155_1ew7l | Class: 10E (class_11a1) | Student: Lê Hoàng Anh (std_1790409223220_4_9610) | Date: 2026-09-16 | Point: -15 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790539247468_fet0e | Class: 10E (class_11a1) | Student: Phạm Hải Đăng (std_1790409223220_10_hgcg) | Date: 2026-09-16 | Point: -10 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790539300667_yg5sg | Class: 10E (class_11a1) | Student: Dương Ngọc Bảo Trang (std_1790409223221_37_khhl) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790539352604_3o73c | Class: 10E (class_11a1) | Student: Phùng Văn Long (std_1790409223220_22_4kb2) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790539371792_o9gbk | Class: 10E (class_11a1) | Student: Phạm Hòa Phong (std_1790409223221_30_uq3s) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790692472790_m5vdf | Class: 12D (class_12d_1789829842973) | Student: Hà Bùi Văn Quân (std_1790179115702_29_axjk) | Date: 2026-09-23 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790692534487_v3jiw | Class: 12D (class_12d_1789829842973) | Student: Nguyễn Thị Khánh Linh (std_1790179115702_15_0oec) | Date: 2026-09-23 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790692552606_l8hwh | Class: 12D (class_12d_1789829842973) | Student: Nguyễn Thị Ánh Tuyết (std_1790179115702_43_4nrl) | Date: 2026-09-23 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790720519203_plfij | Class: 10H (class_11a2) | Student: Đinh Tuấn Anh (std_1790409551431_1_e1fu) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720583269_28tsp | Class: 10H (class_11a2) | Student: Đinh Tuấn Anh (std_1790409551431_1_e1fu) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790720631389_066de | Class: 10H (class_11a2) | Student: Nguyễn Quỳnh Anh (std_1790409551431_2_a6ol) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790720689987_f29qw | Class: 10H (class_11a2) | Student: Đoàn Thị Ngọc Ánh (std_1790409551431_3_hxcz) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790720715615_l9u6n | Class: 10H (class_11a2) | Student: Nguyễn Thạc Giang (std_1790409551431_11_xg10) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720742577_lt9id | Class: 10H (class_11a2) | Student: Nguyễn Thạc Giang (std_1790409551431_11_xg10) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790720764319_c1uqe | Class: 10H (class_11a2) | Student: Lê Quang Hải (std_1790409551431_12_1vou) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720776823_j7ow3 | Class: 10H (class_11a2) | Student: Nguyễn Đức Hải (std_1790409551431_13_k55i) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720786757_1x37p | Class: 10H (class_11a2) | Student: Nguyễn Ngọc Gia Hân (std_1790409551431_14_els7) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720804197_q4xut | Class: 10H (class_11a2) | Student: Trần Huy Hoàng (std_1790409551431_17_2nx1) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720817341_a3vhv | Class: 10H (class_11a2) | Student: Trần Anh Huy (std_1790409551431_19_olkk) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790720842479_kai5m | Class: 10H (class_11a2) | Student: Trần Thị Mai Lan (std_1790409551431_24_yipo) | Date: 2026-09-16 | Point: -5 | Crit: Sử dụng điện thoại di động, các thiết bị khác khi đang học tập trên lớp không phục vụ cho việc học tập và không được giáo viên cho phép
+ID: crec_1790720864397_iqigv | Class: 10H (class_11a2) | Student: Nguyễn Văn Ngọc (std_1790409551431_31_wgcu) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790720989835_b0zge | Class: 10H (class_11a2) | Student: Cù Tiến Phú (std_1790409551431_37_r2d1) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790721001611_3u0m9 | Class: 10H (class_11a2) | Student: Nguyễn Anh Quân (std_1790409551431_39_3yyr) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790721017809_rxxv8 | Class: 10H (class_11a2) | Student: Nguyễn Văn Trung (std_1790409551431_44_01ds) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790721133682_hi72t | Class: 10H (class_11a2) | Student: Nguyễn Văn Trung (std_1790409551431_44_01ds) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790721145690_m2bsk | Class: 10H (class_11a2) | Student: Ngô Duy Tú (std_1790409551431_45_i5wr) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790721161457_i7fcs | Class: 10H (class_11a2) | Student: Ngô Duy Tú (std_1790409551431_45_i5wr) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790722285634_ab08n | Class: 11I (class_11i_1789829698565) | Student: Nguyễn Huy Hiếu (std_1790413441941_13_wcv4) | Date: 2026-09-28 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790728738753_naek3 | Class: 11A (class_11a1_1789826390017_0) | Student: Phan Sơn Tùng Lâm (std_1790412122994_20_jkar) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790728977447_7ftrm | Class: 11A (class_11a1_1789826390017_0) | Student: Lê Đức Đạt (std_1790412122994_7_hwlq) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790730125962_onhc1 | Class: 10H (class_11a2) | Student: Hoàng Thị Thu Huyền (std_1790409551431_20_84t3) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790730150649_x5prb | Class: 10H (class_11a2) | Student: Đinh Thùy Dương (std_1790409551431_10_fiu0) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790730173984_hkvjb | Class: 10H (class_11a2) | Student: Hà Như Quỳnh (std_1790409551431_40_br6r) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790730191015_6hr38 | Class: 10H (class_11a2) | Student: Đinh Thị Thanh Chúc (std_1790409551431_7_1cro) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790730276264_mmy4q | Class: 10H (class_11a2) | Student: Trần Thị Ngọc (std_1790409551431_32_qqvj) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790730296433_wcgwe | Class: 10H (class_11a2) | Student: Trần Thị Mai Lan (std_1790409551431_24_yipo) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790730720767_0f8fa | Class: 12H (class_12h_1789829899972) | Student: Hà Thanh Long (std_1790411909133_20_evkc) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790730729983_gctz5 | Class: 12H (class_12h_1789829899972) | Student: Hà Thanh Long (std_1790411909133_20_evkc) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790730841312_83jnt | Class: 12H (class_12h_1789829899972) | Student: Hà Thị Quỳnh (std_1790411909133_32_f6y2) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790730875367_mvoz8 | Class: 12H (class_12h_1789829899972) | Student: Lê Trung Dũng (std_1790411909133_10_aacm) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790730950352_uc2zc | Class: 12H (class_12h_1789829899972) | Student: Đinh Tiến Dũng (std_1790411909133_9_af8u) | Date: 2026-09-16 | Point: 0 | Crit: Đánh nhau, gây rối trật tự, an ninh trong nhà trường và nơi công cộng
+ID: crec_1790731056326_5jrpi | Class: 10D (class_10b_1789816830004) | Student: Trần Nam Cường (std_1790408944859_4_l80k) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790731391791_xla6x | Class: 10D (class_10b_1789816830004) | Student: Nguyễn Thị Ngọc Hà (std_1790408944859_8_vj3u) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790731447294_bogod | Class: 10D (class_10b_1789816830004) | Student: Hà Thị Huyền Trang (std_1790408944859_38_ooxy) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790737474660_aeq7j | Class: 10B (class_10a2) | Student: Nguyễn Thị Thanh Chúc (std_1789831181702_4_ha9l) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790737680193_bzfsd | Class: 12H (class_12h_1789829899972) | Student: Bùi Thị Nhật Mỹ (std_1790411909133_24_i5rf) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790737698433_xmt0g | Class: 12H (class_12h_1789829899972) | Student: Đinh Hà Lê Na (std_1790411909133_25_cvuf) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790737718817_bpxf6 | Class: 12H (class_12h_1789829899972) | Student: Nguyễn Văn Ngọc (std_1790411909133_27_2ngw) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790737776457_onhmx | Class: 12H (class_12h_1789829899972) | Student: Hà Thị Quỳnh (std_1790411909133_32_f6y2) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790737814465_onq44 | Class: 12H (class_12h_1789829899972) | Student: Nguyễn Minh Thư (std_1790411909133_37_1wah) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790737840049_y9ay0 | Class: 12H (class_12h_1789829899972) | Student: Nguyễn Thành Trung (std_1790411909133_38_rsnw) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790737851481_guv3g | Class: 12H (class_12h_1789829899972) | Student: Nguyễn Văn Tú (std_1790411909133_39_lc7m) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790737867801_5h55d | Class: 12H (class_12h_1789829899972) | Student: Nguyễn Quang Tuấn (std_1790411909133_40_ti60) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790754461868_f3rnw | Class: 12A (class_12a_1789829757781) | Student: Nguyễn Kim Thuý (std_1790411222710_36_mfld) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790754499907_bh3ty | Class: 12A (class_12a_1789829757781) | Student: Nguyễn Hán Việt (std_1790411222710_44_6xta) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790754607893_gt48y | Class: 12A (class_12a_1789829757781) | Student: Đào Thị Mai Linh (std_1790411222710_25_dh8p) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790754741748_3y8wp | Class: 12A (class_12a_1789829757781) | Student: Mai Thu Hằng (std_1790411222710_12_4q47) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790754775100_n0x8r | Class: 12A (class_12a_1789829757781) | Student: Hán Phương Linh (std_1790411222710_26_f3y1) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790754944887_cqlml | Class: 12A (class_12a_1789829757781) | Student: Nguyễn Anh Thư (std_1790411222710_37_tsrx) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790755062384_t64xk | Class: 12A (class_12a_1789829757781) | Student: Nguyễn Phương Thảo (std_1790411222710_30_q6db) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790774947196_fq7fq | Class: 12E (class_12e_1789829862828) | Student: Trần Đại An (std_1790411644813_0_o089) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790775072196_1a3cv | Class: 12E (class_12e_1789829862828) | Student: Phạm Văn Tuấn (std_1790411644813_39_j8fp) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790775396274_a9tvn | Class: 12E (class_12e_1789829862828) | Student: Phạm Văn Tuấn (std_1790411644813_39_j8fp) | Date: 2026-09-16 | Point: -10 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790775499176_y5x13 | Class: 12E (class_12e_1789829862828) | Student: Bùi Anh Dũng (std_1790411644813_4_zxnn) | Date: 2026-09-16 | Point: -20 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790775537508_o2x7o | Class: 12E (class_12e_1789829862828) | Student: Bùi Thị Minh Thư (std_1790411644813_36_7gdq) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790775614650_e2kmp | Class: 12E (class_12e_1789829862828) | Student: Nguyễn Văn Đạt (std_1790411644813_10_160l) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790775623670_gi8sw | Class: 12E (class_12e_1789829862828) | Student: Nguyễn Văn Đạt (std_1790411644813_10_160l) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790775635470_vg4a5 | Class: 12E (class_12e_1789829862828) | Student: Nguyễn Văn Đạt (std_1790411644813_10_160l) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790775668082_vaor7 | Class: 12E (class_12e_1789829862828) | Student: Hoàng Văn Vinh (std_1790411644813_41_0ups) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790775686258_v50nk | Class: 12E (class_12e_1789829862828) | Student: Phùng Thị Chuyển (std_1790411644813_2_kzjj) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790775702112_4abp6 | Class: 12E (class_12e_1789829862828) | Student: Phan Hồng Sơn (std_1790411644813_33_cte7) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790775827808_4dcyi | Class: 12E (class_12e_1789829862828) | Student: Hà Anh Tú (std_1790411644813_37_ynvh) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790775868872_c5d2n | Class: 12E (class_12e_1789829862828) | Student: Hà Anh Tú (std_1790411644813_37_ynvh) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790775887656_3gaqd | Class: 12E (class_12e_1789829862828) | Student: Hà Tiến Đạt (std_1790411644813_9_fvam) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790775912765_pnbqr | Class: 12E (class_12e_1789829862828) | Student: Phùng Duy Khang (std_1790411644813_22_jqpr) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790775934335_mce2t | Class: 12E (class_12e_1789829862828) | Student: Đinh Văn Duy (std_1790411644813_6_6kca) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790775939050_69v0o | Class: 12E (class_12e_1789829862828) | Student: Đinh Văn Duy (std_1790411644813_6_6kca) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790776068201_qhefa | Class: 12E (class_12e_1789829862828) | Student: Hoàng Huy Vân (std_1790411644813_40_tn69) | Date: 2026-09-16 | Point: -4 | Crit: Số lần điểm kém
+ID: crec_1790776093371_eysp0 | Class: 12E (class_12e_1789829862828) | Student: Đỗ Anh Dũng (std_1790411644813_5_728s) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790776111035_8dvsf | Class: 12E (class_12e_1789829862828) | Student: Đỗ Anh Dũng (std_1790411644813_5_728s) | Date: 2026-09-16 | Point: -10 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790776359343_a44xs | Class: 12E (class_12e_1789829862828) | Student: Triệu Mỹ Lệ (std_1790411644813_25_xvtt) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790776406871_ysb3g | Class: 12E (class_12e_1789829862828) | Student: Nguyễn Thị Ngọc Anh (std_1790411644813_1_wwgf) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790776420995_4nnyu | Class: 12E (class_12e_1789829862828) | Student: Phùng Thị Hòa (std_1790411644813_16_iz49) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790776464325_zggnz | Class: 12E (class_12e_1789829862828) | Student: Hà Anh Tuấn (std_1790411644813_38_0r80) | Date: 2026-09-16 | Point: -15 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790776467820_vjayd | Class: 12E (class_12e_1789829862828) | Student: Hà Anh Tuấn (std_1790411644813_38_0r80) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790776485345_qnhjh | Class: 12E (class_12e_1789829862828) | Student: Hà Văn Hùng (std_1790411644813_18_s4ws) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790819197850_pc1kr | Class: 12G (class_12g_1789829884189) | Student: Hà Phương Nam (std_1790411797499_23_p7zb) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790819241979_h5w7v | Class: 12G (class_12g_1789829884189) | Student: Hà Phương Nam (std_1790411797499_23_p7zb) | Date: 2026-09-16 | Point: -10 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790819303765_4yiz3 | Class: 12G (class_12g_1789829884189) | Student: Hà Phương Nam (std_1790411797499_23_p7zb) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790819341287_c8mbz | Class: 12G (class_12g_1789829884189) | Student: Nguyễn Công Hạo (std_1790411797498_12_nfai) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790819355595_9qdku | Class: 12G (class_12g_1789829884189) | Student: Đinh Minh Nhẫn (std_1790411797499_25_46b2) | Date: 2026-09-16 | Point: -3 | Crit: Đổ rác không đúng quy định
+ID: crec_1790819358317_nif3r | Class: 12G (class_12g_1789829884189) | Student: Đinh Minh Nhẫn (std_1790411797499_25_46b2) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790819403033_83f2p | Class: 12G (class_12g_1789829884189) | Student: Bùi Thị Phương Thảo (std_1790411797499_34_baaz) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790819425254_79b61 | Class: 12G (class_12g_1789829884189) | Student: Nguyễn Việt Sơn (std_1790411797499_33_wcw1) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790819451113_rcnz9 | Class: 12G (class_12g_1789829884189) | Student: Đào Hữu Quốc Việt (std_1790411797499_41_srpg) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790819673470_zwu2l | Class: 12G (class_12g_1789829884189) | Student: Sa Mạnh Quang (std_1790411797499_31_x8ur) | Date: 2026-09-16 | Point: -15 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790839381453_i4flx | Class: 10A (class_10a1_1789825862712_0) | Student: Đinh Công Anh (std_1789828776819_2_9o0o) | Date: 2026-10-15 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790842857349_v67yd | Class: 10B (class_10a2) | Student: Lê Thị Ngọc Anh (std_1789831181702_1_0rgh) | Date: 2026-09-16 | Point: -5 | Crit: Ghi sổ đầu bài
+ID: crec_1790843062029_qv6qi | Class: 10B (class_10a2) | Student: Nguyễn Ngọc Hân (std_1789831181702_10_s4io) | Date: 2026-09-16 | Point: -5 | Crit: Ghi sổ đầu bài
+ID: crec_1790843285379_47nhu | Class: 10B (class_10a2) | Student: Lê Anh Huy (std_1789831181702_14_o8yb) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790843499291_idfjd | Class: 10B (class_10a2) | Student: Nguyễn Duy Quang (std_1789831181703_30_8o4k) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790843572809_blyye | Class: 10B (class_10a2) | Student: Dư Đức Tài (std_1789831181703_36_a5h4) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790843628678_jxupv | Class: 10B (class_10a2) | Student: Nguyễn Anh Tuấn (std_1789831181703_42_bgm8) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790843701739_g74y2 | Class: 10B (class_10a2) | Student: Phạm Sơn Tùng (std_1789831181704_44_vwq6) | Date: 2026-09-16 | Point: -5 | Crit: Ghi sổ đầu bài
+ID: crec_1790846989235_m5j02 | Class: 11G (class_11g_1789829634430) | Student: Sa Đình An (std_1790413194349_1_s6vo) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790847062794_wp09o | Class: 11G (class_11g_1789829634430) | Student: Sa Đình An (std_1790413194349_1_s6vo) | Date: 2026-09-10 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790847147210_1o584 | Class: 11G (class_11g_1789829634430) | Student: Phạm Khánh Duy (std_1790413194349_3_0l9a) | Date: 2026-09-16 | Point: -5 | Crit: Sử dụng điện thoại di động, các thiết bị khác khi đang học tập trên lớp không phục vụ cho việc học tập và không được giáo viên cho phép
+ID: crec_1790847186146_tuhiz | Class: 11G (class_11g_1789829634430) | Student: Dương Thị Thu Huyền (std_1790413194349_12_fscq) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790847237842_4rpp5 | Class: 11G (class_11g_1789829634430) | Student: Dương Thị Thu Huyền (std_1790413194349_12_fscq) | Date: 2026-09-16 | Point: 0 | Crit: Gian lận trong học tập, kiểm tra, thi
+ID: crec_1790847314706_erk7m | Class: 11G (class_11g_1789829634430) | Student: Đinh Thị Lụa (std_1790413194349_24_midf) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790847396402_2xi50 | Class: 11G (class_11g_1789829634430) | Student: Trần Thị Ánh Nguyệt (std_1790413194349_28_ooyd) | Date: 2026-09-16 | Point: -5 | Crit: Sử dụng điện thoại di động, các thiết bị khác khi đang học tập trên lớp không phục vụ cho việc học tập và không được giáo viên cho phép
+ID: crec_1790847401834_rlggq | Class: 11G (class_11g_1789829634430) | Student: Trần Thị Ánh Nguyệt (std_1790413194349_28_ooyd) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790847611058_50s31 | Class: 11G (class_11g_1789829634430) | Student: Hà Quang Vinh (std_1790413194349_44_8q88) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790847626298_vopxz | Class: 11G (class_11g_1789829634430) | Student: Nguyễn Thị Mỹ Tâm (std_1790413194349_36_wv38) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790847642618_likk4 | Class: 11G (class_11g_1789829634430) | Student: Nguyễn Thị Thanh Tâm (std_1790413194349_37_bp7o) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790847659282_dp29h | Class: 11G (class_11g_1789829634430) | Student: Nguyễn Thị Duy An (std_1790413194349_0_ek1p) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790864500652_wipdh | Class: 11C (class_11a3_1789826390017_2) | Student: Hoàng Gia Bảo (std_1790412778798_5_fgxa) | Date: 2026-09-16 | Point: -15 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790868116933_fh3in | Class: 11D (class_11a4_1789826390017_3) | Student: Lê Ngọc Linh (std_1790412916898_18_p7fa) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790903724973_7cit5 | Class: 12C (class_12c_1789829822676) | Student: Hà Thái An (std_1790411465642_0_ane5) | Date: 2026-09-16 | Point: -3 | Crit: Ghi sổ đầu bài
+ID: crec_1790903743860_r2ovi | Class: 12C (class_12c_1789829822676) | Student: Hà Thái An (std_1790411465642_0_ane5) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790904310757_7t7bc | Class: 11E (class_11a5_1789826390017_4) | Student: Bùi Việt Hoàng (std_1790413022071_13_7s2o) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790904322237_21a2d | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Thúy Trà (std_1790411465643_35_b1o5) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790904389126_umm31 | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Thúy Trà (std_1790411465643_35_b1o5) | Date: 2026-09-16 | Point: -5 | Crit: Nghỉ học không phép
+ID: crec_1790904419909_nnm4v | Class: 11E (class_11a5_1789826390017_4) | Student: Vi Chí Dũng (std_1790413022071_4_95bm) | Date: 2026-09-16 | Point: -3 | Crit: Ghi sổ đầu bài
+ID: crec_1790904784504_5c9zt | Class: 12C (class_12c_1789829822676) | Student: Trần Tuấn Anh (std_1790411465642_2_fkn2) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790904857459_lihsm | Class: 12C (class_12c_1789829822676) | Student: Trần Tuấn Anh (std_1790411465642_2_fkn2) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790904902021_0pjbc | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Thúy Trà (std_1790411465643_35_b1o5) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790904932864_klnmp | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Thúy Trà (std_1790411465643_35_b1o5) | Date: 2026-09-16 | Point: -5 | Crit: Học sinh không được vi phạm những hành vi bị nghiêm cấm khác theo quy định của pháp luật, nội quy nhà trường
+ID: crec_1790905054637_vuvop | Class: 12C (class_12c_1789829822676) | Student: Trần Tuấn Anh (std_1790411465642_2_fkn2) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790905076743_6yh22 | Class: 12C (class_12c_1789829822676) | Student: Lê Quang Thắng (std_1790411465643_32_c2ae) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790905091165_mx0vw | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Gia Huy (std_1790411465642_14_bn88) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790905099856_c00bd | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Gia Huy (std_1790411465642_14_bn88) | Date: 2026-09-16 | Point: -3 | Crit: Ghi sổ đầu bài
+ID: crec_1790905142658_idvno | Class: 12C (class_12c_1789829822676) | Student: Ngô Hà Quỳnh Anh (std_1790411465642_1_zxhm) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790905147888_6vi6b | Class: 12C (class_12c_1789829822676) | Student: Ngô Hà Quỳnh Anh (std_1790411465642_1_zxhm) | Date: 2026-09-16 | Point: -3 | Crit: Ghi sổ đầu bài
+ID: crec_1790905224549_54v90 | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Ngọc Ánh (std_1790411465642_3_rg9u) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790905244106_810cu | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Ngọc Ánh (std_1790411465642_3_rg9u) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790905255016_4b7fd | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Duy Hiếu (std_1790411465642_11_yuwy) | Date: 2026-09-16 | Point: -2 | Crit: Vào lớp muộn
+ID: crec_1790905269989_kkfhl | Class: 12C (class_12c_1789829822676) | Student: Trần Huệ Phương (std_1790411465643_29_6gaw) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790905310033_vz8k8 | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Hoàng Trung (std_1790411465643_39_vqx3) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790905320888_eu3cu | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Anh Hùng (std_1790411465642_12_a8dr) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790905323821_y8wgi | Class: 12C (class_12c_1789829822676) | Student: Nguyễn Anh Hùng (std_1790411465642_12_a8dr) | Date: 2026-09-16 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
+ID: crec_1790905355824_gemcf | Class: 12C (class_12c_1789829822676) | Student: Sa Đình Bảo (std_1790411465642_4_0uyc) | Date: 2026-09-16 | Point: -2 | Crit: Không mặc đồng phục, đeo thẻ học sinh theo quy định
+ID: crec_1790948939406_v69fb | Class: 12A (class_12a_1789829757781) | Student: Nguyễn Việt Hoàng (std_1790411222710_19_awcx) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790949053955_tlg6j | Class: 12A (class_12a_1789829757781) | Student: Lê Tiến Đức (std_1790411222710_8_hksq) | Date: 2026-09-16 | Point: -2 | Crit: Số lần điểm kém
+ID: crec_1790999455576_1aj9g | Class: 10A (class_10a1_1789825862712_0) | Student: Nguyễn Việt Hoàng (std_1789828776820_18_fmz9) | Date: 2026-09-30 | Point: -6 | Crit: Ghi sổ đầu bài
+ID: crec_1790999831353_xulm0 | Class: 10A (class_10a1_1789825862712_0) | Student: Nguyễn Công Minh (std_1789828776820_25_kibs) | Date: 2026-09-23 | Point: 0 | Crit: Đi xe máy trong trường và để xe không đúng nơi quy định, không đội mũ bảo hiểm
