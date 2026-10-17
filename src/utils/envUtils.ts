@@ -24,3 +24,23 @@ export function canEditOrDelete(): boolean {
   // 3. Hide in Production / Published website
   return false;
 }
+
+export function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.warn('localStorage setItem quota exceeded or failed:', e);
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('app_cache_') || k.startsWith('app_cached_') || k.startsWith('sws_'))) {
+          localStorage.removeItem(k);
+        }
+      }
+      localStorage.setItem(key, value);
+    } catch (err) {
+      console.error('Failed to save to localStorage even after clearing cache:', err);
+    }
+  }
+}
+
