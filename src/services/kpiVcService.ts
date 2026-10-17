@@ -28,6 +28,7 @@ import {
   DEFAULT_VC_PERIODS,
   DEFAULT_VC_RATING_TIERS
 } from '../lib/kpiVcData';
+import { canEditOrDelete } from '../utils/envUtils';
 
 /**
  * Hàm làm sạch dữ liệu Firestore (lọc sạch undefined và NaN ở mọi cấp độ)
@@ -489,6 +490,9 @@ export const deleteVcForm = async (
   formId: string,
   actor: { id: string; name: string; role?: string }
 ) => {
+  if (!canEditOrDelete()) {
+    throw new Error('Chức năng xóa phiếu KPI đã bị vô hiệu hóa trên môi trường Production.');
+  }
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
   const snap = await getDoc(docRef);
   const data = snap.data() as KpiVcForm | undefined;
@@ -518,6 +522,9 @@ export const bulkDeleteVcForms = async (
   actor: { id: string; name: string; role?: string },
   filterInfo?: { periodName?: string; deptName?: string }
 ) => {
+  if (!canEditOrDelete()) {
+    throw new Error('Chức năng xóa phiếu KPI đã bị vô hiệu hóa trên môi trường Production.');
+  }
   if (!formIds || formIds.length === 0) return;
   console.log(`[KPI Delete] Starting bulk delete of ${formIds.length} forms...`);
 

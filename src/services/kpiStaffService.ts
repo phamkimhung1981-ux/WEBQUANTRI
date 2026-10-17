@@ -20,6 +20,7 @@ import {
   DEFAULT_STAFF_CRITERIA, 
   DEFAULT_STAFF_PERIODS 
 } from '../lib/kpiStaffData';
+import { canEditOrDelete } from '../utils/envUtils';
 
 export const cleanFirestoreData = <T extends Record<string, any>>(data: T): Record<string, any> => {
   const cleanDeep = (val: any): any => {
@@ -121,6 +122,9 @@ export const saveStaffFormToFirestore = async (form: KpiStaffForm) => {
 };
 
 export const deleteStaffFormFromFirestore = async (formId: string): Promise<boolean> => {
+  if (!canEditOrDelete()) {
+    throw new Error('Chức năng xóa phiếu KPI đã bị vô hiệu hóa trên môi trường Production.');
+  }
   try {
     const docRef = doc(db, STAFF_COLLECTIONS.FORMS, formId);
     await deleteDoc(docRef);
@@ -137,6 +141,9 @@ export const deleteStaffFormFromFirestore = async (formId: string): Promise<bool
 };
 
 export const deleteAllStaffFormsFromFirestore = async (periodId?: string): Promise<number> => {
+  if (!canEditOrDelete()) {
+    throw new Error('Chức năng xóa phiếu KPI đã bị vô hiệu hóa trên môi trường Production.');
+  }
   try {
     const colRef = collection(db, STAFF_COLLECTIONS.FORMS);
     const snapshot = await getDocs(colRef);

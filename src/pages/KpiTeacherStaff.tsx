@@ -90,6 +90,7 @@ export default function KpiTeacherStaff() {
   const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
 
   const canDeleteForm = (form: KpiVcForm) => {
+    if (!canEditOrDelete()) return false;
     if (!user) return false;
     if (user.id === 'admin' || user.role === 'admin' || user.role === 'BGH' || user.role === 'TTCM' || user.role === 'CBQL' || user.role === 'manager') return true;
     const pos = (user.position || '').toLowerCase();
@@ -651,7 +652,7 @@ export default function KpiTeacherStaff() {
           )}
 
           {/* Nút Xóa toàn bộ phiếu KPI (Admin / BGH only) */}
-          {isAdmin && (
+          {isAdmin && canEditOrDelete() && (
             <button
               type="button"
               onClick={() => {
