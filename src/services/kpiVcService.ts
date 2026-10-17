@@ -167,15 +167,80 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
   }
 
   const q = query(collection(db, VC_COLLECTIONS.FORMS));
-  return onSnapshot(q, (snapshot) => {
+  return onSnapshot(q, async (snapshot) => {
     const firestoreList: KpiVcForm[] = [];
     snapshot.forEach((docSnap) => {
       firestoreList.push({ id: docSnap.id, ...docSnap.data() } as KpiVcForm);
     });
 
     const currentCached = getVcFormsCache();
+
+    // Only auto-sync local forms to Firestore if Firestore is completely empty (0 forms)
+    if (firestoreList.length === 0 && currentCached.length > 0) {
+      console.log(`[KPI Teacher Sync] Firestore is empty, syncing ${currentCached.length} cached forms to Firestore...`);
+      for (const f of currentCached) {
+        try {
+          const docRef = doc(db, VC_COLLECTIONS.FORMS, f.id);
+          await setDoc(docRef, cleanFirestoreData(f), { merge: true });
+        } catch (e) {}
+      }
+    }
+
     const combined = [...firestoreList, ...currentCached];
-    const uniqueList = deduplicateVcForms(combined);
+    let uniqueList = deduplicateVcForms(combined);
+
+    // If still empty or low (< 40), seed from cached teachers if available
+    if (uniqueList.length < 40) {
+      try {
+        const cachedTeachersRaw = localStorage.getItem('app_cached_teachers');
+        if (cachedTeachersRaw) {
+          const teachers = JSON.parse(cachedTeachersRaw);
+          if (Array.isArray(teachers) && teachers.length > 0) {
+            const nonBgh = teachers.filter((t: any) => (t.role || '').toUpperCase() !== 'BGH');
+            const period = DEFAULT_VC_PERIODS.find(p => p.id === 'vc_period_2026_2027_m09') || DEFAULT_VC_PERIODS[0];
+            for (const t of nonBgh) {
+              const formId = `vc_form_${t.id}_${period.id}`;
+              const exists = uniqueList.some(f => f.id === formId || (f.employeeId === t.id && f.periodId === period.id));
+              if (!exists) {
+                const newForm: KpiVcForm = {
+                  id: formId,
+                  employeeId: t.id,
+                  employeeName: t.name || 'Giáo viên',
+                  employeeCode: t.code || `GV_${t.id}`,
+                  employeeUsername: t.username || '',
+                  position: t.position || 'Giáo viên',
+                  department: t.departmentName || 'Trường THPT Sơn Lương',
+                  departmentId: t.departmentId || null,
+                  periodId: period.id,
+                  periodName: period.name,
+                  academicYear: period.academicYear,
+                  criteriaSnapshot: DEFAULT_VC_CRITERIA,
+                  items: [],
+                  groupScores: {},
+                  ttcmGroupScores: {},
+                  managerGroupScores: {},
+                  totalScore: 0,
+                  maxTotalScore: 100,
+                  selfClassification: 'Chưa tự đánh giá',
+                  selfDate: '',
+                  status: 'draft',
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  createdBy: 'system_sync'
+                };
+                uniqueList.push(newForm);
+                try {
+                  const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
+                  await setDoc(docRef, cleanFirestoreData(newForm), { merge: true });
+                } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (genErr) {
+        console.warn('Error auto-seeding teacher KPI forms:', genErr);
+      }
+    }
 
     uniqueList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
 
@@ -454,21 +519,35 @@ export const bulkDeleteVcForms = async (
   filterInfo?: { periodName?: string; deptName?: string }
 ) => {
   if (!formIds || formIds.length === 0) return;
+  console.log(`[KPI Delete] Starting bulk delete of ${formIds.length} forms...`);
 
   const formIdSet = new Set(formIds);
+  const chunkSize = 10;
 
-  // Delete from Firestore in parallel chunks or loop
-  const deletePromises = formIds.map(async (id) => {
+  for (let i = 0; i < formIds.length; i += chunkSize) {
+    const chunk = formIds.slice(i, i + chunkSize);
+    console.log(`[KPI Delete] Processing chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(formIds.length / chunkSize)} (${chunk.length} items)...`);
+    
+    const deletePromises = chunk.map(async (id) => {
+      try {
+        const docRef = doc(db, VC_COLLECTIONS.FORMS, id);
+        await Promise.race([
+          deleteDoc(docRef),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Delete timeout')), 6000))
+        ]);
+      } catch (err) {
+        console.warn(`[KPI Delete] Warning deleting form ${id} (continuing):`, err);
+      }
+    });
+
     try {
-      const docRef = doc(db, VC_COLLECTIONS.FORMS, id);
-      await deleteDoc(docRef);
-    } catch (err) {
-      console.error(`Lỗi khi xóa form ${id}:`, err);
+      await Promise.all(deletePromises);
+    } catch (chunkErr) {
+      console.warn('[KPI Delete] Chunk delete warning:', chunkErr);
     }
-  });
+  }
 
-  await Promise.all(deletePromises);
-
+  console.log('[KPI Delete] Firestore deletions complete. Updating local cache...');
   // Update local cache immediately
   const cachedForms = getVcFormsCache().filter(f => !formIdSet.has(f.id));
   saveVcFormsCache(cachedForms);
@@ -478,14 +557,20 @@ export const bulkDeleteVcForms = async (
     filterInfo?.deptName ? `Đơn vị: ${filterInfo.deptName}` : null
   ].filter(Boolean).join(' | ');
 
-  await addVcAuditLog({
-    action: 'bulk_delete_forms',
-    actorId: actor.id,
-    actorName: actor.name,
-    actorRole: actor.role,
-    targetName: `${formIds.length} phiếu KPI`,
-    description: `Xóa hàng loạt ${formIds.length} phiếu đánh giá KPI. Người thực hiện: ${actor.name}${contextStr ? ` (${contextStr})` : ''}`
-  });
+  try {
+    await addVcAuditLog({
+      action: 'bulk_delete_forms',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      targetName: `${formIds.length} phiếu KPI`,
+      description: `Xóa hàng loạt ${formIds.length} phiếu đánh giá KPI. Người thực hiện: ${actor.name}${contextStr ? ` (${contextStr})` : ''}`
+    });
+  } catch (e) {
+    console.warn('Audit log write error during bulk delete:', e);
+  }
+
+  console.log('[KPI Delete] Bulk delete completed successfully.');
 };
 
 /**
