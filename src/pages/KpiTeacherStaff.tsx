@@ -1214,7 +1214,7 @@ export default function KpiTeacherStaff() {
                                   </button>
                                 )}
 
-                                {canEditOrDelete() && canDeleteForm(form) && (
+                                {canEditOrDelete() && canDeleteForm(form) && !import.meta.env.PROD && (
                                   <button
                                     type="button"
                                     onClick={() => handleRequestDeleteForm(form)}
