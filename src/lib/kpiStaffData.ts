@@ -346,9 +346,7 @@ export const isEligibleStaffEmployee = (t: Teacher): boolean => {
 };
 
 export const getEligibleStaffMembers = (teachers: Teacher[]): Teacher[] => {
-  const staff = teachers.filter(t => isEligibleStaffEmployee(t));
-  if (staff.length > 0) return staff;
-  return teachers.filter(t => t.role !== 'BGH');
+  return teachers.filter(t => (t.role || '').toUpperCase() !== 'BGH');
 };
 
 /**
