@@ -16,8 +16,8 @@ export function canEditOrDelete(): boolean {
     return import.meta.env.VITE_ALLOW_EDIT_DELETE === 'true';
   }
 
-  // 2. Default to true so all authorized administrators and teachers can edit and delete KPI forms on Production Vercel
-  return true;
+  // 2. Return false on production (build), true on development
+  return !import.meta.env.PROD;
 }
 
 export function safeLocalStorageSet(key: string, value: string): void {
