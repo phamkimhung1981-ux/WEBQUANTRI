@@ -88,8 +88,11 @@ export default function KpiTeacherStaff() {
 
   // Permissions
   const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const showAdminCheckbox = isAdmin && !import.meta.env.PROD;
 
   const canDeleteForm = (form: KpiVcForm) => {
+    // Ẩn hoàn toàn chức năng xóa phiếu KPI trên website đã xuất bản (production) để bảo vệ dữ liệu
+    if (import.meta.env.PROD) return false;
     if (!canEditOrDelete()) return false;
     if (!user) return false;
     if (user.id === 'admin' || user.role === 'admin' || user.role === 'BGH' || user.role === 'TTCM' || user.role === 'CBQL' || user.role === 'manager') return true;
@@ -384,11 +387,16 @@ export default function KpiTeacherStaff() {
   };
 
   const handleRequestDeleteForm = (form: KpiVcForm) => {
+    if (import.meta.env.PROD) return;
     setDeleteError(null);
     setFormToDelete(form);
   };
 
   const handleConfirmDeleteForm = async () => {
+    if (import.meta.env.PROD) {
+      setDeleteError('Chức năng xóa phiếu KPI không khả dụng trên website.');
+      return;
+    }
     if (!formToDelete) return;
     setIsDeletingForm(true);
     setDeleteError(null);
@@ -982,7 +990,7 @@ export default function KpiTeacherStaff() {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                {isAdmin && (
+                {showAdminCheckbox && (
                   <th className="p-3.5 w-10 text-center">
                     <input
                       type="checkbox"
@@ -1016,7 +1024,7 @@ export default function KpiTeacherStaff() {
             <tbody className="divide-y divide-slate-200">
               {filteredForms.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 10 : 9} className="p-12 text-center text-slate-400">
+                  <td colSpan={showAdminCheckbox ? 10 : 9} className="p-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <FileText size={32} className="text-slate-300" />
                       <p className="font-semibold text-slate-600">Chưa có phiếu đánh giá KPI.</p>
@@ -1033,7 +1041,7 @@ export default function KpiTeacherStaff() {
                     <React.Fragment key={group.deptId}>
                       {/* GROUP HEADER ROW FOR TỔ CHUYÊN MÔN */}
                       <tr className="bg-slate-100/95 border-y border-slate-300 font-extrabold text-slate-800">
-                        <td colSpan={isAdmin ? 10 : 9} className="py-2.5 px-4 bg-slate-100/90">
+                        <td colSpan={showAdminCheckbox ? 10 : 9} className="py-2.5 px-4 bg-slate-100/90">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5 text-slate-900 font-extrabold text-xs sm:text-sm">
                               <Folder size={16} className="text-blue-600 fill-blue-100 shrink-0" />
@@ -1056,7 +1064,7 @@ export default function KpiTeacherStaff() {
 
                         return (
                           <tr key={form.id} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}>
-                            {isAdmin && (
+                            {showAdminCheckbox && (
                               <td className="p-3.5 text-center">
                                 <input
                                   type="checkbox"
@@ -1221,7 +1229,7 @@ export default function KpiTeacherStaff() {
                                   </button>
                                 )}
 
-                                {canDeleteForm(form) && (
+                                {!import.meta.env.PROD && canDeleteForm(form) && (
                                   <button
                                     type="button"
                                     onClick={() => handleRequestDeleteForm(form)}
@@ -1251,7 +1259,7 @@ export default function KpiTeacherStaff() {
 
                   return (
                     <tr key={form.id} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}>
-                      {isAdmin && (
+                      {showAdminCheckbox && (
                         <td className="p-3.5 text-center">
                           <input
                             type="checkbox"
@@ -1416,7 +1424,7 @@ export default function KpiTeacherStaff() {
                             </button>
                           )}
 
-                          {canDeleteForm(form) && (
+                          {!import.meta.env.PROD && canDeleteForm(form) && (
                             <button
                               type="button"
                               onClick={() => handleRequestDeleteForm(form)}
@@ -1499,7 +1507,7 @@ export default function KpiTeacherStaff() {
       />
 
       {/* MODAL XÁC NHẬN XÓA PHIẾU */}
-      {formToDelete && (
+      {!import.meta.env.PROD && formToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3 text-rose-600">
@@ -1578,7 +1586,7 @@ export default function KpiTeacherStaff() {
       )}
 
       {/* MODAL XÓA HÀNG LOẠT (BULK DELETE DIALOG - STEP 1 & STEP 2) */}
-      {isBulkDeleteModalOpen && (
+      {!import.meta.env.PROD && isBulkDeleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5">
             
@@ -1717,7 +1725,7 @@ export default function KpiTeacherStaff() {
       )}
 
       {/* TOTAL DELETE MODAL */}
-      {isTotalDeleteModalOpen && (
+      {!import.meta.env.PROD && isTotalDeleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5 border border-slate-200">
             <div className="flex items-center gap-3 text-rose-600">

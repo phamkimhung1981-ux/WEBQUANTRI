@@ -228,6 +228,7 @@ export default function KpiStaff() {
   };
 
   const handleDeleteForm = (f: KpiStaffForm) => {
+    if (import.meta.env.PROD) return;
     setDeleteSingleErrorMsg('');
     setFormToDelete(f);
   };
@@ -559,7 +560,7 @@ export default function KpiStaff() {
                             <Printer size={14} />
                           </button>
 
-                          {user && (
+                          {!import.meta.env.PROD && user && (
                             <button
                               onClick={() => handleDeleteForm(f)}
                               className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
@@ -617,7 +618,7 @@ export default function KpiStaff() {
       />
 
       {/* Delete All Confirmation Modal */}
-      {isDeleteAllModalOpen && (
+      {!import.meta.env.PROD && isDeleteAllModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5 border border-slate-200">
             <div className="flex items-center gap-3 text-rose-600">
@@ -699,7 +700,7 @@ export default function KpiStaff() {
       )}
 
       {/* Individual Delete Modal */}
-      {formToDelete && (
+      {!import.meta.env.PROD && formToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
             <div className="flex items-center gap-3 text-rose-600">
