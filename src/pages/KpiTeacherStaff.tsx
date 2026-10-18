@@ -458,6 +458,7 @@ export default function KpiTeacherStaff() {
   };
 
   const handleOpenBulkDeleteFilteredAll = () => {
+    if (import.meta.env.PROD) return;
     if (filteredForms.length === 0) return;
     setBulkDeleteType('filtered_all');
     setBulkDeleteStep(1);
@@ -467,6 +468,7 @@ export default function KpiTeacherStaff() {
   };
 
   const handleOpenBulkDeleteSelected = () => {
+    if (import.meta.env.PROD) return;
     if (selectedFormIds.length === 0) return;
     setBulkDeleteType('selected_items');
     setBulkDeleteStep(1);
@@ -476,6 +478,11 @@ export default function KpiTeacherStaff() {
   };
 
   const handleConfirmBulkDelete = async () => {
+    if (import.meta.env.PROD) {
+      setIsBulkDeleteModalOpen(false);
+      return;
+    }
+
     const targetIds = bulkDeleteType === 'selected_items' 
       ? selectedFormIds 
       : filteredForms.map(f => f.id);
@@ -530,6 +537,11 @@ export default function KpiTeacherStaff() {
   };
 
   const handleConfirmTotalDelete = async () => {
+    if (import.meta.env.PROD) {
+      setIsTotalDeleteModalOpen(false);
+      return;
+    }
+
     if (totalDeleteConfirmInput.trim().toUpperCase() !== 'XOA TOAN BO KPI') {
       setTotalDeleteError('Vui lòng nhập chính xác cụm từ "XOA TOAN BO KPI" để xác nhận.');
       return;
