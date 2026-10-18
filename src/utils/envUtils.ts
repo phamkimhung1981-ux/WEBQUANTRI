@@ -16,8 +16,8 @@ export function canEditOrDelete(): boolean {
     return import.meta.env.VITE_ALLOW_EDIT_DELETE === 'true';
   }
 
-  // 2. Return false on production (build), true on development
-  return !import.meta.env.PROD;
+  // 2. Default to true so authorized users can edit and delete individual records across environments
+  return true;
 }
 
 export function safeLocalStorageSet(key: string, value: string): void {

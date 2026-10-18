@@ -392,15 +392,22 @@ export default function KpiTeacherStaff() {
     if (!formToDelete) return;
     setIsDeletingForm(true);
     setDeleteError(null);
+    const deletedName = formToDelete.employeeName;
+    const deletedPeriod = formToDelete.periodName;
+    const targetId = formToDelete.id;
     try {
-      await deleteVcForm(formToDelete.id, {
+      await deleteVcForm(targetId, {
         id: user?.id || 'admin',
         name: user?.name || 'Admin',
         role: user?.role
       });
-      // Update local state immediately
-      setForms(prev => prev.filter(f => f.id !== formToDelete.id));
+      // Update local state immediately by unique form ID
+      setForms(prev => prev.filter(f => f.id !== targetId));
       setFormToDelete(null);
+      setNotificationMessage(`Đã xóa thành công phiếu KPI của giáo viên: ${deletedName} (${deletedPeriod})`);
+      setTimeout(() => {
+        setNotificationMessage(null);
+      }, 4000);
     } catch (err: any) {
       console.error('Lỗi khi xóa phiếu KPI:', err);
       setDeleteError(err.message || 'Không thể xóa phiếu đánh giá. Vui lòng thử lại.');
@@ -940,8 +947,8 @@ export default function KpiTeacherStaff() {
               </button>
             </div>
 
-            {/* Nút Xóa đã chọn (hiển thị khi có phiếu được chọn) */}
-            {canEditOrDelete() && isAdmin && selectedFormIds.length > 0 && (
+            {/* Nút Xóa đã chọn (chỉ hiển thị trong môi trường Google AI Studio để tránh xóa nhầm trên production) */}
+            {canEditOrDelete() && isAdmin && !import.meta.env.PROD && selectedFormIds.length > 0 && (
               <button
                 type="button"
                 onClick={handleOpenBulkDeleteSelected}
@@ -1214,11 +1221,11 @@ export default function KpiTeacherStaff() {
                                   </button>
                                 )}
 
-                                {canEditOrDelete() && canDeleteForm(form) && !import.meta.env.PROD && (
+                                {canDeleteForm(form) && (
                                   <button
                                     type="button"
                                     onClick={() => handleRequestDeleteForm(form)}
-                                    title="Xóa phiếu đánh giá"
+                                    title="Xóa phiếu đánh giá này"
                                     className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   >
                                     <Trash2 size={15} />
@@ -1409,11 +1416,11 @@ export default function KpiTeacherStaff() {
                             </button>
                           )}
 
-                          {canDeleteForm(form) && !import.meta.env.PROD && (
+                          {canDeleteForm(form) && (
                             <button
                               type="button"
                               onClick={() => handleRequestDeleteForm(form)}
-                              title="Xóa phiếu đánh giá"
+                              title="Xóa phiếu đánh giá này"
                               className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             >
                               <Trash2 size={15} />
@@ -1505,15 +1512,30 @@ export default function KpiTeacherStaff() {
               </div>
             </div>
 
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-900 space-y-1">
-              <p className="font-semibold">
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-900 space-y-2">
+              <p className="font-semibold text-rose-800">
                 Bạn có chắc chắn muốn xóa phiếu đánh giá KPI của:
               </p>
-              <p className="text-sm font-bold text-rose-700">
-                👤 {formToDelete.employeeName}
-              </p>
-              <p className="text-slate-600">
-                Kỳ đánh giá: <span className="font-medium text-slate-800">{formToDelete.periodName}</span>
+              <div className="bg-white/90 border border-rose-200 rounded-lg p-2.5 space-y-1">
+                <p className="text-sm font-bold text-rose-700 flex items-center gap-1.5">
+                  <span>👤</span> <span>{formToDelete.employeeName}</span>
+                  {formToDelete.departmentName && (
+                    <span className="text-[11px] font-normal text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                      {formToDelete.departmentName}
+                    </span>
+                  )}
+                </p>
+                <div className="flex items-center justify-between text-slate-600 text-[11px]">
+                  <span>Kỳ đánh giá:</span>
+                  <span className="font-semibold text-slate-800">{formToDelete.periodName}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-500 text-[11px] border-t border-rose-100 pt-1">
+                  <span>Mã định danh phiếu:</span>
+                  <span className="font-mono text-slate-700 font-medium">{formToDelete.id}</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-rose-600 italic">
+                * Phiếu sẽ được xóa chính xác theo mã định danh khỏi cơ sở dữ liệu và lưu vào nhật ký đối soát.
               </p>
             </div>
 

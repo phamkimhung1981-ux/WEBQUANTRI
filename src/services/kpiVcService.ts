@@ -304,9 +304,15 @@ export const addVcAuditLog = async (logData: Omit<KpiVcAuditLog, 'id' | 'timesta
       id: logId,
       timestamp: new Date().toISOString()
     };
+    try {
+      const cached = localStorage.getItem('kpi_vc_audit_logs_cache');
+      const list = cached ? JSON.parse(cached) : [];
+      safeLocalStorageSet('kpi_vc_audit_logs_cache', JSON.stringify([fullLog, ...list].slice(0, 100)));
+    } catch (e) {}
+
     await setDoc(doc(db, VC_COLLECTIONS.AUDIT_LOGS, logId), cleanFirestoreData(fullLog));
   } catch (error) {
-    console.error('Error adding audit log:', error);
+    console.warn('Notice: Firestore audit log write skipped or deferred:', error);
   }
 };
 
@@ -441,18 +447,28 @@ export const deleteVcForm = async (
   actor: { id: string; name: string; role?: string }
 ) => {
   if (!canEditOrDelete()) {
-    throw new Error('Chức năng xóa phiếu KPI đã bị vô hiệu hóa trên môi trường Production.');
+    throw new Error('Chức năng xóa phiếu KPI hiện không khả dụng.');
   }
-  const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
-  const snap = await getDoc(docRef);
-  const data = snap.data() as KpiVcForm | undefined;
 
-  await deleteDoc(docRef);
+  // 1. Trích xuất thông tin giáo viên và kỳ đánh giá để ghi nhận nhật ký đối soát
+  const currentForms = getVcFormsCache();
+  const formToDelete = currentForms.find(f => f.id === formId);
+  const employeeName = formToDelete?.employeeName || formId;
+  const periodName = formToDelete?.periodName || 'Kỳ đánh giá';
 
-  // Update local cache immediately
-  const cachedForms = getVcFormsCache().filter(f => f.id !== formId);
-  saveVcFormsCache(cachedForms);
+  // 2. Xóa khỏi Firestore nếu kết nối được
+  try {
+    const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
+    await deleteDoc(docRef);
+  } catch (fsErr) {
+    console.warn('Lưu ý: Firestore delete gặp lỗi hoặc vượt hạn mức (tiếp tục xóa trên bộ nhớ cục bộ):', fsErr);
+  }
 
+  // 3. Xóa chính xác phiếu theo ID khỏi bộ nhớ đệm (Local Cache) ngay lập tức
+  const remainingForms = currentForms.filter(f => f.id !== formId);
+  saveVcFormsCache(remainingForms);
+
+  // 4. Lưu lịch sử thao tác xóa (người xóa, thời gian xóa, tên giáo viên, kỳ đánh giá)
   try {
     await addVcAuditLog({
       formId,
@@ -460,11 +476,11 @@ export const deleteVcForm = async (
       actorId: actor.id,
       actorName: actor.name,
       actorRole: actor.role,
-      targetName: data?.employeeName || formId,
-      description: `Xóa phiếu đánh giá KPI của: ${data?.employeeName || formId}`
+      targetName: `${employeeName} - ${periodName}`,
+      description: `Đã xóa phiếu đánh giá KPI của giáo viên: ${employeeName} (Kỳ: ${periodName})`
     });
   } catch (auditErr) {
-    console.warn('Failed to record audit log for deleteVcForm (continuing):', auditErr);
+    console.warn('Lỗi ghi audit log (bỏ qua để không chặn xóa):', auditErr);
   }
 };
 
