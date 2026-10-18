@@ -374,7 +374,8 @@ export const scheduleService = {
       const docRef = doc(db, COLLECTION_NAME, docId);
       await setDoc(docRef, JSON.parse(JSON.stringify(normalized)), { merge: true });
     } catch (error) {
-      console.warn('Firestore saveWeeklySchedule warning (saved locally):', error);
+      console.error('Firestore saveWeeklySchedule error:', error);
+      throw error;
     }
   },
 

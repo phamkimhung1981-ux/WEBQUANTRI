@@ -218,11 +218,17 @@ export default function Calendar() {
 
   // Save / Update schedule
   const handleSaveWeeklySchedule = async (newSchedule: WeeklySchedule) => {
-    await scheduleService.saveWeeklySchedule(newSchedule);
-    const updatedList = await scheduleService.getWeeklySchedules(selectedYear);
-    setWeeklySchedules(updatedList);
-    setSelectedScheduleId(newSchedule.id);
-    showToast(`Đã lưu lịch công tác Tuần ${newSchedule.week_number} thành công.`, 'success');
+    try {
+      await scheduleService.saveWeeklySchedule(newSchedule);
+      const updatedList = await scheduleService.getWeeklySchedules(selectedYear);
+      setWeeklySchedules(updatedList);
+      setSelectedScheduleId(newSchedule.id);
+      showToast(`Đã lưu lịch công tác Tuần ${newSchedule.week_number} thành công!`, 'success');
+    } catch (err: any) {
+      console.error('Save weekly schedule error:', err);
+      showToast(`Lỗi khi lưu lịch công tác vào cơ sở dữ liệu: ${err?.message || 'Vui lòng kiểm tra kết nối mạng.'}`, 'error');
+      throw err;
+    }
   };
 
   // Safe delete handler with confirmation modal

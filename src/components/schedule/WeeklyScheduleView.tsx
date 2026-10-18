@@ -267,8 +267,11 @@ export default function WeeklyScheduleView({
           {/* Edit Mode Toggle */}
           {isEditing ? (
             <>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-300 rounded-xl text-xs font-black">
+                <span>⚠️</span> Đang chỉnh sửa (Chưa lưu)
+              </span>
               <button 
-                onClick={() => { setEditForm(schedule); setIsEditing(false); }}
+                onClick={() => { setEditForm(schedule); setIsEditing(false); setErrorMsg(null); }}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
               >
                 Hủy
@@ -276,9 +279,9 @@ export default function WeeklyScheduleView({
               <button 
                 onClick={handleSaveEdit}
                 disabled={isSaving}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
               >
-                <Save size={14} /> {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                <Save size={14} /> {isSaving ? 'Đang lưu lịch công tác...' : 'Lưu lịch công tác'}
               </button>
             </>
           ) : (
@@ -744,6 +747,44 @@ export default function WeeklyScheduleView({
                 <Save size={14} /> {isSavingDuty ? 'Đang lưu...' : 'Lưu thay đổi'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Bottom Save Bar when editing */}
+      {isEditing && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 py-3.5 px-6 shadow-2xl flex items-center justify-between animate-in slide-in-from-bottom duration-300">
+          <div className="flex items-center gap-2 text-white">
+            <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-xs sm:text-sm font-black">Bạn đang có thay đổi chưa lưu trên Lịch công tác Tuần {schedule.week_number}</span>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => { setEditForm(schedule); setIsEditing(false); setErrorMsg(null); }}
+              disabled={isSaving}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer border border-slate-600"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg transition-all cursor-pointer"
+            >
+              {isSaving ? (
+                <>
+                  <Clock size={16} className="animate-spin" />
+                  <span>Đang lưu vào hệ thống...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  <span>Lưu lịch công tác</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}

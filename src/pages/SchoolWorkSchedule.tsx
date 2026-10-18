@@ -24,7 +24,8 @@ import {
   Sun,
   Moon,
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  Loader2
 } from 'lucide-react';
 import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
@@ -85,6 +86,29 @@ export default function SchoolWorkSchedulePage() {
     timeSlot: 'morning' | 'afternoon';
     item?: SchoolWorkItem;
   } | null>(null);
+
+  // Delete Task Modal State
+  const [taskToDelete, setTaskToDelete] = useState<{
+    dayId: string;
+    dayIndex: number;
+    timeSlot: 'morning' | 'afternoon';
+    itemId: string;
+    content: string;
+    dayLabel?: string;
+  } | null>(null);
+  const [isDeletingTask, setIsDeletingTask] = useState<boolean>(false);
+
+  // Clear Day Tasks Modal State
+  const [dayToClear, setDayToClear] = useState<{
+    dayId: string;
+    dayLabel: string;
+    totalTasks: number;
+  } | null>(null);
+  const [isClearingDay, setIsClearingDay] = useState<boolean>(false);
+
+  // Clear Whole Week Modal State
+  const [isClearWeekModalOpen, setIsClearWeekModalOpen] = useState<boolean>(false);
+  const [isClearingWeek, setIsClearingWeek] = useState<boolean>(false);
 
   // Form fields for editing task
   const [formDayIndex, setFormDayIndex] = useState<number>(0);
@@ -382,28 +406,114 @@ export default function SchoolWorkSchedulePage() {
     }
   };
 
-  const handleDeleteItem = async (dayId: string, timeSlot: 'morning' | 'afternoon', itemId: string) => {
-    if (!schedule) return;
-    if (!window.confirm('Bạn có chắc chắn muốn xóa công việc này?')) return;
+  // Trigger Delete Item Modal
+  const handleDeleteItem = (dayId: string, timeSlot: 'morning' | 'afternoon', itemId: string, content?: string, dayIndex?: number) => {
+    const dIdx = typeof dayIndex === 'number' ? dayIndex : (schedule?.days.findIndex(d => d.id === dayId) ?? 0);
+    const day = schedule?.days[dIdx];
+    const taskContent = content || (
+      timeSlot === 'morning'
+        ? day?.morning_tasks.find(t => t.id === itemId)?.content
+        : day?.afternoon_tasks.find(t => t.id === itemId)?.content
+    ) || 'Công việc đã chọn';
+
+    setTaskToDelete({
+      dayId,
+      dayIndex: dIdx,
+      timeSlot,
+      itemId,
+      content: taskContent,
+      dayLabel: day ? `${day.day_of_week} (${day.date_str})` : ''
+    });
+  };
+
+  // Confirm and execute task deletion
+  const handleConfirmDeleteTask = async () => {
+    if (!taskToDelete || !schedule) return;
 
     try {
+      setIsDeletingTask(true);
+      const { dayId, timeSlot, itemId, content } = taskToDelete;
+      
+      const updated = await schoolWorkScheduleService.deleteTaskItem(
+        schedule,
+        dayId,
+        timeSlot,
+        itemId,
+        content
+      );
+
+      setSchedule(updated);
+      setTaskToDelete(null);
+      showToast('Đã xóa công việc khỏi lịch công tác thành công!');
+    } catch (e) {
+      console.error('Lỗi khi xóa công việc:', e);
+      showToast('Lỗi khi xóa công việc. Vui lòng thử lại.');
+    } finally {
+      setIsDeletingTask(false);
+    }
+  };
+
+  // Confirm and clear all tasks in a single day
+  const handleConfirmClearDay = async () => {
+    if (!dayToClear || !schedule) return;
+
+    try {
+      setIsClearingDay(true);
       const newDays = schedule.days.map(d => {
-        if (d.id !== dayId) return d;
+        if (d.id !== dayToClear.dayId) return d;
         return {
           ...d,
-          [timeSlot === 'morning' ? 'morning_tasks' : 'afternoon_tasks']: (
-            timeSlot === 'morning' ? d.morning_tasks : d.afternoon_tasks
-          ).filter(t => t.id !== itemId)
+          morning_tasks: [],
+          afternoon_tasks: []
         };
       });
 
-      const updatedSchedule = { ...schedule, days: newDays, updated_at: new Date().toISOString() };
+      const updatedSchedule: SchoolWorkSchedule = {
+        ...schedule,
+        days: newDays,
+        updated_at: new Date().toISOString()
+      };
+
       setSchedule(updatedSchedule);
       await schoolWorkScheduleService.saveSchedule(updatedSchedule);
-      showToast('Đã xóa công việc!');
+      setDayToClear(null);
+      showToast(`Đã xóa toàn bộ công việc của ${dayToClear.dayLabel}!`);
     } catch (e) {
-      console.error(e);
-      showToast('Lỗi khi xóa công việc');
+      console.error('Lỗi khi xóa công việc trong ngày:', e);
+      showToast('Lỗi khi xóa công việc trong ngày.');
+    } finally {
+      setIsClearingDay(false);
+    }
+  };
+
+  // Confirm and clear entire week's schedule tasks
+  const handleConfirmClearWeek = async () => {
+    if (!schedule) return;
+
+    try {
+      setIsClearingWeek(true);
+      const newDays = schedule.days.map(d => ({
+        ...d,
+        morning_tasks: [],
+        afternoon_tasks: [],
+        duty_evaluator: ''
+      }));
+
+      const updatedSchedule: SchoolWorkSchedule = {
+        ...schedule,
+        days: newDays,
+        updated_at: new Date().toISOString()
+      };
+
+      setSchedule(updatedSchedule);
+      await schoolWorkScheduleService.saveSchedule(updatedSchedule);
+      setIsClearWeekModalOpen(false);
+      showToast(`Đã làm trống toàn bộ nội dung công việc Tuần ${selectedWeek}!`);
+    } catch (e) {
+      console.error('Lỗi khi làm trống tuần:', e);
+      showToast('Lỗi khi làm trống tuần.');
+    } finally {
+      setIsClearingWeek(false);
     }
   };
 
@@ -593,6 +703,17 @@ export default function SchoolWorkSchedulePage() {
                 <Sparkles size={16} />
                 <span>Nạp Mẫu Chuẩn Trường</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsClearWeekModalOpen(true)}
+                disabled={saving || !schedule || schedule.days.every(d => d.morning_tasks.length === 0 && d.afternoon_tasks.length === 0)}
+                className="px-3.5 py-2 bg-rose-600/90 hover:bg-rose-600 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border border-rose-400/30"
+                title="Xóa toàn bộ nội dung công việc tuần này để làm mới"
+              >
+                <Trash2 size={15} />
+                <span>Làm trống tuần</span>
+              </button>
             </>
           )}
 
@@ -761,6 +882,21 @@ export default function SchoolWorkSchedulePage() {
                           <span className="text-[11px] sm:text-xs font-bold text-slate-600 block">
                             ({day.date_str})
                           </span>
+                          {canEdit && (day.morning_tasks.length > 0 || day.afternoon_tasks.length > 0) && (
+                            <button
+                              type="button"
+                              onClick={() => setDayToClear({
+                                dayId: day.id,
+                                dayLabel: `${day.day_of_week} (${day.date_str})`,
+                                totalTasks: day.morning_tasks.length + day.afternoon_tasks.length
+                              })}
+                              className="inline-flex items-center gap-1 text-[10.5px] font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-1.5 py-0.5 rounded transition-colors cursor-pointer no-print mt-1"
+                              title={`Xóa tất cả ${day.morning_tasks.length + day.afternoon_tasks.length} công việc của ${day.day_of_week}`}
+                            >
+                              <Trash2 size={11} />
+                              <span>Xóa ngày</span>
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -796,8 +932,8 @@ export default function SchoolWorkSchedulePage() {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleDeleteItem(day.id, 'morning', task.id)}
-                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                        onClick={() => handleDeleteItem(day.id, 'morning', task.id, task.content, dIdx)}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                         title="Xóa công việc"
                                       >
                                         <Trash2 size={13} />
@@ -876,8 +1012,8 @@ export default function SchoolWorkSchedulePage() {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleDeleteItem(day.id, 'afternoon', task.id)}
-                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                        onClick={() => handleDeleteItem(day.id, 'afternoon', task.id, task.content, dIdx)}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                         title="Xóa công việc"
                                       >
                                         <Trash2 size={13} />
@@ -1222,23 +1358,55 @@ export default function SchoolWorkSchedulePage() {
 
             {/* Modal Footer */}
             <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setEditingItem(null)}
-                className="px-4 py-2.5 text-xs sm:text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                Hủy bỏ
-              </button>
+              {editingItem.item ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const item = editingItem.item!;
+                    const day = schedule?.days[editingItem.dayIndex];
+                    const dayLabel = day ? `${day.day_of_week} (${day.date_str})` : '';
+                    const dayId = editingItem.dayId;
+                    const timeSlot = editingItem.timeSlot;
+                    const dIdx = editingItem.dayIndex;
+                    setEditingItem(null);
+                    setTaskToDelete({
+                      dayId,
+                      dayIndex: dIdx,
+                      timeSlot,
+                      itemId: item.id,
+                      content: item.content,
+                      dayLabel
+                    });
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer mr-auto"
+                  title="Xóa công việc này khỏi lịch công tác"
+                >
+                  <Trash2 size={15} />
+                  <span>Xóa việc này</span>
+                </button>
+              ) : (
+                <div />
+              )}
 
-              <button
-                type="button"
-                onClick={handleSaveItem}
-                disabled={saving || !formContent.trim()}
-                className="px-5 py-2.5 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer font-sans"
-              >
-                <Save size={16} />
-                <span>{editingItem.item ? 'Lưu thay đổi' : 'Tạo công việc'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveItem}
+                  disabled={saving || !formContent.trim()}
+                  className="px-5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer font-sans"
+                >
+                  <Save size={16} />
+                  <span>{editingItem.item ? 'Lưu thay đổi' : 'Tạo công việc'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1358,6 +1526,177 @@ export default function SchoolWorkSchedulePage() {
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50 cursor-pointer"
               >
                 {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1. MODAL XÁC NHẬN XÓA CÔNG VIỆC ĐƠN LẺ */}
+      {taskToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0 border border-rose-200">
+                <Trash2 size={22} className="text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-900">Xác nhận xóa công việc</h3>
+                <p className="text-xs text-slate-500 font-semibold">
+                  {taskToDelete.dayLabel ? `${taskToDelete.dayLabel} • ` : ''}
+                  {taskToDelete.timeSlot === 'morning' ? 'Buổi Sáng' : 'Buổi Chiều'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-3.5 space-y-2 text-xs">
+              <p className="font-bold text-rose-950">
+                Thầy/cô có chắc chắn muốn xóa công việc này khỏi lịch công tác tuần {selectedWeek}?
+              </p>
+              <div className="bg-white p-3 rounded-xl border border-rose-200 font-bold text-slate-800 leading-relaxed max-h-36 overflow-y-auto whitespace-pre-wrap shadow-2xs">
+                • {taskToDelete.content}
+              </div>
+              <p className="text-[11px] text-rose-600 italic">
+                * Thao tác sẽ xóa công việc và đồng bộ ngay vào cơ sở dữ liệu.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setTaskToDelete(null)}
+                disabled={isDeletingTask}
+                className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTask}
+                disabled={isDeletingTask}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                {isDeletingTask ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Xác nhận xóa</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. MODAL XÁC NHẬN XÓA TẤT CẢ CÔNG VIỆC TRONG NGÀY */}
+      {dayToClear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0 border border-rose-200">
+                <Trash2 size={22} className="text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-900">Xóa toàn bộ việc trong ngày</h3>
+                <p className="text-xs text-slate-500 font-semibold">{dayToClear.dayLabel}</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-3.5 space-y-2 text-xs text-rose-950">
+              <p className="font-bold">
+                Bạn có chắc chắn muốn xóa tất cả {dayToClear.totalTasks} công việc (cả sáng và chiều) của {dayToClear.dayLabel}?
+              </p>
+              <p className="text-[11px] text-rose-600 italic">
+                * Toàn bộ nội dung công việc của ngày này sẽ được dọn sạch.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDayToClear(null)}
+                disabled={isClearingDay}
+                className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearDay}
+                disabled={isClearingDay}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                {isClearingDay ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Xóa toàn bộ việc</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. MODAL XÁC NHẬN LÀM TRỐNG TOÀN BỘ NỘI DUNG TUẦN */}
+      {isClearWeekModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0 border border-rose-200">
+                <Trash2 size={22} className="text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-900">Làm trống lịch Tuần {selectedWeek}</h3>
+                <p className="text-xs text-rose-600 font-semibold">Cảnh báo: Hành động xóa toàn bộ công việc trong tuần</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-3.5 space-y-2 text-xs text-rose-950">
+              <p className="font-bold">
+                Thầy/cô có chắc chắn muốn xóa toàn bộ các công việc từ Thứ Hai đến Chủ Nhật của Tuần {selectedWeek} ({schedule?.department_name || 'TOÀN TRƯỜNG'}) không?
+              </p>
+              <p className="text-[11px] text-slate-600">
+                Thao tác này phù hợp khi Thầy/cô muốn làm mới toàn bộ lịch tuần hoặc chuẩn bị nhập lại lịch từ file Word mới.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsClearWeekModalOpen(false)}
+                disabled={isClearingWeek}
+                className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearWeek}
+                disabled={isClearingWeek}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                {isClearingWeek ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Đang làm trống...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Xác nhận làm trống</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

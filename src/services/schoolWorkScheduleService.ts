@@ -275,16 +275,56 @@ export const schoolWorkScheduleService = {
 
     // Save to localStorage immediately
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(schedule));
+      try {
+        localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(schedule));
+      } catch (err) {
+        console.warn('localStorage setItem quota or error:', err);
+      }
     }
 
     // Save to Firestore
     try {
       const docRef = doc(db, COLLECTION_NAME, docId);
-      await setDoc(docRef, JSON.parse(JSON.stringify(schedule)), { merge: true });
+      await setDoc(docRef, JSON.parse(JSON.stringify(schedule)));
     } catch (e) {
       console.warn('Firestore saveSchedule error, data saved locally:', e);
     }
+  },
+
+  async deleteTaskItem(
+    schedule: SchoolWorkSchedule,
+    dayId: string,
+    timeSlot: 'morning' | 'afternoon',
+    itemId: string,
+    taskContent?: string
+  ): Promise<SchoolWorkSchedule> {
+    const newDays = schedule.days.map(d => {
+      if (d.id !== dayId) return d;
+      const tasks = timeSlot === 'morning' ? d.morning_tasks : d.afternoon_tasks;
+      const filtered = tasks.filter(t => {
+        if (itemId && t.id) {
+          return t.id !== itemId;
+        }
+        if (taskContent) {
+          return t.content !== taskContent;
+        }
+        return false;
+      });
+
+      return {
+        ...d,
+        [timeSlot === 'morning' ? 'morning_tasks' : 'afternoon_tasks']: filtered
+      };
+    });
+
+    const updated: SchoolWorkSchedule = {
+      ...schedule,
+      days: newDays,
+      updated_at: new Date().toISOString()
+    };
+
+    await this.saveSchedule(updated);
+    return updated;
   },
 
   async updateTaskItem(
