@@ -453,6 +453,7 @@ export default function Homeroom() {
   const isHomeroomTeacher = user?.role?.toUpperCase() === 'TEACHER' || user?.role?.toUpperCase() === 'GVCN' || isBgh;
 
   const handleOpenResetModal = () => {
+    if (import.meta.env.PROD) return;
     if (!isBgh && !isHomeroomTeacher) {
       alert('Bạn không có quyền thực hiện chức năng này. Chỉ Quản trị viên (BGH) hoặc Giáo viên chủ nhiệm mới có quyền xóa/reset kết quả nền nếp.');
       return;
@@ -1294,7 +1295,7 @@ export default function Homeroom() {
               <ShieldAlert size={15} /> BÁO CÁO VP NGHIÊM TRỌNG
             </button>
 
-            {canEditOrDelete() && (
+            {canEditOrDelete() && !import.meta.env.PROD && (
               <button
                 onClick={handleOpenResetModal}
                 className="px-3.5 py-2 bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
@@ -3190,17 +3191,19 @@ export default function Homeroom() {
       />
 
       {/* Reset Conduct Modal */}
-      <ResetConductModal
-        isOpen={isResetConductModalOpen}
-        onClose={() => setIsResetConductModalOpen(false)}
-        selectedSchoolYear={selectedSchoolYear}
-        selectedClass={selectedClass}
-        selectedWeek={selectedWeek}
-        selectedMonth={selectedMonth}
-        recordsCount={currentScopeRecordsCount}
-        studentsCount={classStudents.length}
-        onResetConduct={handleResetConduct}
-      />
+      {!import.meta.env.PROD && (
+        <ResetConductModal
+          isOpen={isResetConductModalOpen}
+          onClose={() => setIsResetConductModalOpen(false)}
+          selectedSchoolYear={selectedSchoolYear}
+          selectedClass={selectedClass}
+          selectedWeek={selectedWeek}
+          selectedMonth={selectedMonth}
+          recordsCount={currentScopeRecordsCount}
+          studentsCount={classStudents.length}
+          onResetConduct={handleResetConduct}
+        />
+      )}
 
       {/* Reset Success Toast (Requirement 10) */}
       {resetSuccessToast && (

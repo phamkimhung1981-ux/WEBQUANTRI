@@ -225,6 +225,9 @@ export default function YouthDisciplinePage() {
   const canConfirmViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN';
   const canLockWeek = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'BAN_GIAM_HIEU';
   const canEditViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'CAN_BO_DOAN' || effectiveRole === 'GVCN';
+  // Quyền xóa danh sách học sinh vi phạm: Giữ nguyên trong Google AI Studio (Dev), ẩn hoàn toàn trên Website đã xuất bản (Production)
+  const canDeleteViolations = !import.meta.env.PROD && canEditOrDelete() && canEditViolations;
+  const showViolationCheckbox = canDeleteViolations;
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMessage(msg);
@@ -1113,6 +1116,7 @@ export default function YouthDisciplinePage() {
 
   // Handle delete single violation modal
   const handleDeleteViolation = (id: string) => {
+    if (import.meta.env.PROD) return;
     const target = violations.find(v => v.id === id);
     if (target) {
       setTargetViolationToDelete(target);
@@ -1122,6 +1126,7 @@ export default function YouthDisciplinePage() {
 
   // Confirm delete single violation
   const handleConfirmDeleteSingleViolation = async () => {
+    if (import.meta.env.PROD) return;
     if (!targetViolationToDelete) return;
     try {
       await youthDisciplineService.deleteViolation(
@@ -1155,6 +1160,7 @@ export default function YouthDisciplinePage() {
 
   // Batch delete selected violations
   const handleConfirmBatchDeleteViolations = async () => {
+    if (import.meta.env.PROD) return;
     if (selectedViolationIds.length === 0) return;
     try {
       const count = await youthDisciplineService.deleteMultipleViolations(
@@ -1174,6 +1180,7 @@ export default function YouthDisciplinePage() {
 
   // Clear violations by scope
   const handleConfirmClearViolationScope = async () => {
+    if (import.meta.env.PROD) return;
     try {
       let idsToDelete: string[] = [];
       if (clearViolationScope === 'filtered') {
@@ -1997,7 +2004,7 @@ export default function YouthDisciplinePage() {
               </span>
 
               {/* BATCH DELETE BUTTON */}
-              {canEditOrDelete() && canEditViolations && selectedViolationIds.length > 0 && (
+              {canDeleteViolations && selectedViolationIds.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setIsBatchDeleteViolationsModalOpen(true)}
@@ -2009,7 +2016,7 @@ export default function YouthDisciplinePage() {
               )}
 
               {/* CLEAR SCOPE BUTTON */}
-              {canEditOrDelete() && canEditViolations && (
+              {canDeleteViolations && (
                 <button
                   type="button"
                   onClick={() => setIsClearScopeViolationsModalOpen(true)}
@@ -2059,14 +2066,16 @@ export default function YouthDisciplinePage() {
             <table className="w-full border-collapse text-left text-xs sm:text-sm">
               <thead>
                 <tr className="bg-slate-100/90 text-slate-700 font-extrabold text-[11px] uppercase tracking-wider border-b border-slate-200">
-                  <th className="py-3 px-3 text-center w-10">
-                    <input
-                      type="checkbox"
-                      checked={filteredViolations.length > 0 && selectedViolationIds.length === filteredViolations.length}
-                      onChange={handleToggleSelectAllViolations}
-                      className="w-4 h-4 rounded text-blue-600 cursor-pointer"
-                    />
-                  </th>
+                  {showViolationCheckbox && (
+                    <th className="py-3 px-3 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={filteredViolations.length > 0 && selectedViolationIds.length === filteredViolations.length}
+                        onChange={handleToggleSelectAllViolations}
+                        className="w-4 h-4 rounded text-blue-600 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="py-3 px-3.5 text-center w-12">STT</th>
                   <th className="py-3 px-3.5 min-w-[100px]">Ngày / Giờ</th>
                   <th className="py-3 px-3.5 min-w-[80px]">Lớp</th>
@@ -2082,7 +2091,7 @@ export default function YouthDisciplinePage() {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredViolations.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-12 text-center text-slate-500">
+                    <td colSpan={showViolationCheckbox ? 11 : 10} className="py-12 text-center text-slate-500">
                       <p className="font-semibold text-sm mb-2">Không tìm thấy bản ghi vi phạm nào phù hợp với bộ lọc hiện tại.</p>
                       <button
                         type="button"
@@ -2108,14 +2117,16 @@ export default function YouthDisciplinePage() {
                     const isChecked = selectedViolationIds.includes(vio.id);
                     return (
                       <tr key={vio.id} className={`hover:bg-blue-50/40 transition-colors ${isChecked ? 'bg-blue-50/60' : ''}`}>
-                        <td className="py-3 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleToggleSelectOneViolation(vio.id)}
-                            className="w-4 h-4 rounded text-blue-600 cursor-pointer"
-                          />
-                        </td>
+                        {showViolationCheckbox && (
+                          <td className="py-3 px-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => handleToggleSelectOneViolation(vio.id)}
+                              className="w-4 h-4 rounded text-blue-600 cursor-pointer"
+                            />
+                          </td>
+                        )}
                         <td className="py-3 px-3.5 text-center font-bold text-slate-500">{idx + 1}</td>
                       <td className="py-3 px-3.5 font-bold text-slate-800">
                         <div>{vio.violationDate}</div>
@@ -2196,7 +2207,7 @@ export default function YouthDisciplinePage() {
                             </button>
                           )}
 
-                          {canEditOrDelete() && canEditViolations && (
+                          {canDeleteViolations && (
                             <button
                               type="button"
                               onClick={() => handleDeleteViolation(vio.id)}
@@ -3374,7 +3385,7 @@ export default function YouthDisciplinePage() {
       )}
 
       {/* 7. MODAL XÁC NHẬN XÓA 1 BẢN GHI VI PHẠM */}
-      {isDeleteSingleViolationModalOpen && targetViolationToDelete && (
+      {canDeleteViolations && isDeleteSingleViolationModalOpen && targetViolationToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-3 text-rose-600">
@@ -3441,7 +3452,7 @@ export default function YouthDisciplinePage() {
       )}
 
       {/* 8. MODAL XÁC NHẬN XÓA HÀNG LOẠT VI PHẠM ĐÃ CHỌN */}
-      {isBatchDeleteViolationsModalOpen && (
+      {canDeleteViolations && isBatchDeleteViolationsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-3 text-rose-600">
@@ -3485,7 +3496,7 @@ export default function YouthDisciplinePage() {
       )}
 
       {/* 8. MODAL XÓA TOÀN BỘ DANH SÁCH VI PHẠM THEO PHẠM VI */}
-      {isClearScopeViolationsModalOpen && (
+      {canDeleteViolations && isClearScopeViolationsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-3 text-rose-600">
