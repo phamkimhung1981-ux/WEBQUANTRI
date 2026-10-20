@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import BackButton from '../components/ui/BackButton';
 import { 
   KpiVcForm, 
@@ -88,11 +88,11 @@ export default function KpiTeacherStaff() {
 
   // Permissions
   const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
-  const showAdminCheckbox = isAdmin && !import.meta.env.PROD;
+  const showAdminCheckbox = isAdmin && !isProductionWeb();
 
   const canDeleteForm = (form: KpiVcForm) => {
     // Ẩn hoàn toàn chức năng xóa phiếu KPI trên website đã xuất bản (production) để bảo vệ dữ liệu
-    if (import.meta.env.PROD) return false;
+    if (isProductionWeb()) return false;
     if (!canEditOrDelete()) return false;
     if (!user) return false;
     if (user.id === 'admin' || user.role === 'admin' || user.role === 'BGH' || user.role === 'TTCM' || user.role === 'CBQL' || user.role === 'manager') return true;
@@ -387,13 +387,13 @@ export default function KpiTeacherStaff() {
   };
 
   const handleRequestDeleteForm = (form: KpiVcForm) => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     setDeleteError(null);
     setFormToDelete(form);
   };
 
   const handleConfirmDeleteForm = async () => {
-    if (import.meta.env.PROD) {
+    if (isProductionWeb()) {
       setDeleteError('Chức năng xóa phiếu KPI không khả dụng trên website.');
       return;
     }
@@ -458,7 +458,7 @@ export default function KpiTeacherStaff() {
   };
 
   const handleOpenBulkDeleteFilteredAll = () => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     if (filteredForms.length === 0) return;
     setBulkDeleteType('filtered_all');
     setBulkDeleteStep(1);
@@ -468,7 +468,7 @@ export default function KpiTeacherStaff() {
   };
 
   const handleOpenBulkDeleteSelected = () => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     if (selectedFormIds.length === 0) return;
     setBulkDeleteType('selected_items');
     setBulkDeleteStep(1);
@@ -478,7 +478,7 @@ export default function KpiTeacherStaff() {
   };
 
   const handleConfirmBulkDelete = async () => {
-    if (import.meta.env.PROD) {
+    if (isProductionWeb()) {
       setIsBulkDeleteModalOpen(false);
       return;
     }
@@ -537,7 +537,7 @@ export default function KpiTeacherStaff() {
   };
 
   const handleConfirmTotalDelete = async () => {
-    if (import.meta.env.PROD) {
+    if (isProductionWeb()) {
       setIsTotalDeleteModalOpen(false);
       return;
     }
@@ -671,7 +671,7 @@ export default function KpiTeacherStaff() {
           )}
 
           {/* Nút Xóa toàn bộ phiếu KPI (Admin / BGH only) */}
-          {isAdmin && canEditOrDelete() && !import.meta.env.PROD && (
+          {isAdmin && canEditOrDelete() && !isProductionWeb() && (
             <button
               type="button"
               onClick={() => {
@@ -968,7 +968,7 @@ export default function KpiTeacherStaff() {
             </div>
 
             {/* Nút Xóa đã chọn (chỉ hiển thị trong môi trường Google AI Studio để tránh xóa nhầm trên production) */}
-            {canEditOrDelete() && isAdmin && !import.meta.env.PROD && selectedFormIds.length > 0 && (
+            {canEditOrDelete() && isAdmin && !isProductionWeb() && selectedFormIds.length > 0 && (
               <button
                 type="button"
                 onClick={handleOpenBulkDeleteSelected}
@@ -980,7 +980,7 @@ export default function KpiTeacherStaff() {
             )}
 
             {/* Nút Xóa tất cả */}
-            {canEditOrDelete() && isAdmin && !import.meta.env.PROD && (
+            {canEditOrDelete() && isAdmin && !isProductionWeb() && (
               <button
                 type="button"
                 disabled={filteredForms.length === 0}
@@ -1241,7 +1241,7 @@ export default function KpiTeacherStaff() {
                                   </button>
                                 )}
 
-                                {!import.meta.env.PROD && canDeleteForm(form) && (
+                                {!isProductionWeb() && canDeleteForm(form) && (
                                   <button
                                     type="button"
                                     onClick={() => handleRequestDeleteForm(form)}
@@ -1436,7 +1436,7 @@ export default function KpiTeacherStaff() {
                             </button>
                           )}
 
-                          {!import.meta.env.PROD && canDeleteForm(form) && (
+                          {!isProductionWeb() && canDeleteForm(form) && (
                             <button
                               type="button"
                               onClick={() => handleRequestDeleteForm(form)}
@@ -1519,7 +1519,7 @@ export default function KpiTeacherStaff() {
       />
 
       {/* MODAL XÁC NHẬN XÓA PHIẾU */}
-      {!import.meta.env.PROD && formToDelete && (
+      {!isProductionWeb() && formToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3 text-rose-600">
@@ -1598,7 +1598,7 @@ export default function KpiTeacherStaff() {
       )}
 
       {/* MODAL XÓA HÀNG LOẠT (BULK DELETE DIALOG - STEP 1 & STEP 2) */}
-      {!import.meta.env.PROD && isBulkDeleteModalOpen && (
+      {!isProductionWeb() && isBulkDeleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5">
             
@@ -1737,7 +1737,7 @@ export default function KpiTeacherStaff() {
       )}
 
       {/* TOTAL DELETE MODAL */}
-      {!import.meta.env.PROD && isTotalDeleteModalOpen && (
+      {!isProductionWeb() && isTotalDeleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5 border border-slate-200">
             <div className="flex items-center gap-3 text-rose-600">

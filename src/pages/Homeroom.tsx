@@ -67,7 +67,7 @@ import {
 import { exportHomeroomToExcel } from '../utils/homeroomExport';
 import { exportStudentListToExcel } from '../utils/studentExcel';
 import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../utils/studentSorting';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import BackButton from '../components/ui/BackButton';
@@ -453,7 +453,7 @@ export default function Homeroom() {
   const isHomeroomTeacher = user?.role?.toUpperCase() === 'TEACHER' || user?.role?.toUpperCase() === 'GVCN' || isBgh;
 
   const handleOpenResetModal = () => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     if (!isBgh && !isHomeroomTeacher) {
       alert('Bạn không có quyền thực hiện chức năng này. Chỉ Quản trị viên (BGH) hoặc Giáo viên chủ nhiệm mới có quyền xóa/reset kết quả nền nếp.');
       return;
@@ -1295,7 +1295,7 @@ export default function Homeroom() {
               <ShieldAlert size={15} /> BÁO CÁO VP NGHIÊM TRỌNG
             </button>
 
-            {canEditOrDelete() && !import.meta.env.PROD && (
+            {canEditOrDelete() && !isProductionWeb() && (
               <button
                 onClick={handleOpenResetModal}
                 className="px-3.5 py-2 bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
@@ -3191,7 +3191,7 @@ export default function Homeroom() {
       />
 
       {/* Reset Conduct Modal */}
-      {!import.meta.env.PROD && (
+      {!isProductionWeb() && (
         <ResetConductModal
           isOpen={isResetConductModalOpen}
           onClose={() => setIsResetConductModalOpen(false)}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import { 
   Users, 
   Search, 
@@ -155,7 +155,7 @@ export default function KpiCbql() {
   const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
 
   const canDeleteForm = (form: KpiCbqlForm) => {
-    if (import.meta.env.PROD) return false;
+    if (isProductionWeb()) return false;
     if (!user) return false;
     if (user.id === 'admin' || user.role === 'admin' || user.role === 'BGH' || user.role === 'TTCM' || user.role === 'CBQL' || user.role === 'manager') return true;
     const pos = (user.position || '').toLowerCase();
@@ -190,13 +190,13 @@ export default function KpiCbql() {
 
   // Delete Form Helpers
   const handleRequestDeleteForm = (form: KpiCbqlForm) => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     setDeleteError(null);
     setFormToDelete(form);
   };
 
   const handleConfirmDeleteForm = async () => {
-    if (import.meta.env.PROD) {
+    if (isProductionWeb()) {
       setDeleteError('Chức năng xóa phiếu KPI không khả dụng trên website.');
       return;
     }
@@ -587,7 +587,7 @@ export default function KpiCbql() {
                               )}
 
                               {/* Nút Xóa phiếu */}
-                              {!import.meta.env.PROD && canEditOrDelete() && canDeleteForm(f) && (
+                              {!isProductionWeb() && canEditOrDelete() && canDeleteForm(f) && (
                                 <button
                                   onClick={() => handleRequestDeleteForm(f)}
                                   className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer"
@@ -749,7 +749,7 @@ export default function KpiCbql() {
       )}
 
       {/* MODAL XÁC NHẬN XÓA PHIẾU CBQL */}
-      {!import.meta.env.PROD && formToDelete && (
+      {!isProductionWeb() && formToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3 text-rose-600">

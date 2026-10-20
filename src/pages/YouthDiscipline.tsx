@@ -61,7 +61,7 @@ import {
 import { youthDisciplineService } from '../services/youthDisciplineService';
 import { homeroomService } from '../services/homeroomService';
 import { classificationService } from '../services/classificationService';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import {
   YOUTH_DISCIPLINE_CATEGORIES,
   DEFAULT_YOUTH_CRITERIA,
@@ -225,8 +225,8 @@ export default function YouthDisciplinePage() {
   const canConfirmViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN';
   const canLockWeek = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'BAN_GIAM_HIEU';
   const canEditViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'CAN_BO_DOAN' || effectiveRole === 'GVCN';
-  // Quyền xóa danh sách học sinh vi phạm: Giữ nguyên trong Google AI Studio (Dev), ẩn hoàn toàn trên Website đã xuất bản (Production)
-  const canDeleteViolations = !import.meta.env.PROD && canEditOrDelete() && canEditViolations;
+  // Quyền xóa danh sách học sinh vi phạm: Giữ nguyên trong Google AI Studio (Dev), ẩn hoàn toàn trên Website đã xuất bản (Production / Xuất web)
+  const canDeleteViolations = !isProductionWeb() && canEditOrDelete() && canEditViolations;
   const showViolationCheckbox = canDeleteViolations;
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -1116,7 +1116,7 @@ export default function YouthDisciplinePage() {
 
   // Handle delete single violation modal
   const handleDeleteViolation = (id: string) => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     const target = violations.find(v => v.id === id);
     if (target) {
       setTargetViolationToDelete(target);
@@ -1126,7 +1126,7 @@ export default function YouthDisciplinePage() {
 
   // Confirm delete single violation
   const handleConfirmDeleteSingleViolation = async () => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     if (!targetViolationToDelete) return;
     try {
       await youthDisciplineService.deleteViolation(
@@ -1160,7 +1160,7 @@ export default function YouthDisciplinePage() {
 
   // Batch delete selected violations
   const handleConfirmBatchDeleteViolations = async () => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     if (selectedViolationIds.length === 0) return;
     try {
       const count = await youthDisciplineService.deleteMultipleViolations(
@@ -1180,7 +1180,7 @@ export default function YouthDisciplinePage() {
 
   // Clear violations by scope
   const handleConfirmClearViolationScope = async () => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     try {
       let idsToDelete: string[] = [];
       if (clearViolationScope === 'filtered') {

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import { 
   KpiStaffPeriod, 
   KpiStaffForm, 
@@ -228,7 +228,7 @@ export default function KpiStaff() {
   };
 
   const handleDeleteForm = (f: KpiStaffForm) => {
-    if (import.meta.env.PROD) return;
+    if (isProductionWeb()) return;
     setDeleteSingleErrorMsg('');
     setFormToDelete(f);
   };
@@ -308,7 +308,7 @@ export default function KpiStaff() {
               <FileSpreadsheet size={15} /> Xuất Excel
             </button>
 
-            {isAdmin && canEditOrDelete() && !import.meta.env.PROD && (
+            {isAdmin && canEditOrDelete() && !isProductionWeb() && (
               <button
                 onClick={() => {
                   setDeleteAllScope('period');
@@ -560,7 +560,7 @@ export default function KpiStaff() {
                             <Printer size={14} />
                           </button>
 
-                          {!import.meta.env.PROD && user && (
+                          {!isProductionWeb() && user && (
                             <button
                               onClick={() => handleDeleteForm(f)}
                               className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
@@ -618,7 +618,7 @@ export default function KpiStaff() {
       />
 
       {/* Delete All Confirmation Modal */}
-      {!import.meta.env.PROD && isDeleteAllModalOpen && (
+      {!isProductionWeb() && isDeleteAllModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5 border border-slate-200">
             <div className="flex items-center gap-3 text-rose-600">
@@ -700,7 +700,7 @@ export default function KpiStaff() {
       )}
 
       {/* Individual Delete Modal */}
-      {!import.meta.env.PROD && formToDelete && (
+      {!isProductionWeb() && formToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
             <div className="flex items-center gap-3 text-rose-600">
