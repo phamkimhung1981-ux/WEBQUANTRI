@@ -234,8 +234,6 @@ export default function Homeroom() {
   const [selectedStudentForAssessment, setSelectedStudentForAssessment] = useState<Student | null>(null);
   const [assessmentInitialSelectedIds, setAssessmentInitialSelectedIds] = useState<string[] | undefined>(undefined);
   const [defaultStudentForRecord, setDefaultStudentForRecord] = useState<string | undefined>(undefined);
-  const [studentToDeleteFromDashboard, setStudentToDeleteFromDashboard] = useState<Student | null>(null);
-  const [isDeletingFromDashboard, setIsDeletingFromDashboard] = useState(false);
 
   // Delete all / bulk delete students state
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
@@ -2103,12 +2101,6 @@ export default function Homeroom() {
                           >
                             + Vi phạm
                           </button>
-                          <button
-                            onClick={() => setStudentToDeleteFromDashboard(st)}
-                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold rounded-lg text-xs transition-colors"
-                          >
-                            Xóa
-                          </button>
                         </td>
                       </tr>
                     );
@@ -2980,56 +2972,7 @@ export default function Homeroom() {
         />
       )}
 
-      {studentToDeleteFromDashboard && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-xs">
-            <div className="text-center space-y-4">
-              <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600">
-                <AlertCircle size={24} />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-900">Xác nhận xóa học sinh?</h3>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Bạn có chắc chắn muốn xóa học sinh <strong className="text-rose-600">{studentToDeleteFromDashboard.name}</strong> (Mã: {studentToDeleteFromDashboard.code}) khỏi lớp {selectedClass?.name}? Mọi điểm số và rèn luyện liên kết với học sinh này trong lớp sẽ bị xóa vĩnh viễn.
-                </p>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setStudentToDeleteFromDashboard(null)}
-                  disabled={isDeletingFromDashboard}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      setIsDeletingFromDashboard(true);
-                      await homeroomService.deleteStudent(studentToDeleteFromDashboard.id);
-                      if (selectedClass) {
-                        await homeroomService.updateClass(selectedClass.id, {
-                          totalStudents: Math.max(0, (selectedClass.totalStudents || 1) - 1)
-                        });
-                      }
-                      setStudentToDeleteFromDashboard(null);
-                    } catch (err: any) {
-                      alert('Lỗi khi xóa học sinh: ' + (err.message || err));
-                    } finally {
-                      setIsDeletingFromDashboard(false);
-                    }
-                  }}
-                  disabled={isDeletingFromDashboard}
-                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-lg transition-colors"
-                >
-                  {isDeletingFromDashboard ? 'Đang xóa...' : 'Xác nhận xóa'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Modal: Xác nhận Xóa tất cả hồ sơ học sinh của lớp */}
       {isDeleteAllModalOpen && selectedClass && (
