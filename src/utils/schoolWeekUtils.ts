@@ -437,3 +437,49 @@ export function getAssessmentScope(
     endDateIso: yearEndIso
   };
 }
+
+export interface SchoolMonthRange {
+  monthNumber: number; // 1 - 12
+  calendarYear: number;
+  startDateIso: string; // e.g. '2026-10-01' (inclusive)
+  endDateIso: string;   // e.g. '2026-11-01' (exclusive - ngày đầu tháng tiếp theo)
+  lastDayIso: string;   // e.g. '2026-10-31'
+  monthLabel: string;   // e.g. 'Tháng 10/2026'
+  shortLabel: string;   // e.g. 'Tháng 10'
+  startDateDisplay: string; // '01/10/2026'
+  endDateDisplay: string;   // '31/10/2026'
+}
+
+/**
+ * Trả về khoảng thời gian chuẩn xác cho tháng và năm học được chọn:
+ * startDate: ngày đầu tháng lúc 00:00:00 (startDateIso)
+ * endDate: ngày đầu tháng tiếp theo lúc 00:00:00 (endDateIso)
+ * Điều kiện lọc chuẩn: violationDate >= startDateIso && violationDate < endDateIso
+ */
+export function getMonthDateRange(monthNumber: number, academicYear: string = '2026–2027'): SchoolMonthRange {
+  const startYear = parseStartYear(academicYear);
+  const calendarYear = monthNumber >= 8 ? startYear : startYear + 1;
+  const nextCalendarYear = monthNumber === 12 ? calendarYear + 1 : calendarYear;
+  const nextMonth = monthNumber === 12 ? 1 : monthNumber + 1;
+
+  const startDateIso = `${calendarYear}-${String(monthNumber).padStart(2, '0')}-01`;
+  const endDateIso = `${nextCalendarYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+  const lastDayDate = new Date(calendarYear, monthNumber, 0);
+  const lastDay = lastDayDate.getDate();
+  const lastDayIso = `${calendarYear}-${String(monthNumber).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  const startDateDisplay = `01/${String(monthNumber).padStart(2, '0')}/${calendarYear}`;
+  const endDateDisplay = `${String(lastDay).padStart(2, '0')}/${String(monthNumber).padStart(2, '0')}/${calendarYear}`;
+
+  return {
+    monthNumber,
+    calendarYear,
+    startDateIso,
+    endDateIso,
+    lastDayIso,
+    monthLabel: `Tháng ${String(monthNumber).padStart(2, '0')}/${calendarYear}`,
+    shortLabel: `Tháng ${monthNumber}`,
+    startDateDisplay,
+    endDateDisplay
+  };
+}

@@ -2,7 +2,7 @@ import { youthDisciplineService } from './youthDisciplineService';
 import { classificationService } from './classificationService';
 import { YouthViolationRecord } from '../types/youthDiscipline';
 import { Student, TeacherAssessment } from '../types/homeroom';
-import { getWeeksForMonth, isWeekInMonth, getWeekInfoByNumber, parseStartYear } from '../utils/schoolWeekUtils';
+import { getWeeksForMonth, isWeekInMonth, getWeekInfoByNumber, parseStartYear, getMonthDateRange } from '../utils/schoolWeekUtils';
 
 export interface StudentViolationSummary {
   studentId: string;
@@ -51,16 +51,44 @@ export interface MonthlyConductSummary {
 }
 
 /**
- * Chuẩn hóa và trích xuất thông tin ngày vi phạm (hỗ trợ DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, timestamp ISO)
+ * Chuẩn hóa và trích xuất thông tin ngày vi phạm (hỗ trợ Timestamp Firestore, Date, DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, timestamp ISO)
  */
-export function parseViolationDateInfo(dateStr?: string): {
+export function parseViolationDateInfo(dateVal?: any): {
   isoDate: string; // YYYY-MM-DD
   day: number;
   month: number;
   year: number;
 } | null {
-  if (!dateStr || typeof dateStr !== 'string') return null;
-  const clean = dateStr.trim();
+  if (!dateVal) return null;
+
+  // Handle Firestore Timestamp or Date object
+  let dateObj: Date | null = null;
+  if (dateVal instanceof Date) {
+    dateObj = dateVal;
+  } else if (typeof dateVal === 'object') {
+    if (typeof dateVal.toDate === 'function') {
+      try {
+        dateObj = dateVal.toDate();
+      } catch (e) {}
+    } else if (typeof dateVal.seconds === 'number') {
+      dateObj = new Date(dateVal.seconds * 1000);
+    } else if (typeof dateVal._seconds === 'number') {
+      dateObj = new Date(dateVal._seconds * 1000);
+    }
+  } else if (typeof dateVal === 'number' && dateVal > 0) {
+    dateObj = new Date(dateVal);
+  }
+
+  if (dateObj && !isNaN(dateObj.getTime())) {
+    const year = dateObj.getFullYear();
+    const month = dateObj.getMonth() + 1;
+    const day = dateObj.getDate();
+    const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { isoDate, day, month, year };
+  }
+
+  if (typeof dateVal !== 'string') return null;
+  const clean = dateVal.trim();
   if (!clean) return null;
 
   // Format 1: DD/MM/YYYY hoặc DD-MM-YYYY (VD: 03/10/2026 hoặc 15-10-2026)
@@ -243,14 +271,12 @@ export const studentViolationService = {
       // 2. Lọc theo năm học
       if (!isSchoolYearMatch(v.schoolYear, schoolYear)) return false;
 
-      // 3. Lọc theo tháng: Phải thuộc đúng tháng đang đánh giá
+      // 3. Lọc theo tháng: Phải thuộc đúng khoảng thời gian tháng và năm học đang đánh giá
+      const mRange = getMonthDateRange(monthNumber, schoolYear);
       const dInfo = parseViolationDateInfo(v.violationDate || (v as any).violation_date);
       if (dInfo) {
-        return dInfo.month === monthNumber;
+        return dInfo.isoDate >= mRange.startDateIso && dInfo.isoDate < mRange.endDateIso;
       }
-
-      const mNum = Number(v.monthNumber || (v as any).month_number);
-      if (mNum && mNum === monthNumber) return true;
 
       return false;
     });

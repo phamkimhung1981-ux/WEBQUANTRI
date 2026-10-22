@@ -58,7 +58,8 @@ import {
   YouthClassificationConfig,
   StudentWithViolationsSummary
 } from '../types/youthDiscipline';
-import { youthDisciplineService } from '../services/youthDisciplineService';
+import { youthDisciplineService, getEffectiveMinusPoints } from '../services/youthDisciplineService';
+import { parseViolationDateInfo } from '../services/studentViolationService';
 import { homeroomService } from '../services/homeroomService';
 import { classificationService } from '../services/classificationService';
 import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
@@ -68,7 +69,7 @@ import {
   DEFAULT_YOUTH_SETTINGS
 } from '../lib/youthDisciplineData';
 import { ClassInfo, Student, HomeroomAssignment } from '../types/homeroom';
-import { ACADEMIC_YEARS, getAllWeeksInYear, getWeekInfoByNumber, getWeekNumberFromDate } from '../utils/schoolWeekUtils';
+import { ACADEMIC_YEARS, getAllWeeksInYear, getWeekInfoByNumber, getWeekNumberFromDate, getMonthDateRange } from '../utils/schoolWeekUtils';
 import {
   exportYouthDisciplineToExcel,
   exportYouthDisciplineToWord,
@@ -155,6 +156,80 @@ export default function YouthDisciplinePage() {
   const [selectedClassForStudentList, setSelectedClassForStudentList] = useState<{ classId: string; className: string } | null>(null);
   const [isClassStudentsModalOpen, setIsClassStudentsModalOpen] = useState<boolean>(false);
 
+  // Class Audit Modal State
+  const [selectedClassForAudit, setSelectedClassForAudit] = useState<{ classId: string; className: string } | null>(null);
+  const [isClassAuditModalOpen, setIsClassAuditModalOpen] = useState<boolean>(false);
+
+  const handleOpenClassAuditModal = (classId: string, className: string) => {
+    setSelectedClassForAudit({ classId, className });
+    setIsClassAuditModalOpen(true);
+  };
+
+  const classAuditViolations = useMemo(() => {
+    if (!selectedClassForAudit) return [];
+    const targetMonthRange = selectedMonth > 0 && selectedWeek === 0
+      ? getMonthDateRange(selectedMonth, selectedYear)
+      : null;
+    const targetWeekInfo = selectedWeek > 0
+      ? getWeekInfoByNumber(selectedWeek, selectedYear)
+      : null;
+
+    return violations.filter(v => {
+      if (v.status === 'TU_CHOI' || (v.status as any) === 'NHAP') return false;
+      if (selectedYear && selectedYear !== 'All') {
+        const vY = (v.schoolYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
+        const sY = selectedYear.replace(/[\u2010-\u2015]/g, '-').trim();
+        if (vY && sY && vY !== sY) return false;
+      }
+      if (targetMonthRange) {
+        if (!v.violationDate) return false;
+        const dInfo = parseViolationDateInfo(v.violationDate);
+        if (!dInfo) return false;
+        if (!(dInfo.isoDate >= targetMonthRange.startDateIso && dInfo.isoDate < targetMonthRange.endDateIso)) return false;
+      } else if (selectedWeek > 0) {
+        if (targetWeekInfo && v.violationDate) {
+          const dInfo = parseViolationDateInfo(v.violationDate);
+          if (dInfo) {
+            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) return false;
+          } else if (v.weekNumber && Number(v.weekNumber) !== Number(selectedWeek)) {
+            return false;
+          }
+        } else if (v.weekNumber && Number(v.weekNumber) !== Number(selectedWeek)) {
+          return false;
+        }
+      }
+      const normalizeClassStr = (s?: string) => s ? s.toLowerCase().replace(/^(lớp|lop|class|c_|c-)\s*/i, '').replace(/[^a-z0-9]/g, '') : '';
+      const vNormId = normalizeClassStr(v.classId);
+      const vNormName = normalizeClassStr(v.className);
+      const targetNormId = normalizeClassStr(selectedClassForAudit.classId);
+      const targetNormName = normalizeClassStr(selectedClassForAudit.className);
+
+      let isMatch =
+        (v.classId && selectedClassForAudit.classId && v.classId === selectedClassForAudit.classId) ||
+        (v.className && selectedClassForAudit.className && v.className.toLowerCase() === selectedClassForAudit.className.toLowerCase()) ||
+        (vNormId && targetNormId && vNormId === targetNormId) ||
+        (vNormName && targetNormName && vNormName === targetNormName);
+
+      if (!isMatch && v.studentId && v.studentId !== 'ALL_CLASS' && students.length > 0) {
+        const stu = students.find(s => s.id === v.studentId || s.code === v.studentId);
+        if (stu) {
+          const stuNormClassId = normalizeClassStr(stu.classId);
+          const stuNormClassName = normalizeClassStr(stu.className);
+          if (
+            (stu.classId && selectedClassForAudit.classId && stu.classId === selectedClassForAudit.classId) ||
+            (stu.className && selectedClassForAudit.className && stu.className.toLowerCase() === selectedClassForAudit.className.toLowerCase()) ||
+            (stuNormClassId && targetNormId && stuNormClassId === targetNormId) ||
+            (stuNormClassName && targetNormName && stuNormClassName === targetNormName)
+          ) {
+            isMatch = true;
+          }
+        }
+      }
+
+      return isMatch;
+    });
+  }, [selectedClassForAudit, violations, selectedYear, selectedWeek, selectedMonth, students]);
+
   // Individual Student Violation Details Modal State
   const [selectedStudentForViolationDetail, setSelectedStudentForViolationDetail] = useState<StudentWithViolationsSummary | null>(null);
   const [isStudentDetailModalOpen, setIsStudentDetailModalOpen] = useState<boolean>(false);
@@ -207,6 +282,12 @@ export default function YouthDisciplinePage() {
   // All weeks info
   const allWeeks = useMemo(() => getAllWeeksInYear(selectedYear), [selectedYear]);
   const currentWeekInfo = useMemo(() => getWeekInfoByNumber(selectedWeek, selectedYear), [selectedWeek, selectedYear]);
+  const currentMonthRange = useMemo(() => {
+    if (selectedMonth > 0) {
+      return getMonthDateRange(selectedMonth, selectedYear);
+    }
+    return null;
+  }, [selectedMonth, selectedYear]);
 
   // Determine Effective Role
   const effectiveRole = useMemo(() => {
@@ -473,10 +554,26 @@ export default function YouthDisciplinePage() {
         const sY = selectedYear.replace(/[\u2010-\u2015]/g, '-').trim();
         if (vY && sY && vY !== sY) return false;
       }
-      // 2. Week check (only filter if selectedWeek > 0)
-      if (selectedWeek > 0 && v.weekNumber && v.weekNumber !== selectedWeek) return false;
-      // 3. Month check (only filter if selectedMonth > 0)
-      if (selectedMonth > 0 && v.monthNumber && v.monthNumber !== selectedMonth) return false;
+      // 2. Month check or Week check
+      if (selectedMonth > 0 && selectedWeek === 0) {
+        const mRange = getMonthDateRange(selectedMonth, selectedYear);
+        if (!v.violationDate) return false;
+        const dInfo = parseViolationDateInfo(v.violationDate);
+        if (!dInfo) return false;
+        if (!(dInfo.isoDate >= mRange.startDateIso && dInfo.isoDate < mRange.endDateIso)) return false;
+      } else if (selectedWeek > 0) {
+        const targetWeekInfo = getWeekInfoByNumber(selectedWeek, selectedYear);
+        if (targetWeekInfo && v.violationDate) {
+          const dInfo = parseViolationDateInfo(v.violationDate);
+          if (dInfo) {
+            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) return false;
+          } else if (v.weekNumber && Number(v.weekNumber) !== Number(selectedWeek)) {
+            return false;
+          }
+        } else if (v.weekNumber && Number(v.weekNumber) !== Number(selectedWeek)) {
+          return false;
+        }
+      }
       // 4. Grade check
       if (selectedGrade !== 'All') {
         const cls = classes.find(c => c.id === v.classId);
@@ -624,9 +721,11 @@ export default function YouthDisciplinePage() {
       settings,
       selectedWeek,
       selectedYear,
-      students
+      students,
+      criteria,
+      selectedMonth
     );
-  }, [displayedClasses, violations, settings, selectedWeek, selectedYear, students]);
+  }, [displayedClasses, violations, settings, selectedWeek, selectedYear, students, criteria, selectedMonth]);
 
   // Reactive Student Violations List for selected class
   const classStudentSummaries = useMemo(() => {
@@ -636,9 +735,11 @@ export default function YouthDisciplinePage() {
       students,
       selectedClassForStudentList.classId,
       selectedYear,
-      selectedWeek
+      selectedWeek,
+      criteria,
+      selectedMonth
     );
-  }, [selectedClassForStudentList, violations, students, selectedYear, selectedWeek]);
+  }, [selectedClassForStudentList, violations, students, selectedYear, selectedWeek, criteria, selectedMonth]);
 
   // Handlers for Student List Modals
   const handleOpenClassStudentsModal = (classId: string, className: string) => {
@@ -1355,13 +1456,25 @@ export default function YouthDisciplinePage() {
 
   // Export handlers
   const handleExportExcel = () => {
-    const title = `Tuần ${selectedWeek} - Năm học ${selectedYear}`;
+    let title = `Năm học ${selectedYear}`;
+    if (selectedMonth > 0 && selectedWeek === 0) {
+      const mRange = getMonthDateRange(selectedMonth, selectedYear);
+      title = `${mRange.monthLabel} - Năm học ${selectedYear}`;
+    } else if (selectedWeek > 0) {
+      title = `Tuần ${selectedWeek} - Năm học ${selectedYear}`;
+    }
     exportYouthDisciplineToExcel(classSummaries, filteredViolations, title, selectedYear);
     showToast('Đã xuất file Excel (.xlsx) thành công!');
   };
 
   const handleExportWord = async () => {
-    const title = `Tuần ${selectedWeek} (Từ ngày ${currentWeekInfo.startDateStr} đến ${currentWeekInfo.endDateStr})`;
+    let title = `Năm học ${selectedYear}`;
+    if (selectedMonth > 0 && selectedWeek === 0) {
+      const mRange = getMonthDateRange(selectedMonth, selectedYear);
+      title = `${mRange.monthLabel} (Từ ngày 01/${String(selectedMonth).padStart(2, '0')}/${mRange.calendarYear} đến ${mRange.endDateDisplay})`;
+    } else if (selectedWeek > 0) {
+      title = `Tuần ${selectedWeek} (Từ ngày ${currentWeekInfo.startDateStr} đến ${currentWeekInfo.endDateStr})`;
+    }
     await exportYouthDisciplineToWord(classSummaries, filteredViolations, title, selectedYear, user?.name || 'BCH Đoàn trường');
     showToast('Đã xuất file Word (.docx) chuẩn mẫu thành công!');
   };
@@ -1639,7 +1752,11 @@ export default function YouthDisciplinePage() {
             </span>
             <select
               value={selectedWeek}
-              onChange={e => setSelectedWeek(Number(e.target.value))}
+              onChange={e => {
+                const w = Number(e.target.value);
+                setSelectedWeek(w);
+                if (w > 0) setSelectedMonth(0);
+              }}
               className="bg-white text-slate-950 font-black px-3.5 py-1.5 rounded-xl border-2 border-amber-400 outline-none cursor-pointer shadow-xs"
             >
               <option value={0} className="text-slate-900 font-black">
@@ -1658,7 +1775,11 @@ export default function YouthDisciplinePage() {
             <span className="text-slate-300 font-bold whitespace-nowrap">Tháng:</span>
             <select
               value={selectedMonth}
-              onChange={e => setSelectedMonth(Number(e.target.value))}
+              onChange={e => {
+                const m = Number(e.target.value);
+                setSelectedMonth(m);
+                if (m > 0) setSelectedWeek(0);
+              }}
               className="bg-slate-800 text-white font-bold px-3 py-1.5 rounded-xl border border-slate-700 outline-none cursor-pointer"
             >
               <option value={0} className="text-slate-900 bg-white">Tất cả tháng</option>
@@ -2232,25 +2353,136 @@ export default function YouthDisciplinePage() {
       {/* TAB 3: THEO DÕI THEO LỚP & ĐIỂM THI ĐUA */}
       {activeTab === 'class_tracking' && (
         <Card className="bg-white border border-slate-200 rounded-[24px] shadow-sm overflow-hidden space-y-0">
-          <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50/50">
-            <div>
-              <h3 className="font-black text-slate-900 text-base">
-                Bảng Tổng Hợp Điểm Thi Đua Nền Nếp Các Lớp (Tuần {selectedWeek})
-              </h3>
-              <p className="text-xs text-slate-500">
-                Điểm nền nếp = Điểm chuẩn ({settings.baseScore}đ) - Tổng điểm trừ trong tuần
-              </p>
+          <div className="p-4 sm:p-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-blue-50/30 to-indigo-50/20 space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-slate-900 text-base sm:text-lg flex items-center gap-2">
+                  <span>
+                    {selectedMonth > 0 && selectedWeek === 0
+                      ? `BẢNG TỔNG HỢP NỀN NẾP THI ĐUA CÁC LỚP – ${currentMonthRange?.monthLabel || `THÁNG ${selectedMonth}`} (NĂM HỌC ${selectedYear})`
+                      : selectedWeek > 0
+                      ? `BẢNG TỔNG HỢP NỀN NẾP THI ĐUA CÁC LỚP – TUẦN ${selectedWeek} (${currentWeekInfo.startDateStr} ➔ ${currentWeekInfo.endDateStr})`
+                      : `BẢNG TỔNG HỢP NỀN NẾP THI ĐUA CÁC LỚP – CẢ NĂM HỌC ${selectedYear}`}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  {selectedMonth > 0 && selectedWeek === 0
+                    ? `Kỳ đánh giá: Từ ngày ${currentMonthRange?.startDateDisplay} đến ngày ${currentMonthRange?.endDateDisplay} • Điểm nền nếp = Điểm chuẩn (${settings.baseScore}đ) – Tổng điểm trừ trong ${currentMonthRange?.shortLabel || `Tháng ${selectedMonth}`}`
+                    : selectedWeek > 0
+                    ? `Kỳ đánh giá: Tuần ${selectedWeek} • Điểm nền nếp = Điểm chuẩn (${settings.baseScore}đ) – Tổng điểm trừ trong tuần`
+                    : `Kỳ đánh giá: Toàn bộ năm học ${selectedYear} • Điểm nền nếp = Điểm chuẩn (${settings.baseScore}đ) – Tổng điểm trừ cả năm`}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleExportWord}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Xuất bảng tổng hợp nề nếp theo lớp ra file Word (.docx)"
+                >
+                  <FileText size={14} />
+                  <span>Xuất Word</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Xuất bảng tổng hợp nề nếp theo lớp ra file Excel (.xlsx)"
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>Xuất Excel</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* QUICK PERIOD SELECTOR (THÁNG / TUẦN / CẢ NĂM) */}
+            <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-black text-slate-700 flex items-center gap-1">
+                <span>🗓️</span> Chọn kỳ tổng kết:
+              </span>
+
+              {/* Tất cả (Cả năm) */}
               <button
                 type="button"
-                onClick={handleExportExcel}
-                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-xl transition-all flex items-center gap-1 cursor-pointer"
+                onClick={() => {
+                  setSelectedWeek(0);
+                  setSelectedMonth(0);
+                }}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                  selectedWeek === 0 && selectedMonth === 0
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
               >
-                <Download size={13} />
-                <span>Xuất Excel</span>
+                Cả năm
               </button>
+
+              <div className="h-4 w-px bg-slate-300 hidden sm:block" />
+
+              {/* Nhóm Tháng Học */}
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-slate-500 font-bold hidden sm:inline">Tháng:</span>
+                {[
+                  { m: 9, label: 'Tháng 9' },
+                  { m: 10, label: 'Tháng 10' },
+                  { m: 11, label: 'Tháng 11' },
+                  { m: 12, label: 'Tháng 12' },
+                  { m: 1, label: 'Tháng 1' },
+                  { m: 2, label: 'Tháng 2' },
+                  { m: 3, label: 'Tháng 3' },
+                  { m: 4, label: 'Tháng 4' },
+                  { m: 5, label: 'Tháng 5' }
+                ].map(item => {
+                  const isSelected = selectedMonth === item.m && selectedWeek === 0;
+                  return (
+                    <button
+                      key={item.m}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMonth(item.m);
+                        setSelectedWeek(0);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-xs font-black'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                      title={`Xem tổng kết điểm tháng ${item.m}`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="h-4 w-px bg-slate-300 hidden sm:block" />
+
+              {/* Dropdown Tuần */}
+              <div className="flex items-center gap-1">
+                <span className="text-slate-500 font-bold hidden sm:inline">Tuần:</span>
+                <select
+                  value={selectedWeek}
+                  onChange={e => {
+                    const w = Number(e.target.value);
+                    setSelectedWeek(w);
+                    if (w > 0) setSelectedMonth(0);
+                  }}
+                  className={`px-2.5 py-1 rounded-xl font-bold border outline-none cursor-pointer text-xs ${
+                    selectedWeek > 0
+                      ? 'bg-amber-100 border-amber-400 text-amber-950 font-black'
+                      : 'bg-white border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <option value={0}>-- Xem theo tuần cụ thể --</option>
+                  {allWeeks.map(w => (
+                    <option key={w.weekNumber} value={w.weekNumber}>
+                      Tuần {w.weekNumber} ({w.startDateStr})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -2294,7 +2526,18 @@ export default function YouthDisciplinePage() {
                     </td>
                     <td className="py-3 px-3.5 text-center text-slate-600">{cls.totalStudents}</td>
                     <td className="py-3 px-3.5 text-center font-black text-rose-600">
-                      {cls.totalMinusPoints > 0 ? `-${cls.totalMinusPoints} đ` : '0'}
+                      {cls.totalMinusPoints > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenClassAuditModal(cls.classId, cls.className)}
+                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-black text-xs inline-flex items-center gap-1 cursor-pointer transition-all hover:scale-105 shadow-2xs"
+                          title={`Xem bảng đối soát chi tiết điểm trừ của lớp ${cls.className}`}
+                        >
+                          <span>-{cls.totalMinusPoints} đ</span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 font-medium">0</span>
+                      )}
                     </td>
                     <td className="py-3 px-3.5 text-center">
                       <span className="font-black text-emerald-700 text-sm">{cls.finalScore} đ</span>
@@ -4151,6 +4394,105 @@ export default function YouthDisciplinePage() {
                 className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: BẢNG ĐỐI SOÁT CHI TIẾT ĐIỂM TRỪ CỦA LỚP */}
+      {isClassAuditModalOpen && selectedClassForAudit && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-rose-700 to-red-800 text-white flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-black text-base sm:text-lg flex items-center gap-2">
+                  <ShieldAlert size={20} />
+                  <span>BẢNG ĐỐI SOÁT CHI TIẾT VI PHẠM & ĐIỂM TRỪ – LỚP {selectedClassForAudit.className}</span>
+                </h3>
+                <p className="text-xs text-rose-100 font-bold mt-0.5">
+                  Năm học {selectedYear} • {selectedMonth > 0 && selectedWeek === 0 ? `${currentMonthRange?.monthLabel || `Tháng ${selectedMonth}`} (Từ ngày ${currentMonthRange?.startDateDisplay} đến ${currentMonthRange?.endDateDisplay})` : selectedWeek > 0 ? `Tuần ${selectedWeek}` : 'Tất cả các tuần / tháng'} • Tổng hợp từ danh sách vi phạm nguồn
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClassAuditModalOpen(false)}
+                className="p-1.5 text-white hover:bg-white/20 rounded-xl transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content Table */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs flex-1">
+              {classAuditViolations.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 italic space-y-2">
+                  <ShieldAlert size={36} className="mx-auto text-slate-300" />
+                  <p className="font-bold text-slate-700">Lớp {selectedClassForAudit.className} không có bản ghi vi phạm hợp lệ nào trong kỳ đánh giá này.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-xs">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase border-b border-slate-200 divide-x divide-slate-200">
+                        <th className="py-3 px-3 text-center w-12">STT</th>
+                        <th className="py-3 px-3 text-center">MÃ BẢN GHI</th>
+                        <th className="py-3 px-4">HỌ VÀ TÊN HỌC SINH</th>
+                        <th className="py-3 px-3 text-center">MÃ HS</th>
+                        <th className="py-3 px-3 text-center">NGÀY VI PHẠM</th>
+                        <th className="py-3 px-4">NỘI DUNG VI PHẠM / TIÊU CHÍ</th>
+                        <th className="py-3 px-3 text-center">TUẦN/THÁNG</th>
+                        <th className="py-3 px-4 text-center">ĐIỂM TRỪ</th>
+                        <th className="py-3 px-3">NGƯỜI GHI NHẬN</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {classAuditViolations.map((v, idx) => {
+                        const pts = getEffectiveMinusPoints(v, criteria);
+                        return (
+                          <tr key={v.id || idx} className="hover:bg-rose-50/40 transition-colors divide-x divide-slate-200">
+                            <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                            <td className="py-3 px-3 text-center font-mono text-[11px] text-slate-500">{v.id || '—'}</td>
+                            <td className="py-3 px-4 font-black text-slate-900">{v.studentName || '—'}</td>
+                            <td className="py-3 px-3 text-center font-mono font-bold text-slate-600">{v.studentCode || '—'}</td>
+                            <td className="py-3 px-3 text-center font-semibold text-slate-700">{v.violationDate || '—'}</td>
+                            <td className="py-3 px-4 text-slate-800 font-medium">
+                              <span className="font-bold text-blue-900 block">{v.criterionName || 'Lỗi vi phạm'}</span>
+                              {v.content && <span className="text-slate-600 text-[11px] block mt-0.5">{v.content}</span>}
+                            </td>
+                            <td className="py-3 px-3 text-center font-bold text-blue-800">
+                              {v.weekNumber ? `Tuần ${v.weekNumber}` : v.monthNumber ? `Tháng ${v.monthNumber}` : '—'}
+                            </td>
+                            <td className="py-3 px-4 text-center font-black text-rose-600 text-sm">
+                              -{pts} đ
+                            </td>
+                            <td className="py-3 px-3 text-slate-600 text-[11px] font-semibold">{v.recordedByName || v.recordedBy || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Summary */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs flex-shrink-0">
+              <div className="space-y-0.5">
+                <span className="font-bold text-slate-700 block">
+                  Tổng số bản ghi vi phạm hợp lệ: <strong className="text-blue-900">{classAuditViolations.length}</strong>
+                </span>
+                <span className="font-bold text-slate-700 block">
+                  Tổng điểm trừ của lớp: <strong className="text-rose-600 font-black text-sm">-{classAuditViolations.reduce((sum, v) => sum + getEffectiveMinusPoints(v, criteria), 0)} đ</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClassAuditModalOpen(false)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
+              >
+                Đóng bảng đối soát
               </button>
             </div>
           </div>

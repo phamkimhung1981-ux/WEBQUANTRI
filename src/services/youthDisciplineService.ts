@@ -26,13 +26,33 @@ import {
   StudentWithViolationsSummary
 } from '../types/youthDiscipline';
 import { Student } from '../types/homeroom';
+import { parseViolationDateInfo } from './studentViolationService';
+import { getWeekInfoByNumber, getMonthDateRange } from '../utils/schoolWeekUtils';
+
+
+export function getEffectiveMinusPoints(v: YouthViolationRecord, criteria: YouthDisciplineCriterion[] = []): number {
+  let pts = Number(v.minusPoints) || Number((v as any).pointsDeducted) || Number((v as any).point) || Number((v as any).diemTru) || 0;
+  if (pts === 0 && (v.criterionId || v.criterionName) && criteria.length > 0) {
+    const crit = criteria.find(c => 
+      c.id === v.criterionId || 
+      c.code === v.criterionCode || 
+      (c.name && v.criterionName && c.name.toLowerCase() === v.criterionName.toLowerCase())
+    );
+    if (crit) {
+      pts = Number(crit.minusPoints) || 0;
+    }
+  }
+  return Math.abs(pts);
+}
 
 export function getStudentsWithViolationsByClass(
   violations: YouthViolationRecord[],
   students: Student[] = [],
   classId: string,
   academicYear?: string,
-  weekNumber?: number
+  weekNumber?: number,
+  criteria: YouthDisciplineCriterion[] = [],
+  monthNumber?: number
 ): StudentWithViolationsSummary[] {
   const normalizeClassStr = (s?: string) => {
     if (!s) return '';
@@ -41,9 +61,14 @@ export function getStudentsWithViolationsByClass(
 
   const targetClassNorm = normalizeClassStr(classId);
 
+  const targetWeekInfo = weekNumber !== undefined && weekNumber > 0 ? getWeekInfoByNumber(weekNumber, academicYear || '2026–2027') : null;
+  const targetMonthRange = monthNumber !== undefined && monthNumber > 0 && (!weekNumber || weekNumber === 0)
+    ? getMonthDateRange(monthNumber, academicYear || '2026–2027')
+    : null;
+
   // Filter violations by scope
   const scopedViolations = violations.filter(v => {
-    if (v.status === 'TU_CHOI') return false;
+    if (v.status === 'TU_CHOI' || (v.status as any) === 'NHAP') return false;
 
     // Academic year
     if (academicYear && academicYear !== 'All') {
@@ -52,28 +77,73 @@ export function getStudentsWithViolationsByClass(
       if (vY && aY && vY !== aY) return false;
     }
 
-    // Week number
-    if (weekNumber !== undefined && weekNumber > 0) {
-      if (v.weekNumber !== weekNumber) return false;
+    // Month filter: strict calendar date range [startDateIso, endDateIso)
+    if (targetMonthRange) {
+      if (!v.violationDate) return false;
+      const dInfo = parseViolationDateInfo(v.violationDate);
+      if (!dInfo) return false;
+      if (!(dInfo.isoDate >= targetMonthRange.startDateIso && dInfo.isoDate < targetMonthRange.endDateIso)) {
+        return false;
+      }
+    } else if (weekNumber !== undefined && weekNumber > 0) {
+      if (targetWeekInfo && v.violationDate) {
+        const dInfo = parseViolationDateInfo(v.violationDate);
+        if (dInfo) {
+          if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) {
+            return false;
+          }
+        } else if (Number(v.weekNumber || 0) !== Number(weekNumber)) {
+          return false;
+        }
+      } else if (Number(v.weekNumber || 0) !== Number(weekNumber)) {
+        return false;
+      }
     }
 
     // Class match
     const vNormId = normalizeClassStr(v.classId);
     const vNormName = normalizeClassStr(v.className);
 
-    const isMatch =
+    let isMatch =
       (v.classId && classId && v.classId === classId) ||
       (v.className && classId && v.className.toLowerCase() === classId.toLowerCase()) ||
       (vNormId && targetClassNorm && vNormId === targetClassNorm) ||
       (vNormName && targetClassNorm && vNormName === targetClassNorm);
 
+    if (!isMatch && v.studentId && v.studentId !== 'ALL_CLASS' && students.length > 0) {
+      const stu = students.find(s => s.id === v.studentId || s.code === v.studentId);
+      if (stu) {
+        const stuNormClassId = normalizeClassStr(stu.classId);
+        const stuNormClassName = normalizeClassStr(stu.className);
+        if (
+          (stu.classId && classId && stu.classId === classId) ||
+          (stu.className && classId && stu.className.toLowerCase() === classId.toLowerCase()) ||
+          (stuNormClassId && targetClassNorm && stuNormClassId === targetClassNorm) ||
+          (stuNormClassName && targetClassNorm && stuNormClassName === targetClassNorm)
+        ) {
+          isMatch = true;
+        }
+      }
+    }
+
     return isMatch;
   });
+
+  // Deduplicate violations by unique ID or key
+  const seenIds = new Set<string>();
+  const uniqueViolations: YouthViolationRecord[] = [];
+  for (const v of scopedViolations) {
+    const vKey = v.id || `${v.violationDate}_${v.studentId}_${v.criterionId}`;
+    if (!seenIds.has(vKey)) {
+      seenIds.add(vKey);
+      uniqueViolations.push(v);
+    }
+  }
 
   // Group by studentId
   const map = new Map<string, YouthViolationRecord[]>();
 
-  scopedViolations.forEach(v => {
+  uniqueViolations.forEach(v => {
     const sKey = v.studentId && v.studentId !== 'ALL_CLASS' ? v.studentId : null;
     if (sKey) {
       if (!map.has(sKey)) {
@@ -94,7 +164,7 @@ export function getStudentsWithViolationsByClass(
     const className = foundStu?.className || firstV.className || '';
     const resolvedClassId = foundStu?.classId || firstV.classId || classId;
 
-    const totalDeduction = vList.reduce((sum, item) => sum + Math.abs(Number(item.minusPoints) || 0), 0);
+    const totalDeduction = vList.reduce((sum, item) => sum + getEffectiveMinusPoints(item, criteria), 0);
 
     result.push({
       studentId: sId,
@@ -1186,9 +1256,11 @@ export const youthDisciplineService = {
     students: Student[] = [],
     classId: string,
     academicYear?: string,
-    weekNumber?: number
+    weekNumber?: number,
+    criteria: YouthDisciplineCriterion[] = [],
+    monthNumber?: number
   ): StudentWithViolationsSummary[] {
-    return getStudentsWithViolationsByClass(violations, students, classId, academicYear, weekNumber);
+    return getStudentsWithViolationsByClass(violations, students, classId, academicYear, weekNumber, criteria, monthNumber);
   },
 
   calculateClassSummaries(
@@ -1197,7 +1269,9 @@ export const youthDisciplineService = {
     settings: YouthDisciplineSettings,
     targetWeek?: number,
     targetYear?: string,
-    students: Student[] = []
+    students: Student[] = [],
+    criteria: YouthDisciplineCriterion[] = [],
+    targetMonth?: number
   ): ClassDisciplineSummary[] {
     const baseScore = settings?.baseScore || 100;
 
@@ -1206,16 +1280,40 @@ export const youthDisciplineService = {
       return s.toLowerCase().replace(/^(lớp|lop|class|c_|c-)\s*/i, '').replace(/[^a-z0-9]/g, '');
     };
 
-    // Filter violations by school year and week if provided
+    const targetWeekInfo = targetWeek !== undefined && targetWeek > 0 ? getWeekInfoByNumber(targetWeek, targetYear || '2026–2027') : null;
+    const targetMonthRange = targetMonth !== undefined && targetMonth > 0 && (!targetWeek || targetWeek === 0)
+      ? getMonthDateRange(targetMonth, targetYear || '2026–2027')
+      : null;
+
+    // Filter violations by school year, week, or month if provided
     const scopedViolations = violations.filter(v => {
-      if (v.status === 'TU_CHOI') return false;
+      if (v.status === 'TU_CHOI' || (v.status as any) === 'NHAP') return false;
       if (targetYear && targetYear !== 'All') {
         const vY = (v.schoolYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
         const tY = targetYear.replace(/[\u2010-\u2015]/g, '-').trim();
         if (vY && tY && vY !== tY) return false;
       }
-      if (targetWeek !== undefined && targetWeek > 0) {
-        if (v.weekNumber !== targetWeek) return false;
+      // Month filter: strict calendar date range [startDateIso, endDateIso)
+      if (targetMonthRange) {
+        if (!v.violationDate) return false;
+        const dInfo = parseViolationDateInfo(v.violationDate);
+        if (!dInfo) return false;
+        if (!(dInfo.isoDate >= targetMonthRange.startDateIso && dInfo.isoDate < targetMonthRange.endDateIso)) {
+          return false;
+        }
+      } else if (targetWeek !== undefined && targetWeek > 0) {
+        if (targetWeekInfo && v.violationDate) {
+          const dInfo = parseViolationDateInfo(v.violationDate);
+          if (dInfo) {
+            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) {
+              return false;
+            }
+          } else if (Number(v.weekNumber || 0) !== Number(targetWeek)) {
+            return false;
+          }
+        } else if (Number(v.weekNumber || 0) !== Number(targetWeek)) {
+          return false;
+        }
       }
       return true;
     });
@@ -1225,22 +1323,52 @@ export const youthDisciplineService = {
       const clsNormName = normalizeClassStr(cls.name);
 
       // Find violations belonging to this class
-      const classViolations = scopedViolations.filter(v => {
+      const classViolationsRaw = scopedViolations.filter(v => {
         const vNormId = normalizeClassStr(v.classId);
         const vNormName = normalizeClassStr(v.className);
 
-        return (
+        let isMatch =
           (v.classId && cls.id && v.classId === cls.id) ||
           (v.className && cls.name && v.className.toLowerCase() === cls.name.toLowerCase()) ||
           (vNormId && clsNormId && vNormId === clsNormId) ||
           (vNormName && clsNormName && vNormName === clsNormName) ||
           (vNormId && clsNormName && vNormId === clsNormName) ||
-          (vNormName && clsNormId && vNormName === clsNormId)
-        );
+          (vNormName && clsNormId && vNormName === clsNormId);
+
+        if (!isMatch && v.studentId && v.studentId !== 'ALL_CLASS' && students.length > 0) {
+          const stu = students.find(s => s.id === v.studentId || s.code === v.studentId);
+          if (stu) {
+            const stuNormClassId = normalizeClassStr(stu.classId);
+            const stuNormClassName = normalizeClassStr(stu.className);
+            if (
+              (stu.classId && cls.id && stu.classId === cls.id) ||
+              (stu.className && cls.name && stu.className.toLowerCase() === cls.name.toLowerCase()) ||
+              (stuNormClassId && clsNormId && stuNormClassId === clsNormId) ||
+              (stuNormClassName && clsNormName && stuNormClassName === clsNormName) ||
+              (stuNormClassId && clsNormName && stuNormClassId === clsNormName) ||
+              (stuNormClassName && clsNormId && stuNormClassName === clsNormId)
+            ) {
+              isMatch = true;
+            }
+          }
+        }
+
+        return isMatch;
       });
 
+      // Deduplicate class violations by unique ID or key
+      const seenVioIds = new Set<string>();
+      const classViolations: YouthViolationRecord[] = [];
+      for (const v of classViolationsRaw) {
+        const vKey = v.id || `${v.violationDate}_${v.studentId}_${v.criterionId}`;
+        if (!seenVioIds.has(vKey)) {
+          seenVioIds.add(vKey);
+          classViolations.push(v);
+        }
+      }
+
       // Total deduction: SUM of deduction points
-      const totalMinusPoints = classViolations.reduce((sum, v) => sum + Math.abs(Number(v.minusPoints) || 0), 0);
+      const totalMinusPoints = classViolations.reduce((sum, v) => sum + getEffectiveMinusPoints(v, criteria), 0);
       const finalScore = Math.max(0, baseScore - totalMinusPoints);
 
       // Distinct violating students calculated via getStudentsWithViolationsByClass helper
@@ -1249,7 +1377,9 @@ export const youthDisciplineService = {
         students,
         cls.id,
         targetYear,
-        targetWeek
+        targetWeek,
+        criteria,
+        targetMonth
       );
 
       // Dynamic Classification from Classification Service
