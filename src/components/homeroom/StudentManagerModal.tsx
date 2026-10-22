@@ -38,7 +38,6 @@ interface StudentManagerModalProps {
   onUpdateStudent: (id: string, updates: Partial<Student>) => Promise<any>;
   onDeleteStudent: (id: string) => Promise<any>;
   onDeleteStudentsBulk: (ids: string[]) => Promise<any>;
-  onDeleteAllStudents?: () => Promise<any>;
 }
 
 export default function StudentManagerModal({
@@ -52,8 +51,7 @@ export default function StudentManagerModal({
   onAddStudentsBulk,
   onUpdateStudent,
   onDeleteStudent,
-  onDeleteStudentsBulk,
-  onDeleteAllStudents
+  onDeleteStudentsBulk
 }: StudentManagerModalProps) {
   const [activeTab, setActiveTab] = useState<'single' | 'excel' | 'list'>(initialTab);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,14 +82,12 @@ export default function StudentManagerModal({
 
   // Bulk selection states
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // Reset selection states on modal toggle
   useEffect(() => {
     if (!isOpen) {
       setSelectedIds([]);
-      setShowDeleteAllConfirm(false);
       setShowBulkDeleteConfirm(false);
       setStudentToDelete(null);
       setErrorMsg('');
@@ -417,62 +413,6 @@ export default function StudentManagerModal({
           </div>
         )}
 
-        {/* Custom Delete All Confirmation Modal Overlay */}
-        {showDeleteAllConfirm && (
-          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-            <div className="bg-white rounded-2xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-              <div className="text-center space-y-4">
-                <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 animate-bounce">
-                  <Trash2 size={24} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-rose-900 uppercase">Cảnh báo: Xóa tất cả hồ sơ học sinh?</h3>
-                  <p className="text-[11px] text-slate-500 mt-1 font-semibold leading-relaxed">
-                    Hành động này sẽ <strong className="text-rose-700">Xóa toàn bộ {students.length} hồ sơ học sinh</strong> của lớp {selectedClass.name}. Dữ liệu sau khi xóa sẽ không thể hoàn tác!
-                  </p>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteAllConfirm(false)}
-                    disabled={isSubmitting}
-                    className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                  >
-                    Hủy bỏ
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        setIsSubmitting(true);
-                        setErrorMsg('');
-                        setSuccessMsg('');
-                        if (onDeleteAllStudents) {
-                          await onDeleteAllStudents();
-                        } else {
-                          const allIds = students.map(s => s.id);
-                          await onDeleteStudentsBulk(allIds);
-                        }
-                        setSuccessMsg(`Đã xóa sạch toàn bộ ${students.length} hồ sơ học sinh của lớp!`);
-                        setSelectedIds([]);
-                        setShowDeleteAllConfirm(false);
-                        setTimeout(() => setSuccessMsg(''), 3000);
-                      } catch (err: any) {
-                        setErrorMsg('Lỗi khi xóa sạch danh sách: ' + (err.message || err));
-                      } finally {
-                        setIsSubmitting(false);
-                      }
-                    }}
-                    disabled={isSubmitting}
-                    className="flex-1 py-2 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl text-xs shadow-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
-                  >
-                    {isSubmitting ? 'Đang xóa...' : 'Xác nhận xóa tất cả'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Header */}
         <div className="bg-gradient-to-r from-[#123B78] to-[#1457D9] px-6 py-5 text-white flex items-center justify-between">
@@ -938,16 +878,6 @@ export default function StudentManagerModal({
                         className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
                       >
                         <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedIds.length})
-                      </button>
-                    )}
-                    {students.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowDeleteAllConfirm(true)}
-                        className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-bold text-[11px] rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                        title="Xóa tất cả hồ sơ học sinh của lớp"
-                      >
-                        <Trash2 size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP
                       </button>
                     )}
                   </div>

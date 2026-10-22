@@ -235,10 +235,7 @@ export default function Homeroom() {
   const [assessmentInitialSelectedIds, setAssessmentInitialSelectedIds] = useState<string[] | undefined>(undefined);
   const [defaultStudentForRecord, setDefaultStudentForRecord] = useState<string | undefined>(undefined);
 
-  // Delete all / bulk delete students state
-  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
-  const [isDeletingAll, setIsDeletingAll] = useState(false);
-  const [deleteAllWithConductRecords, setDeleteAllWithConductRecords] = useState(true);
+  // Bulk delete selected students state
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
@@ -1002,31 +999,6 @@ export default function Homeroom() {
     }, 4500);
 
     return result;
-  };
-
-  const handleConfirmDeleteAllStudents = async () => {
-    if (!selectedClass) return;
-    try {
-      setIsDeletingAll(true);
-      const res = await homeroomService.deleteAllStudentsOfClass(selectedClass.id, {
-        deleteRecordsAndAssessments: deleteAllWithConductRecords,
-        className: selectedClass.name,
-        schoolYear: selectedSchoolYear
-      });
-      if (deleteAllWithConductRecords) {
-        setRecords(prev => prev.filter(r => !(r.classId === selectedClass.id && (!r.schoolYear || r.schoolYear === selectedSchoolYear))));
-        setEvaluations(prev => prev.filter(e => !(e.classId === selectedClass.id && (!e.schoolYear || e.schoolYear === selectedSchoolYear))));
-        setTeacherAssessments(prev => prev.filter(a => !(a.classId === selectedClass.id && (!a.schoolYear || a.schoolYear === selectedSchoolYear))));
-      }
-      setIsDeleteAllModalOpen(false);
-      setSelectedStudentIds([]);
-      setResetSuccessToast(`Đã xóa thành công toàn bộ ${res.deletedCount} hồ sơ học sinh của lớp ${selectedClass.name}.`);
-      setTimeout(() => setResetSuccessToast(''), 4000);
-    } catch (err: any) {
-      alert('Lỗi khi xóa hồ sơ học sinh: ' + (err.message || err));
-    } finally {
-      setIsDeletingAll(false);
-    }
   };
 
   const handleConfirmDeleteSelectedStudents = async () => {
@@ -1823,17 +1795,6 @@ export default function Homeroom() {
               >
                 <Download size={14} /> XUẤT FILE EXCEL
               </button>
-
-              {canEditOrDelete() && classStudents.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setIsDeleteAllModalOpen(true)}
-                  className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                  title={`Xóa toàn bộ ${classStudents.length} hồ sơ học sinh của lớp ${selectedClass?.name}`}
-                >
-                  <Trash2 size={14} /> XÓA TẤT CẢ HỒ SƠ HS
-                </button>
-              )}
             </div>
           </div>
 
@@ -1873,22 +1834,13 @@ export default function Homeroom() {
                   <span>💾 Xếp loại của GVCN ({selectedStudentIds.length})</span>
                 </button>
                 {canEditOrDelete() && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setShowBulkDeleteConfirm(true)}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-                    >
-                      <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedStudentIds.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsDeleteAllModalOpen(true)}
-                      className="px-3 py-1.5 bg-red-800 hover:bg-red-900 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-                    >
-                      <AlertCircle size={13} /> XÓA TẤT CẢ HỒ SƠ LỚP ({classStudents.length})
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkDeleteConfirm(true)}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+                  >
+                    <Trash2 size={13} /> Xóa học sinh đã chọn ({selectedStudentIds.length})
+                  </button>
                 )}
               </div>
             </div>
@@ -2934,17 +2886,6 @@ export default function Homeroom() {
             });
           }
         }}
-        onDeleteAllStudents={async () => {
-          if (selectedClass) {
-            await homeroomService.deleteAllStudentsOfClass(selectedClass.id, {
-              deleteRecordsAndAssessments: true,
-              className: selectedClass.name,
-              schoolYear: selectedSchoolYear
-            });
-            setResetSuccessToast(`Đã xóa toàn bộ hồ sơ học sinh của lớp ${selectedClass.name} thành công.`);
-            setTimeout(() => setResetSuccessToast(''), 4000);
-          }
-        }}
       />
 
       {selectedStudentForEval && (
@@ -2974,95 +2915,7 @@ export default function Homeroom() {
 
 
 
-      {/* Modal: Xác nhận Xóa tất cả hồ sơ học sinh của lớp */}
-      {isDeleteAllModalOpen && selectedClass && (
-        <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-xs">
-            <div className="text-center space-y-4">
-              <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
-                <Trash2 size={28} />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-rose-900 uppercase tracking-tight">
-                  XÁC NHẬN XÓA TẤT CẢ HỒ SƠ HỌC SINH
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Bạn đang chuẩn bị xóa toàn bộ hồ sơ học sinh của lớp <strong className="text-blue-700">{selectedClass.name}</strong>.
-                </p>
-              </div>
 
-              {/* Thông tin lớp & số lượng */}
-              <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3 text-left space-y-1.5">
-                <div className="flex justify-between text-slate-600">
-                  <span>Lớp học:</span>
-                  <span className="font-bold text-slate-800">{selectedClass.name}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Tổng số học sinh sẽ xóa:</span>
-                  <span className="font-bold text-rose-700">{classStudents.length} học sinh</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Năm học:</span>
-                  <span className="font-bold text-slate-800">{selectedSchoolYear}</span>
-                </div>
-              </div>
-
-              {/* Tùy chọn làm sạch dữ liệu nề nếp */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-left">
-                <label className="flex items-start gap-2.5 cursor-pointer text-slate-700 select-none">
-                  <input
-                    type="checkbox"
-                    checked={deleteAllWithConductRecords}
-                    onChange={(e) => setDeleteAllWithConductRecords(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded text-rose-600 border-slate-300 accent-rose-600 focus:ring-rose-500 cursor-pointer"
-                  />
-                  <span className="leading-snug text-[11px]">
-                    Đồng thời xóa toàn bộ dữ liệu vi phạm, điểm rèn luyện & nhận xét GVCN của các học sinh này trong năm học.
-                  </span>
-                </label>
-              </div>
-
-              {/* Cảnh báo */}
-              <div className="text-left bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 flex gap-2">
-                <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-                <p className="leading-relaxed text-[11px]">
-                  <strong>Cảnh báo không thể hoàn tác:</strong> Thao tác này sẽ xóa vĩnh viễn toàn bộ hồ sơ học sinh khỏi cơ sở dữ liệu. Sau khi xóa, bạn có thể tạo mới hoặc tải lên lại danh sách từ file Excel.
-                </p>
-              </div>
-
-              {/* Nút hành động */}
-              <div className="flex gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsDeleteAllModalOpen(false)}
-                  disabled={isDeletingAll}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDeleteAllStudents}
-                  disabled={isDeletingAll}
-                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  {isDeletingAll ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      <span>Đang xóa...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 size={14} />
-                      <span>Xác nhận xóa tất cả ({classStudents.length})</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal: Xác nhận Xóa danh sách học sinh đã chọn */}
       {showBulkDeleteConfirm && selectedClass && (
