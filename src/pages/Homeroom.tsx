@@ -65,7 +65,7 @@ import {
   isDatChuaDatCategory
 } from '../lib/homeroomData';
 import { exportHomeroomToExcel } from '../utils/homeroomExport';
-import { exportStudentListToExcel } from '../utils/studentExcel';
+import { exportStudentListToExcel, exportClassificationResultsToExcel } from '../utils/studentExcel';
 import { StudentSortMode, sortStudentsByVietnameseName, getSortModeLabel } from '../utils/studentSorting';
 import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
@@ -1022,6 +1022,31 @@ export default function Homeroom() {
     }
   };
 
+  const handleExportClassificationResults = () => {
+    if (!selectedClass) {
+      alert('Vui lòng chọn lớp học để xuất kết quả xếp loại.');
+      return;
+    }
+    if (classStudents.length === 0) {
+      alert(`Lớp ${selectedClass.name} hiện chưa có học sinh để xuất kết quả xếp loại.`);
+      return;
+    }
+
+    exportClassificationResultsToExcel({
+      className: selectedClass.name,
+      schoolYear: selectedSchoolYear,
+      homeroomTeacherName: selectedClass.homeroomTeacherName,
+      periodScope: studentTableScope,
+      selectedMonth,
+      selectedWeek,
+      students: classStudents,
+      studentScores: classStudentScores,
+      teacherAssessments,
+      evaluations,
+      ratingTiers: activeRatingTiers
+    });
+  };
+
   const handleDeleteRecord = async (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa ghi nhận này?')) {
       await homeroomService.deleteConductRecord(id);
@@ -1789,11 +1814,20 @@ export default function Homeroom() {
                 <UserPlus size={14} /> + THÊM / NHẬP EXCEL
               </button>
               <button
+                type="button"
                 onClick={() => exportStudentListToExcel(selectedClass?.name || '', selectedSchoolYear, classStudents)}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
                 title="Xuất danh sách học sinh ra file Excel theo đúng thứ tự đang hiển thị"
               >
                 <Download size={14} /> XUẤT FILE EXCEL
+              </button>
+              <button
+                type="button"
+                onClick={handleExportClassificationResults}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                title={`Xuất kết quả xếp loại học sinh lớp ${selectedClass?.name || ''} - ${studentTableScope === 'month' ? selectedMonth : studentTableScope === 'week' ? `Tuần ${String(selectedWeek).padStart(2, '0')}` : 'Cả năm học'}`}
+              >
+                <FileSpreadsheet size={14} /> 📊 XUẤT KẾT QUẢ XẾP LOẠI HS
               </button>
             </div>
           </div>

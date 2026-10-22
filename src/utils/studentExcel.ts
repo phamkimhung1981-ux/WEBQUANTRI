@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
-import { Student } from '../types/homeroom';
+import { Student, TeacherAssessment, ConductEvaluation, RatingTierItem } from '../types/homeroom';
+import { YouthViolationRecord } from '../types/youthDiscipline';
 
 /**
  * Export student list of a class to Excel
@@ -639,4 +640,258 @@ export function parseStudentExcelFile(file: File, defaultClassName?: string): Pr
     reader.onerror = (err) => reject(err);
     reader.readAsArrayBuffer(file);
   });
+}
+
+export interface ExportClassificationResultsParams {
+  className: string;
+  schoolYear: string;
+  homeroomTeacherName?: string;
+  periodScope: 'week' | 'month' | 'year';
+  selectedMonth: string; // e.g. "Tháng 09", "Tháng 10"
+  selectedWeek: number; // e.g. 4
+  students: Student[];
+  studentScores: Map<string, {
+    totalScore: number;
+    classification: string;
+    totalPlus: number;
+    totalMinus: number;
+    violationCount: number;
+    violations: YouthViolationRecord[];
+  }>;
+  teacherAssessments?: TeacherAssessment[];
+  evaluations?: ConductEvaluation[];
+  ratingTiers?: RatingTierItem[];
+}
+
+/**
+ * Xuất kết quả xếp loại học sinh theo lớp và kỳ đánh giá (Tháng / Tuần / Cả năm)
+ * Tên file: Ket_qua_xep_loai_HS_Lop_[Lop]_[Ky_danh_gia].xlsx
+ */
+export function exportClassificationResultsToExcel({
+  className,
+  schoolYear,
+  homeroomTeacherName,
+  periodScope,
+  selectedMonth,
+  selectedWeek,
+  students,
+  studentScores,
+  teacherAssessments = [],
+  evaluations = [],
+  ratingTiers = []
+}: ExportClassificationResultsParams) {
+  if (!students || students.length === 0) {
+    alert(`Lớp ${className} hiện chưa có học sinh để xuất kết quả xếp loại.`);
+    return;
+  }
+
+  const cleanYear = (schoolYear || '2026-2027').replace(/[\u2010-\u2015]/g, '-').replace(/[^a-zA-Z0-9]/g, '_');
+  const cleanClass = (className || 'Lop').replace(/[^a-zA-Z0-9]/g, '_');
+
+  let periodLabel = '';
+  let periodFilePart = '';
+
+  const monthNum = parseInt((selectedMonth || '').replace(/\D/g, ''), 10) || 9;
+  const monthStrFormatted = String(monthNum).padStart(2, '0');
+
+  if (periodScope === 'month') {
+    periodLabel = `Tháng ${monthStrFormatted} (Năm học ${schoolYear})`;
+    periodFilePart = `Thang_${monthStrFormatted}_${cleanYear}`;
+  } else if (periodScope === 'week') {
+    const weekStrFormatted = String(selectedWeek).padStart(2, '0');
+    periodLabel = `Tuần ${weekStrFormatted} (Tháng ${monthStrFormatted}, Năm học ${schoolYear})`;
+    periodFilePart = `Tuan_${weekStrFormatted}_${cleanYear}`;
+  } else {
+    periodLabel = `Cả năm học ${schoolYear}`;
+    periodFilePart = `Ca_nam_hoc_${cleanYear}`;
+  }
+
+  const fileName = `Ket_qua_xep_loai_HS_Lop_${cleanClass}_${periodFilePart}.xlsx`;
+
+  const now = new Date();
+  const dayStr = String(now.getDate()).padStart(2, '0');
+  const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+  const yearStr = String(now.getFullYear());
+  const reportDate = `${dayStr}/${monthStr}/${yearStr}`;
+
+  const excelData: any[][] = [];
+
+  // Header Rows
+  excelData.push(['TRƯỜNG THPT SƠN LƯƠNG']);
+  excelData.push(['DANH SÁCH KẾT QUẢ XẾP LOẠI HỌC SINH']);
+  excelData.push([`Lớp: ${className} | Giáo viên chủ nhiệm: ${homeroomTeacherName || 'Chưa phân công'}`]);
+  excelData.push([`Kỳ đánh giá: ${periodLabel} | Năm học: ${schoolYear}`]);
+  excelData.push([`Ngày xuất báo cáo: ${reportDate} | Tổng số: ${students.length} học sinh`]);
+  excelData.push([]); // Blank row
+
+  // 9 Columns Header (Row 7 in 1-based index)
+  excelData.push([
+    'STT',
+    'Mã học sinh',
+    'Họ và tên',
+    'Giới tính',
+    'Lớp',
+    'Tổng điểm trừ trong kỳ',
+    'Điểm rèn luyện',
+    'Xếp loại học sinh',
+    'Ghi chú'
+  ]);
+
+  const normYear = (schoolYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
+
+  // Populate data rows
+  students.forEach((s, idx) => {
+    const scoreInfo = studentScores.get(s.id);
+
+    // 1. Check teacher assessment for this student in this period
+    const stAssessment = (teacherAssessments || []).find(a => {
+      if (a.studentId !== s.id) return false;
+      if (a.schoolYear) {
+        const aYear = a.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
+        if (normYear && aYear && aYear !== normYear) return false;
+      }
+      if (periodScope === 'month') {
+        return Number(a.monthNumber) === monthNum || a.month === selectedMonth;
+      }
+      if (periodScope === 'week') {
+        return Number(a.monthNumber) === monthNum || a.month === selectedMonth;
+      }
+      return true; // For 'year', any assessment in this school year
+    });
+
+    // 2. Check conduct evaluation for this student in this period
+    const evalItem = (evaluations || []).find(e => {
+      if (e.studentId !== s.id) return false;
+      if (e.schoolYear) {
+        const eYear = e.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
+        if (normYear && eYear && eYear !== normYear) return false;
+      }
+      if (periodScope === 'month') {
+        return e.period === selectedMonth || e.period?.includes(selectedMonth);
+      }
+      return true;
+    });
+
+    // 3. Check violations
+    const hasViolations = Boolean(scoreInfo && (scoreInfo.violationCount > 0 || scoreInfo.totalMinus > 0));
+
+    // A student has evaluation data if they have a saved teacher assessment, evaluation record, or registered violations
+    const hasEvaluationData = Boolean(stAssessment || evalItem || hasViolations);
+
+    let totalMinusVal: number | string = 0;
+    let trainingScoreVal: number | string = 'Chưa có dữ liệu';
+    let classificationVal: string = 'Chưa có dữ liệu';
+    let noteVal: string = '';
+
+    if (hasEvaluationData) {
+      const minus = scoreInfo ? scoreInfo.totalMinus : 0;
+      totalMinusVal = minus > 0 ? -minus : 0;
+
+      const score = scoreInfo ? scoreInfo.totalScore : 100;
+      trainingScoreVal = score;
+
+      const savedRating =
+        stAssessment?.bghAdjustedRating ||
+        stAssessment?.teacherProposedRating ||
+        stAssessment?.levelRating ||
+        evalItem?.classification ||
+        evalItem?.proposedClassification;
+
+      classificationVal = savedRating || scoreInfo?.classification || 'Tốt';
+
+      // Build informative note
+      const notes: string[] = [];
+      if (stAssessment?.comment && stAssessment.comment.trim()) {
+        notes.push(stAssessment.comment.trim());
+      }
+      if (evalItem?.teacherComment && evalItem.teacherComment.trim() && evalItem.teacherComment.trim() !== stAssessment?.comment?.trim()) {
+        notes.push(evalItem.teacherComment.trim());
+      }
+      if (stAssessment?.bghComment && stAssessment.bghComment.trim()) {
+        notes.push(`BGH: ${stAssessment.bghComment.trim()}`);
+      }
+      if (stAssessment?.needsMonitoring) {
+        notes.push('Cần theo dõi');
+      }
+      if (hasViolations && notes.length === 0) {
+        const vSummary = (scoreInfo?.violations || [])
+          .slice(0, 2)
+          .map(v => v.criterionName || v.content)
+          .filter(Boolean)
+          .join('; ');
+        notes.push(vSummary ? `Vi phạm: ${vSummary}` : `${scoreInfo?.violationCount} vi phạm`);
+      }
+      noteVal = notes.join(' | ');
+    } else {
+      totalMinusVal = 0;
+      trainingScoreVal = 'Chưa có dữ liệu';
+      classificationVal = 'Chưa có dữ liệu';
+      noteVal = 'Chưa có dữ liệu đánh giá';
+    }
+
+    excelData.push([
+      s.stt !== undefined && s.stt !== '' ? s.stt : (idx + 1),
+      s.code || '',
+      s.full_name || s.fullName || s.name || '',
+      s.gender || 'Nam',
+      s.className || className,
+      totalMinusVal,
+      trainingScoreVal,
+      classificationVal,
+      noteVal
+    ]);
+  });
+
+  // Footer / Signatures
+  excelData.push([]);
+  excelData.push(['', '', '', '', '', '', '', 'Sơn Lương, ngày ' + dayStr + ' tháng ' + monthStr + ' năm ' + yearStr]);
+  excelData.push(['', '', '', '', '', '', '', 'GIÁO VIÊN CHỦ NHIỆM']);
+  excelData.push(['', '', '', '', '', '', '', '(Ký và ghi rõ họ tên)']);
+  excelData.push([]);
+  excelData.push([]);
+  excelData.push(['', '', '', '', '', '', '', homeroomTeacherName || '']);
+
+  const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+  // Column widths
+  worksheet['!cols'] = [
+    { wch: 6 },  // 1. STT
+    { wch: 16 }, // 2. Mã học sinh
+    { wch: 25 }, // 3. Họ và tên
+    { wch: 12 }, // 4. Giới tính
+    { wch: 10 }, // 5. Lớp
+    { wch: 22 }, // 6. Tổng điểm trừ trong kỳ
+    { wch: 20 }, // 7. Điểm rèn luyện
+    { wch: 20 }, // 8. Xếp loại học sinh
+    { wch: 35 }  // 9. Ghi chú
+  ];
+
+  // AutoFilter for data columns from row 7 (index 6) to end of students
+  const headerRowIdx = 7;
+  const lastDataRowIdx = headerRowIdx + students.length;
+  worksheet['!autofilter'] = { ref: `A${headerRowIdx}:I${lastDataRowIdx}` };
+
+  // Freeze pane (freeze header row 7 so rows 1-7 stay fixed while scrolling)
+  worksheet['!views'] = [{ state: 'frozen', ySplit: headerRowIdx, xSplit: 0, activeCell: `A${headerRowIdx + 1}` }];
+
+  // Page setup: A4 Landscape
+  worksheet['!pageSetup'] = {
+    orientation: 'landscape',
+    paperSize: 9
+  };
+
+  // Title Merges
+  worksheet['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 8 } },
+    { s: { r: 4, c: 0 }, e: { r: 4, c: 8 } }
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  const sheetName = `Xếp loại ${className}`.slice(0, 31);
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+  XLSX.writeFile(workbook, fileName);
 }
