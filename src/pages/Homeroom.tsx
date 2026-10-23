@@ -255,11 +255,6 @@ export default function Homeroom() {
 
   // Initial Firestore subscriptions
   useEffect(() => {
-    homeroomService.seedIfEmpty();
-    youthDisciplineService.seedIfEmpty();
-    youthDisciplineService.cleanupSampleViolations();
-    homeroomService.syncAllClassStudentCounts();
-
     const unsubCls = homeroomService.subscribeClasses(setClasses);
     const unsubStd = homeroomService.subscribeStudents(setStudents);
     const unsubAssign = homeroomService.subscribeAssignments(setAssignments);

@@ -198,10 +198,11 @@ const defaultEvalCriteria: EvaluationCriterion[] = [
 ];
 
 export const DEFAULT_DEPARTMENTS: Department[] = [
-  { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán-Lý-Tin-CN', headId: 't1' },
-  { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN', headId: 't2' },
-  { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't3' },
-  { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't4' }
+  { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán-Lý-Tin-CN', headId: 't1792151918417_4be30z' },
+  { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN', headId: 't1792151918417_0ua1gu' },
+  { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't1792151918417_2f5eex' },
+  { id: 'd_hoa_ly_sinh_gdqpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't1792151918417_2qkjg3' },
+  { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't1792151918417_4l9424' }
 ];
 
 export const getLocalCollectionCache = <T,>(collectionKey: string, defaultValue: T): T => {
@@ -398,7 +399,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     handleSnapshot('calendarEvents', 'calendarEvents');
     handleSnapshot('leaveRecords', 'leaveRecords');
     handleSnapshot('attendance', 'attendanceRecords');
-    handleSnapshot('students', 'students');
     handleSnapshot('classes', 'classes');
 
     // Quản lý System Modules từ Firestore
@@ -1257,31 +1257,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Auto-sync totalStudents and totalClasses from active students and classes collections
+  // Auto-sync totalClasses from active classes collection
   useEffect(() => {
-    const activeStudentsCount = state.students ? state.students.filter(s => s.status !== 'transferred' && s.status !== 'dropped' && s.status !== 'left').length : 0;
     const activeClassesCount = state.classes ? state.classes.filter(c => c.status !== 'inactive').length : 0;
-
-    if (activeStudentsCount > 0 || activeClassesCount > 0) {
+    if (activeClassesCount > 0 && activeClassesCount !== state.schoolStats.totalClasses) {
       setState(prev => {
-        const curStudents = prev.schoolStats.totalStudents;
-        const curClasses = prev.schoolStats.totalClasses;
-        const newStudents = activeStudentsCount > 0 ? activeStudentsCount : curStudents;
-        const newClasses = activeClassesCount > 0 ? activeClassesCount : curClasses;
-
-        if (curStudents !== newStudents || curClasses !== newClasses) {
-          const updatedStats = {
-            ...prev.schoolStats,
-            totalStudents: newStudents,
-            totalClasses: newClasses
-          };
-          setDoc(doc(db, 'systemSettings', 'schoolStats'), sanitize(updatedStats), { merge: true }).catch(() => {});
-          return { ...prev, schoolStats: updatedStats };
-        }
-        return prev;
+        const updatedStats = {
+          ...prev.schoolStats,
+          totalClasses: activeClassesCount
+        };
+        setDoc(doc(db, 'systemSettings', 'schoolStats'), sanitize(updatedStats), { merge: true }).catch(() => {});
+        return { ...prev, schoolStats: updatedStats };
       });
     }
-  }, [state.students, state.classes]);
+  }, [state.classes, state.schoolStats.totalClasses]);
 
   // Tự động kiểm tra và chuẩn hóa liên kết groupId cho kpis và kpiRecords
   useEffect(() => {

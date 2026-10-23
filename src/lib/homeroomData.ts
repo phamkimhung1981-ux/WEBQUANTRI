@@ -762,23 +762,34 @@ export function getCriterionDeduction(crit?: ConductCriterion | null): number {
 
 export const DEFAULT_CLASSES: ClassInfo[] = [
   // Khối 10
-  { id: 'class_10a1', name: '10A1', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1', homeroomTeacherName: 'Nguyễn Thị A', room: 'Phòng 101', totalStudents: 38 },
-  { id: 'class_10a2', name: '10A2', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't2', homeroomTeacherName: 'Trần Văn B', room: 'Phòng 102', totalStudents: 36 },
-  { id: 'class_10a3', name: '10A3', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't3', homeroomTeacherName: 'Lê Thị C', room: 'Phòng 103', totalStudents: 35 },
-  { id: 'class_10a4', name: '10A4', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't7', homeroomTeacherName: 'Vũ Văn H', room: 'Phòng 104', totalStudents: 37 },
-  { id: 'class_10a5', name: '10A5', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't8', homeroomTeacherName: 'Bùi Thị K', room: 'Phòng 105', totalStudents: 36 },
+  { id: 'class_10a1_1789825862712_0', name: '10A', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_2e2viz', homeroomTeacherName: 'Đinh Thị Ngọc Huệ', room: 'Phòng 101', totalStudents: 46 },
+  { id: 'class_10a2', name: '10B', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_n9ofrn', homeroomTeacherName: 'Trần Diệu Linh', room: 'Phòng 102', totalStudents: 46 },
+  { id: 'class_10a3', name: '10C', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_o7w232', homeroomTeacherName: 'Nguyễn Văn Tú', room: 'Phòng 103', totalStudents: 47 },
+  { id: 'class_10b_1789816830004', name: '10D', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_vj860h', homeroomTeacherName: 'Hoàng Thị Thu Hiền', room: 'Phòng 104', totalStudents: 47 },
+  { id: 'class_11a1', name: '10E', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_f02j2z', homeroomTeacherName: 'Nguyễn Hà Thu', room: 'Phòng 105', totalStudents: 43 },
+  { id: 'class_10g_1789830970240', name: '10G', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_j122g5', homeroomTeacherName: 'Dương Đức Cường', room: 'Phòng 106', totalStudents: 42 },
+  { id: 'class_11a2', name: '10H', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_t4r3b7', homeroomTeacherName: 'Trần Minh Quang', room: 'Phòng 107', totalStudents: 46 },
+  { id: 'class_10a5_1789825448591_4', name: '10I', grade: 10, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_l1y6n8', homeroomTeacherName: 'Phạm Ngọc Châu', room: 'Phòng 108', totalStudents: 42 },
 
   // Khối 11
-  { id: 'class_11a1', name: '11A1', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't4', homeroomTeacherName: 'Phạm Văn D', room: 'Phòng 201', totalStudents: 40 },
-  { id: 'class_11a2', name: '11A2', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't5', homeroomTeacherName: 'Hoàng Thị E', room: 'Phòng 202', totalStudents: 37 },
-  { id: 'class_11a3', name: '11A3', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't9', homeroomTeacherName: 'Đỗ Văn L', room: 'Phòng 203', totalStudents: 38 },
-  { id: 'class_11a4', name: '11A4', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't10', homeroomTeacherName: 'Ngô Thị M', room: 'Phòng 204', totalStudents: 36 },
+  { id: 'class_11a1_1789826390017_0', name: '11A', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_x1u3u9', homeroomTeacherName: 'Vũ Thị Hồng Hạnh', room: 'Phòng 201', totalStudents: 46 },
+  { id: 'class_11a2_1789826390017_1', name: '11B', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_t7d9o3', homeroomTeacherName: 'Nguyễn Trung Kiên', room: 'Phòng 202', totalStudents: 47 },
+  { id: 'class_11a3_1789826390017_2', name: '11C', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_0ua1gu', homeroomTeacherName: 'Hoàng Thị Diệu Hương', room: 'Phòng 203', totalStudents: 45 },
+  { id: 'class_11a4_1789826390017_3', name: '11D', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_e7h5r5', homeroomTeacherName: 'Nguyễn Thế Nam', room: 'Phòng 204', totalStudents: 46 },
+  { id: 'class_11a5_1789826390017_4', name: '11E', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_2f5eex', homeroomTeacherName: 'Cao Thị Thùy', room: 'Phòng 205', totalStudents: 46 },
+  { id: 'class_11g_1789829634430', name: '11G', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_2qkjg3', homeroomTeacherName: 'Phạm Thị Bích Liên', room: 'Phòng 206', totalStudents: 44 },
+  { id: 'class_11h_1789829667917', name: '11H', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_y1q5b5', homeroomTeacherName: 'Hoàng Thị Trang', room: 'Phòng 207', totalStudents: 46 },
+  { id: 'class_11i_1789829698565', name: '11I', grade: 11, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_j7x1x9', homeroomTeacherName: 'Phùng Trung Dũng', room: 'Phòng 208', totalStudents: 36 },
 
   // Khối 12
-  { id: 'class_12a1', name: '12A1', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't6', homeroomTeacherName: 'Đặng Văn F', room: 'Phòng 301', totalStudents: 42 },
-  { id: 'class_12a2', name: '12A2', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't11', homeroomTeacherName: 'Lý Văn N', room: 'Phòng 302', totalStudents: 39 },
-  { id: 'class_12a3', name: '12A3', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't12', homeroomTeacherName: 'Trịnh Thị P', room: 'Phòng 303', totalStudents: 40 },
-  { id: 'class_12i', name: '12I', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't_hathithuy', homeroomTeacherName: 'Hà Thị Thúy', room: 'Phòng 309', totalStudents: 40 }
+  { id: 'class_12a_1789829757781', name: '12A', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_m5p2y1', homeroomTeacherName: 'Nguyễn Hữu Hiệp', room: 'Phòng 301', totalStudents: 46 },
+  { id: 'class_12b_1789829798861', name: '12B', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_f8t7i2', homeroomTeacherName: 'Nguyễn Đức Hòa', room: 'Phòng 302', totalStudents: 43 },
+  { id: 'class_12c_1789829822676', name: '12C', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_k4r8d3', homeroomTeacherName: 'Đỗ Thị Thùy Nhung', room: 'Phòng 303', totalStudents: 44 },
+  { id: 'class_12d_1789829842973', name: '12D', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_a2y6p4', homeroomTeacherName: 'Kiều Viết Nam', room: 'Phòng 304', totalStudents: 46 },
+  { id: 'class_12e_1789829862828', name: '12E', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_u9i3b6', homeroomTeacherName: 'Trần Xuân Quỳnh', room: 'Phòng 305', totalStudents: 43 },
+  { id: 'class_12g_1789829884189', name: '12G', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_j3o7t8', homeroomTeacherName: 'Dương Thị Thương', room: 'Phòng 306', totalStudents: 44 },
+  { id: 'class_12h_1789829899972', name: '12H', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_n6v2m9', homeroomTeacherName: 'Nguyễn Thị Hằng', room: 'Phòng 307', totalStudents: 43 },
+  { id: 'class_12i_1789829922764', name: '12I', grade: 12, schoolYear: '2026–2027', homeroomTeacherId: 't1792151918417_d5t1o2', homeroomTeacherName: 'Hà Thị Thúy', room: 'Phòng 308', totalStudents: 40 }
 ];
 
 const SURNAMES = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Đặng', 'Vũ', 'Bùi', 'Đỗ', 'Hà', 'Lý', 'Nông', 'Thào', 'Lò'];

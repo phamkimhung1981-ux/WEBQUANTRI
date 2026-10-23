@@ -178,29 +178,21 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
 
     const currentCached = getVcFormsCache();
 
-    // Only auto-sync local forms to Firestore if Firestore is completely empty (0 forms)
-    if (firestoreList.length === 0 && currentCached.length > 0) {
-      console.log(`[KPI Teacher Sync] Firestore is empty, syncing ${currentCached.length} cached forms to Firestore...`);
-      for (const f of currentCached) {
-        try {
-          const docRef = doc(db, VC_COLLECTIONS.FORMS, f.id);
-          await setDoc(docRef, cleanFirestoreData(f), { merge: true });
-        } catch (e) {}
-      }
+    // When Firestore returns data, it is the authoritative source of truth
+    let finalList: KpiVcForm[] = firestoreList;
+    if (finalList.length === 0 && currentCached.length > 0) {
+      finalList = currentCached;
     }
 
-    // Combine firestoreList, cached, and default fallback forms to ensure all 47 teachers are present
-    const combined = [...firestoreList, ...currentCached, ...DEFAULT_VC_FALLBACK_FORMS];
-    let uniqueList = deduplicateVcForms(combined);
+    finalList = deduplicateVcForms(finalList);
+    finalList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
 
-    uniqueList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
-
-    saveVcFormsCache(uniqueList);
-    callback(uniqueList);
+    saveVcFormsCache(finalList);
+    callback(finalList);
   }, (err) => {
-    console.warn('Firestore subscription fallback for VC Forms, using fallback data:', err);
+    console.warn('Firestore subscription fallback for VC Forms, using cached data:', err);
     const fallbackList = getVcFormsCache();
-    callback(fallbackList.length >= 40 ? fallbackList : DEFAULT_VC_FALLBACK_FORMS);
+    callback(fallbackList);
   });
 };
 

@@ -21,7 +21,8 @@ import {
   FileText,
   UserCheck,
   FileSpreadsheet,
-  Briefcase
+  Briefcase,
+  Wrench
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -46,6 +47,7 @@ export default function Sidebar({ isOpen, setIsOpen, hideOnDesktop = false }: Si
     { name: 'Danh mục & Bảng điểm KPI', href: '/kpi-catalog', icon: Layers },
     { name: 'Nền nếp & Nội quy CBGV', href: '/discipline', icon: ShieldCheck },
     { name: 'Công tác chủ nhiệm', href: '/homeroom', icon: Users },
+    { name: 'Báo hỏng CSVC', href: '/facility-damage', icon: Wrench },
     { name: 'Quản lý CBGVNV', href: '/teachers', icon: GraduationCap },
     { name: 'Tổ chuyên môn', href: '/departments', icon: UserSquare2 },
     { name: 'Tổ Văn phòng', href: '/van-phong', icon: Briefcase },

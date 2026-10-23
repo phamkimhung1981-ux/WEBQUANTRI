@@ -34,6 +34,9 @@ service cloud.firestore {
     match /student_training_evaluations/{document=**} {
       allow read, write: if true;
     }
+    match /facility_damage_reports/{document=**} {
+      allow read, write: if true;
+    }
     match /{document=**} {
       allow read, write: if true;
     }

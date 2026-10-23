@@ -17,7 +17,8 @@ import {
   RefreshCw,
   Award,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  Wrench
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
@@ -50,17 +51,9 @@ export default function Dashboard() {
   const formattedDayMonthYear = `${String(currentDate.getDate()).padStart(2, '0')}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${currentDate.getFullYear()}`;
 
   // Database dynamic statistics
-  const totalTeachers = teachers && teachers.length > 0 ? teachers.length : (schoolStats?.totalTeachers || 42);
-  
-  const activeStudentsCount = students && students.length > 0 
-    ? students.filter(s => s.status !== 'transferred' && s.status !== 'dropped' && s.status !== 'left').length 
-    : (schoolStats?.totalStudents || 0);
-  const totalStudents = activeStudentsCount > 0 ? activeStudentsCount.toLocaleString('vi-VN') : (schoolStats?.totalStudents ? schoolStats.totalStudents.toLocaleString('vi-VN') : '1.236');
-
-  const activeClassesCount = classes && classes.length > 0 
-    ? classes.filter(c => c.status !== 'inactive').length 
-    : (schoolStats?.totalClasses || 0);
-  const totalClasses = activeClassesCount > 0 ? activeClassesCount : (schoolStats?.totalClasses || 36);
+  const totalTeachers = teachers && teachers.length > 0 ? teachers.length : (schoolStats?.totalTeachers || 57);
+  const totalStudents = (schoolStats?.totalStudents || 1074).toLocaleString('vi-VN');
+  const totalClasses = classes && classes.length > 0 ? classes.length : (schoolStats?.totalClasses || 24);
   const schoolYear = schoolStats?.schoolYear || '2026 - 2027';
 
   // Main Modules with icons, descriptions and corresponding app routes
@@ -136,6 +129,15 @@ export default function Dashboard() {
       route: '/departments',
       gradient: 'from-purple-600 to-pink-600',
       shadowColor: 'shadow-purple-500/30'
+    },
+    {
+      id: 'facility_damage',
+      title: 'BÁO HỎNG CSVC',
+      desc: 'Báo cáo hỏng hóc & Sửa chữa',
+      icon: Wrench,
+      route: '/facility-damage',
+      gradient: 'from-amber-600 to-orange-700',
+      shadowColor: 'shadow-amber-500/30'
     },
     {
       id: 'reports',

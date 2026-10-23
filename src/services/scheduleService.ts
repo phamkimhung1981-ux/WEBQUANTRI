@@ -272,6 +272,7 @@ export const scheduleService = {
     let list: WeeklySchedule[] = [];
 
     // 1. Thử lấy từ Firestore
+    let firestoreSuccess = false;
     try {
       const q = query(collection(db, COLLECTION_NAME));
       const querySnapshot = await getDocs(q);
@@ -281,11 +282,12 @@ export const scheduleService = {
           list.push(normalizeWeeklySchedule(raw, academicYear));
         });
       }
+      firestoreSuccess = true;
     } catch (error) {
       console.warn('Firestore getWeeklySchedules warning, checking LocalStorage cache:', error);
     }
 
-    // 2. Thử lấy từ localStorage nếu Firestore rỗng
+    // 2. Thử lấy từ localStorage nếu Firestore rỗng hoặc gặp lỗi
     if (list.length === 0 && typeof window !== 'undefined') {
       const localData = localStorage.getItem(STORAGE_KEY);
       if (localData) {
@@ -300,13 +302,12 @@ export const scheduleService = {
       }
     }
 
-    // 3. Nếu danh sách vẫn rỗng, tự động khởi tạo Tuần 3 và Tuần 4
-    if (list.length === 0) {
+    // 3. Nếu danh sách vẫn rỗng và Firestore đọc thành công mà không có document nào, khởi tạo Tuần 3 và Tuần 4
+    if (list.length === 0 && firestoreSuccess) {
       const w3 = generateSampleWeek3Schedule(academicYear);
       const w4 = generateSampleWeek4Schedule(academicYear);
       list = [w3, w4];
 
-      // Lưu ngay vào localStorage và Firestore
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
       }
@@ -351,7 +352,16 @@ export const scheduleService = {
     normalized.updated_at = new Date().toISOString();
     const docId = normalized.weekId || normalized.id;
 
-    // 1. Lưu ngay vào localStorage
+    // 1. Lưu vào Firestore trước (single source of truth)
+    try {
+      const docRef = doc(db, COLLECTION_NAME, docId);
+      await setDoc(docRef, JSON.parse(JSON.stringify(normalized)), { merge: true });
+    } catch (error) {
+      console.error('Firestore saveWeeklySchedule error:', error);
+      throw error;
+    }
+
+    // 2. Cập nhật localStorage cache sau khi lưu thành công
     if (typeof window !== 'undefined') {
       try {
         const localData = localStorage.getItem(STORAGE_KEY);
@@ -368,20 +378,20 @@ export const scheduleService = {
         console.error('Error saving to localStorage:', e);
       }
     }
-
-    // 2. Lưu vào Firestore
-    try {
-      const docRef = doc(db, COLLECTION_NAME, docId);
-      await setDoc(docRef, JSON.parse(JSON.stringify(normalized)), { merge: true });
-    } catch (error) {
-      console.error('Firestore saveWeeklySchedule error:', error);
-      throw error;
-    }
   },
 
   // Xóa một tuần lịch công tác
   async deleteWeeklySchedule(weekIdOrId: string): Promise<void> {
-    // 1. Xóa khỏi localStorage ngay lập tức
+    // 1. Xóa khỏi Firestore trước
+    try {
+      const docRef = doc(db, COLLECTION_NAME, weekIdOrId);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Firestore deleteWeeklySchedule error:', error);
+      throw error;
+    }
+
+    // 2. Cập nhật localStorage sau khi Firestore xóa thành công
     if (typeof window !== 'undefined') {
       try {
         const localData = localStorage.getItem(STORAGE_KEY);
@@ -393,14 +403,6 @@ export const scheduleService = {
       } catch (err) {
         console.error('Error updating localStorage on delete:', err);
       }
-    }
-
-    // 2. Xóa khỏi Firestore
-    try {
-      const docRef = doc(db, COLLECTION_NAME, weekIdOrId);
-      await deleteDoc(docRef);
-    } catch (error) {
-      console.warn('Firestore deleteWeeklySchedule warning:', error);
     }
   },
 

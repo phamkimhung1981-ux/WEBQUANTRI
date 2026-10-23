@@ -135,6 +135,21 @@ export const DEFAULT_SYSTEM_MODULES: SystemModule[] = [
     isSystem: false
   },
   {
+    id: 'facility_damage',
+    title: 'BÁO HỎNG CSVC',
+    desc: 'Báo cáo hỏng hóc cơ sở vật chất lớp học & Theo dõi sửa chữa',
+    icon: 'Wrench',
+    route: '/facility-damage',
+    gradient: 'from-amber-600 to-orange-700',
+    shadowColor: 'shadow-amber-500/30',
+    order: 8.5,
+    enabled: true,
+    allowedRoles: ['admin', 'ADMIN', 'BGH', 'TTCM', 'GIAO_VU', 'NHAN_SU', 'GIAO_VIEN', 'NHAN_VIEN'],
+    showOnHome: true,
+    showOnSidebar: true,
+    isSystem: false
+  },
+  {
     id: 'teachers',
     title: 'CBGVNV',
     desc: 'Quản lý hồ sơ nhân sự, cán bộ giáo viên',

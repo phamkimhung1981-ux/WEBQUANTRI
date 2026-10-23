@@ -329,15 +329,16 @@ export const classificationService = {
       updatedAt: new Date().toISOString()
     };
 
+    try {
+      await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(record));
+    } catch (e: any) {
+      console.error('Firestore createClassification error:', e);
+      throw new Error(`Không thể lưu mức xếp loại lên máy chủ: ${e?.message || e}`);
+    }
+
     const current = this.getLocalCached();
     current.push(record);
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
-
-    try {
-      await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(record));
-    } catch (e) {
-      console.warn('Firestore createClassification error:', e);
-    }
 
     await this.addAuditLog({
       action: 'CREATE',
@@ -372,18 +373,19 @@ export const classificationService = {
       updatedAt: new Date().toISOString()
     };
 
+    try {
+      await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(updatedRecord), { merge: true });
+    } catch (e: any) {
+      console.error('Firestore updateClassification error:', e);
+      throw new Error(`Không thể cập nhật mức xếp loại lên máy chủ: ${e?.message || e}`);
+    }
+
     if (idx >= 0) {
       current[idx] = updatedRecord;
     } else {
       current.push(updatedRecord);
     }
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
-
-    try {
-      await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(updatedRecord), { merge: true });
-    } catch (e) {
-      console.warn('Firestore updateClassification error:', e);
-    }
 
     await this.addAuditLog({
       action: 'UPDATE',
@@ -411,18 +413,21 @@ export const classificationService = {
     const target = current.find(c => c.id === id);
     if (!target) return;
 
-    target.active = false;
-    target.updatedAt = new Date().toISOString();
-    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    const updatedAt = new Date().toISOString();
 
     try {
       await updateDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), {
         active: false,
-        updatedAt: target.updatedAt
+        updatedAt
       });
-    } catch (e) {
-      console.warn('Firestore deactivateClassification error:', e);
+    } catch (e: any) {
+      console.error('Firestore deactivateClassification error:', e);
+      throw new Error(`Không thể ngừng sử dụng mức xếp loại trên máy chủ: ${e?.message || e}`);
     }
+
+    target.active = false;
+    target.updatedAt = updatedAt;
+    safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
 
     await this.addAuditLog({
       action: 'CONFIG_CHANGE',

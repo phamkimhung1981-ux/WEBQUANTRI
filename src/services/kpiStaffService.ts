@@ -135,22 +135,16 @@ export const saveStaffFormToFirestore = async (form: KpiStaffForm) => {
 export const deleteStaffFormFromFirestore = async (formId: string): Promise<boolean> => {
   try {
     const docRef = doc(db, STAFF_COLLECTIONS.FORMS, formId);
-    await Promise.race([
-      deleteDoc(docRef),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout deleting from Firestore')), 6000))
-    ]).catch(e => console.warn('Firestore single delete timed out or failed (proceeding with local deletion):', e));
+    await deleteDoc(docRef);
 
-    // Update localStorage cache immediately
+    // Update localStorage cache after successful Firestore deletion
     const currentForms = loadStaffFormsFromCache();
     const remainingForms = currentForms.filter(f => f.id !== formId);
     saveStaffFormsToCache(remainingForms);
     return true;
   } catch (err) {
-    console.error('Error deleting staff form:', err);
-    // Still clear local cache so user is not blocked
-    const currentForms = loadStaffFormsFromCache();
-    saveStaffFormsToCache(currentForms.filter(f => f.id !== formId));
-    return true;
+    console.error('Error deleting staff form from Firestore:', err);
+    throw err;
   }
 };
 

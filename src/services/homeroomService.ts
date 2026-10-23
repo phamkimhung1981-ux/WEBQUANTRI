@@ -41,15 +41,7 @@ import {
 } from '../lib/homeroomData';
 
 export function ensureFullStudentRoster(inputStudents: Student[] = []): Student[] {
-  if (inputStudents && inputStudents.length > 0) {
-    return inputStudents;
-  }
-  const result: Student[] = [];
-  for (const cls of DEFAULT_CLASSES) {
-    const defaultRoster = generateClassStudents(cls.id, cls.name, cls.grade, cls.totalStudents || 38);
-    result.push(...defaultRoster);
-  }
-  return result;
+  return inputStudents || [];
 }
 
 const HOMEROOM_CACHE_KEYS = {
@@ -260,20 +252,6 @@ export const homeroomService = {
 
         // Ensure 12I exists or has GVCN Hà Thị Thúy
         const has12I = classesList.some(c => c.name.toUpperCase() === '12I' || c.id === 'class_12i');
-        if (!has12I) {
-          const class12I: ClassInfo = {
-            id: 'class_12i',
-            name: '12I',
-            grade: 12,
-            schoolYear: '2026–2027',
-            homeroomTeacherId: 't_hathithuy',
-            homeroomTeacherName: 'Hà Thị Thúy',
-            room: 'Phòng 309',
-            totalStudents: 40,
-            status: 'active'
-          };
-          classesList.push(class12I);
-        }
         safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, classesList);
         return classesList.sort((a, b) => a.name.localeCompare(b.name));
       }
@@ -284,7 +262,6 @@ export const homeroomService = {
     if (cached && cached.length > 0) {
       return cached;
     }
-    safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, DEFAULT_CLASSES);
     return DEFAULT_CLASSES;
   },
 
@@ -301,20 +278,7 @@ export const homeroomService = {
     }
     const cached = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS);
     if (cached && cached.length > 0) return cached;
-    const defaultAssignments: HomeroomAssignment[] = [
-      {
-        id: 'assign_12i',
-        teacherId: 't_hathithuy',
-        teacherName: 'Hà Thị Thúy',
-        classId: 'class_12i',
-        className: '12I',
-        schoolYear: '2026–2027',
-        startDate: '2026-09-01',
-        status: 'active'
-      }
-    ];
-    safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, defaultAssignments);
-    return defaultAssignments;
+    return [];
   },
 
   async getStudents(): Promise<Student[]> {
@@ -322,23 +286,22 @@ export const homeroomService = {
       const snap = await getDocs(collection(db, 'students'));
       if (!snap.empty) {
         const students = snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-        const fullList = ensureFullStudentRoster(students);
-        safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, fullList);
-        return fullList;
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, students);
+        return students;
       }
     } catch (e) {
       handleFirestoreError(e, OperationType.GET, 'students');
     }
     const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
-    const fullList = ensureFullStudentRoster(cached || []);
-    safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, fullList);
-    return fullList;
+    return cached || [];
   },
 
   subscribeClasses(callback: (classes: ClassInfo[]) => void) {
-    // 1. Immediately invoke callback with local cache or default classes
-    const initial = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES) || DEFAULT_CLASSES;
-    callback([...initial].sort((a, b) => a.name.localeCompare(b.name)));
+    // 1. If cache exists, use it initially
+    const cached = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES);
+    if (cached && cached.length > 0) {
+      callback([...cached].sort((a, b) => a.name.localeCompare(b.name)));
+    }
 
     // 2. Subscribe to Firestore
     const q = collection(db, 'classes');
@@ -346,19 +309,6 @@ export const homeroomService = {
       let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
       if (data.length === 0) {
         data = DEFAULT_CLASSES;
-      }
-      if (!data.some(c => c.name.toUpperCase() === '12I' || c.id === 'class_12i')) {
-        data.push({
-          id: 'class_12i',
-          name: '12I',
-          grade: 12,
-          schoolYear: '2026–2027',
-          homeroomTeacherId: 't_hathithuy',
-          homeroomTeacherName: 'Hà Thị Thúy',
-          room: 'Phòng 309',
-          totalStudents: 40,
-          status: 'active'
-        });
       }
       safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, data);
       callback(data.sort((a, b) => a.name.localeCompare(b.name)));
@@ -370,16 +320,14 @@ export const homeroomService = {
   },
 
   subscribeStudents(callback: (students: Student[]) => void) {
-    // 1. Immediately invoke callback with local cache or default sample students
-    const cachedInitial = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
-    const initial = ensureFullStudentRoster(cachedInitial || []);
-    callback([...initial]);
+    const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
+    if (cached && cached.length > 0) {
+      callback([...cached]);
+    }
 
-    // 2. Subscribe to Firestore
     const q = collection(db, 'students');
     return onSnapshot(q, (snapshot) => {
-      let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-      data = ensureFullStudentRoster(data);
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Student));
       safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, data);
       callback(data.sort((a, b) => {
         if (a.stt !== undefined && b.stt !== undefined && a.stt !== null && b.stt !== null) {
@@ -391,9 +339,10 @@ export const homeroomService = {
       }));
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'students');
-      const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
-      const fallback = ensureFullStudentRoster(cached || []);
-      callback(fallback);
+      const cachedFallback = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
+      if (cachedFallback && cachedFallback.length > 0) {
+        callback(cachedFallback);
+      }
     });
   },
 
