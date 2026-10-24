@@ -28,8 +28,14 @@ import {
   DEFAULT_VC_PERIODS,
   DEFAULT_VC_RATING_TIERS,
   DEFAULT_VC_FALLBACK_FORMS,
-  getFormTotalScore
+  getFormTotalScore,
+  calculateVcTotals,
+  calculateVcTtcmTotals,
+  calculateVcManagerTotals,
+  isEligibleVcEmployee
 } from '../lib/kpiVcData';
+import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
+import { CANONICAL_51_VC_FORMS } from '../data/canonical51Forms';
 import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
 
 /**
@@ -94,7 +100,6 @@ export const seedVcInitialDataIfNeeded = async () => {
       await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, crit.id), cleanFirestoreData(crit), { merge: true });
     }
 
-    // Clean up outdated criteria documents from earlier schema versions if present
     if (!criteriaSnap.empty) {
       for (const docSnap of criteriaSnap.docs) {
         if (!defaultIds.has(docSnap.id)) {
@@ -127,40 +132,192 @@ export const seedVcInitialDataIfNeeded = async () => {
   }
 };
 
+const normalizeTeacherName = (name?: string): string => {
+
+  return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+};
+
+const getStatusWeight = (status?: string): number => {
+  if (status === 'locked') return 5;
+  if (status === 'completed') return 4;
+  if (status === 'ttcm_evaluated') return 3;
+  if (status === 'submitted' || status === 'self_evaluated') return 2;
+  return 1;
+};
+
 // Local Storage Cache Helpers
 const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache';
 
+/**
+ * Hàm chuẩn hóa và hợp nhất dữ liệu KPI Giáo viên:
+ * - Bảo toàn 100% điểm tự chấm, điểm TTCM, điểm BGH, tệp minh chứng và ghi chú
+ * - Đảm bảo chính xác 51 giáo viên/viên chức theo danh sách chính thức của Trường THPT Sơn Lương
+ * - Triệt tiêu hoàn toàn trùng lặp do trình duyệt (Chrome, Cốc Cốc) hay sự sai khác mã định danh (id/shortId)
+ */
 export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
-  if (!forms || forms.length === 0) return [];
-  const map = new Map<string, KpiVcForm>();
-  const sorted = [...forms].sort((a, b) => {
-    const scoreA = getFormTotalScore(a);
-    const scoreB = getFormTotalScore(b);
-    if (scoreB !== scoreA) return scoreB - scoreA;
-    return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+  if (!forms) forms = [];
+
+  const eligibleTeachers = DEFAULT_TEACHERS.filter(isEligibleVcEmployee);
+  const eligibleNameMap = new Map<string, typeof eligibleTeachers[0]>();
+  const eligibleIdMap = new Map<string, typeof eligibleTeachers[0]>();
+  const eligibleCodeMap = new Map<string, typeof eligibleTeachers[0]>();
+
+  eligibleTeachers.forEach(t => {
+    eligibleNameMap.set(normalizeTeacherName(t.name), t);
+    eligibleIdMap.set(t.id, t);
+    if (t.code) eligibleCodeMap.set(t.code.toUpperCase().trim(), t);
   });
-  
-  sorted.forEach(f => {
-    const canonicalKey = `${f.employeeId || f.employeeName || 'no_emp'}__${f.periodId || 'no_period'}`;
-    if (!map.has(canonicalKey)) {
-      map.set(canonicalKey, f);
-    } else {
-      const existing = map.get(canonicalKey)!;
-      const existingHasScore = getFormTotalScore(existing) > 0;
-      const currentHasScore = getFormTotalScore(f) > 0;
-      if (currentHasScore && !existingHasScore) {
-        map.set(canonicalKey, f);
-      } else {
-        const existingIsCanonicalId = existing.id && existing.id.startsWith('vc_');
-        const currentIsCanonicalId = f.id && f.id.startsWith('vc_');
-        if (currentIsCanonicalId && !existingIsCanonicalId) {
-          map.set(canonicalKey, f);
-        }
-      }
+
+  // Gom các phiếu theo: `${periodId}__${teacher.id}`
+  const matchedMap = new Map<string, KpiVcForm[]>();
+
+  forms.forEach(f => {
+    const periodId = f.periodId || 'vc_period_2026_09';
+    const normName = normalizeTeacherName(f.employeeName);
+    const code = (f.employeeCode || '').toUpperCase().trim();
+    const teacher = (f.employeeId && eligibleIdMap.get(f.employeeId)) ||
+      (normName && eligibleNameMap.get(normName)) ||
+      (code && eligibleCodeMap.get(code));
+
+    if (teacher) {
+      const groupKey = `${periodId}__${teacher.id}`;
+      if (!matchedMap.has(groupKey)) matchedMap.set(groupKey, []);
+      matchedMap.get(groupKey)!.push(f);
     }
   });
-  return Array.from(map.values());
+
+  const result: KpiVcForm[] = [];
+
+  // Tra cứu bảng dữ liệu gốc chuẩn CANONICAL_51_VC_FORMS để đảm bảo không bị thiếu điểm
+  const canonicalFallbackMap = new Map<string, KpiVcForm>();
+  CANONICAL_51_VC_FORMS.forEach(f => {
+    canonicalFallbackMap.set(f.employeeId, f);
+    if (f.employeeName) canonicalFallbackMap.set(normalizeTeacherName(f.employeeName), f);
+  });
+
+  // 1. Xử lý kỳ trọng tâm: vc_period_2026_09 (chính xác 51 giáo viên)
+  eligibleTeachers.forEach(t => {
+    const groupKey = `vc_period_2026_09__${t.id}`;
+    const matched = matchedMap.get(groupKey) || [];
+    const fallback = canonicalFallbackMap.get(t.id) || canonicalFallbackMap.get(normalizeTeacherName(t.name));
+
+    if (matched.length === 0) {
+      if (fallback) result.push(fallback);
+      return;
+    }
+
+    // Ưu tiên chọn phiếu có dữ liệu chấm đầy đủ nhất làm phiếu chính
+    const sorted = [...matched].sort((a, b) => {
+      const aTtcm = (a.ttcmTotalScore !== null && a.ttcmTotalScore !== undefined) ? 1 : 0;
+      const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
+      if (bTtcm !== aTtcm) return bTtcm - aTtcm;
+
+      const aScore = getFormTotalScore(a);
+      const bScore = getFormTotalScore(b);
+      const aIsCustom = (aScore > 0 && aScore !== 100) ? 1 : 0;
+      const bIsCustom = (bScore > 0 && bScore !== 100) ? 1 : 0;
+      if (bIsCustom !== aIsCustom) return bIsCustom - aIsCustom;
+
+      const wA = getStatusWeight(a.status);
+      const wB = getStatusWeight(b.status);
+      if (wB !== wA) return wB - wA;
+
+      const aNonZero = aScore > 0 ? 1 : 0;
+      const bNonZero = bScore > 0 ? 1 : 0;
+      if (bNonZero !== aNonZero) return bNonZero - aNonZero;
+
+      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+    });
+
+    const primary: KpiVcForm = { ...sorted[0] };
+
+    // Hợp nhất điểm từ tất cả các phiếu của giáo viên (kể cả fallback nếu có)
+    const sourcesToMerge = [...sorted.slice(1)];
+    if (fallback && getFormTotalScore(primary) === 0 && getFormTotalScore(fallback) > 0) {
+      sourcesToMerge.unshift(fallback);
+    } else if (fallback && fallback.ttcmTotalScore && !primary.ttcmTotalScore) {
+      sourcesToMerge.push(fallback);
+    }
+
+    for (const sec of sourcesToMerge) {
+      if (sec.items && primary.items) {
+        primary.items = primary.items.map((pItem, idx) => {
+          const sItem = sec.items?.find(si => si.criterionId === pItem.criterionId) || sec.items?.[idx];
+          if (!sItem) return pItem;
+          return {
+            ...pItem,
+            selfScore: (pItem.selfScore !== null && pItem.selfScore !== undefined) ? pItem.selfScore : ((sItem.selfScore !== null && sItem.selfScore !== undefined) ? sItem.selfScore : null),
+            ttcmScore: (pItem.ttcmScore !== null && pItem.ttcmScore !== undefined) ? pItem.ttcmScore : ((sItem.ttcmScore !== null && sItem.ttcmScore !== undefined) ? sItem.ttcmScore : null),
+            ttcmComment: pItem.ttcmComment || sItem.ttcmComment || '',
+            managerScore: (pItem.managerScore !== null && pItem.managerScore !== undefined) ? pItem.managerScore : ((sItem.managerScore !== null && sItem.managerScore !== undefined) ? sItem.managerScore : null),
+            managerComment: pItem.managerComment || sItem.managerComment || '',
+            note: pItem.note || sItem.note || '',
+            evidenceUrl: pItem.evidenceUrl || sItem.evidenceUrl || ''
+          };
+        });
+      }
+      if (!primary.ttcmTotalScore && sec.ttcmTotalScore) {
+        primary.ttcmTotalScore = sec.ttcmTotalScore;
+        primary.ttcmGroupScores = sec.ttcmGroupScores;
+      }
+      if (!primary.managerTotalScore && sec.managerTotalScore) {
+        primary.managerTotalScore = sec.managerTotalScore;
+        primary.managerGroupScores = sec.managerGroupScores;
+      }
+      if ((!primary.totalScore || primary.totalScore === 0) && sec.totalScore > 0) {
+        primary.totalScore = sec.totalScore;
+        primary.groupScores = sec.groupScores;
+      }
+      if (getStatusWeight(sec.status) > getStatusWeight(primary.status)) {
+        primary.status = sec.status;
+      }
+    }
+
+    // Tự động tính toán lại tổng điểm nhất quán
+    if (primary.items && primary.items.length > 0) {
+      const selfCalc = calculateVcTotals(primary.items);
+      primary.totalScore = selfCalc.totalScore;
+      primary.groupScores = selfCalc.groupScores;
+
+      if (primary.items.some(i => i.ttcmScore !== null && i.ttcmScore !== undefined)) {
+        const ttcmCalc = calculateVcTtcmTotals(primary.items);
+        primary.ttcmTotalScore = ttcmCalc.ttcmTotalScore;
+        primary.ttcmGroupScores = ttcmCalc.ttcmGroupScores;
+      }
+      if (primary.items.some(i => i.managerScore !== null && i.managerScore !== undefined)) {
+        const mgrCalc = calculateVcManagerTotals(primary.items);
+        primary.managerTotalScore = mgrCalc.managerTotalScore;
+        primary.managerGroupScores = mgrCalc.managerGroupScores;
+      }
+    }
+
+    const canonicalDocId = 'vc_vc_period_2026_09_' + t.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    primary.id = canonicalDocId;
+    primary.employeeId = t.id;
+    primary.employeeName = t.name;
+    primary.employeeCode = t.code;
+    primary.employeeUsername = t.username || '';
+    primary.department = t.departmentName || 'Trường THPT Sơn Lương';
+    primary.departmentId = t.departmentId || null;
+    primary.position = t.position || 'Giáo viên';
+    primary.periodId = 'vc_period_2026_09';
+    primary.periodName = 'Tháng 9/2026';
+    primary.academicYear = '2026-2027';
+
+    result.push(primary);
+  });
+
+  // 2. Xử lý các kỳ khác (nếu có trong dữ liệu)
+  for (const [groupKey, matched] of matchedMap.entries()) {
+    if (groupKey.startsWith('vc_period_2026_09__')) continue;
+    if (matched.length > 0) {
+      result.push(matched[0]);
+    }
+  }
+
+  return result;
 };
+
 
 const getVcFormsCache = (): KpiVcForm[] => {
   try {

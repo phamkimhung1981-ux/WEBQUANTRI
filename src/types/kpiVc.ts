@@ -70,6 +70,8 @@ export interface KpiVcScoreItem {
   selectedLevelCode?: string | null;
   selfScore: number; // Điểm cá nhân tự chấm
   note?: string; // Ghi chú / minh chứng cá nhân
+  evidenceUrl?: string;
+
   
   // TTCM đánh giá
   ttcmScore?: number | null;

@@ -1369,7 +1369,7 @@ export default function KpiTeacherStaff() {
         groups={groups}
         onSaved={(formId) => {
           setIsDocModalOpen(false);
-          setSelectedPeriodId('all');
+          setSelectedPeriodId(prev => (prev && prev !== 'all') ? prev : 'vc_period_2026_09');
           setStatusFilter('all');
           setClassificationFilter('all');
           setSelectedDeptId('all');
