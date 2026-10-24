@@ -201,6 +201,26 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
     let finalList: KpiVcForm[] = firestoreList;
     if (finalList.length === 0 && currentCached.length > 0) {
       finalList = currentCached;
+    } else if (finalList.length > 0 && currentCached.length > 0) {
+      const firestoreMap = new Map<string, KpiVcForm>();
+      firestoreList.forEach(f => firestoreMap.set(`${f.employeeId || f.employeeName}__${f.periodId}`, f));
+
+      currentCached.forEach(cachedForm => {
+        const key = `${cachedForm.employeeId || cachedForm.employeeName}__${cachedForm.periodId}`;
+        const fsForm = firestoreMap.get(key);
+        const cachedScore = Number(cachedForm.totalScore || 0);
+        const fsScore = fsForm ? Number(fsForm.totalScore || 0) : 0;
+
+        if (cachedScore > fsScore && fsForm) {
+          const merged = { ...fsForm, ...cachedForm };
+          firestoreMap.set(key, merged);
+          setDoc(doc(db, VC_COLLECTIONS.FORMS, merged.id), cleanFirestoreData(merged), { merge: true }).catch(err => console.warn('Background sync error:', err));
+        } else if (!fsForm && cachedScore > 0) {
+          firestoreMap.set(key, cachedForm);
+          setDoc(doc(db, VC_COLLECTIONS.FORMS, cachedForm.id), cleanFirestoreData(cachedForm), { merge: true }).catch(err => console.warn('Background sync error:', err));
+        }
+      });
+      finalList = Array.from(firestoreMap.values());
     }
 
     finalList = deduplicateVcForms(finalList);
