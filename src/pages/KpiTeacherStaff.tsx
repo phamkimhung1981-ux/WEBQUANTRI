@@ -69,6 +69,9 @@ import {
   getVcClassificationBadge,
   getEffectiveRatingConfig,
   getVcStatusMeta,
+  getFormTotalScore,
+  getFormTtcmTotalScore,
+  getFormManagerTotalScore,
   DEFAULT_VC_GROUPS,
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
@@ -202,9 +205,11 @@ export default function KpiTeacherStaff() {
 
   // Hàm xác định xếp loại động của phiếu dựa theo cấu hình
   const getFormRating = (form: KpiVcForm) => {
-    const finalScore = (form.managerTotalScore !== null && form.managerTotalScore !== undefined) 
-      ? form.managerTotalScore 
-      : form.totalScore;
+    const managerScore = getFormManagerTotalScore(form);
+    const selfScore = getFormTotalScore(form);
+    const finalScore = (managerScore !== null && managerScore !== undefined && managerScore > 0) 
+      ? managerScore 
+      : selfScore;
       
     const effective = getEffectiveRatingConfig(form.periodId, ratingConfigs);
     
@@ -1094,29 +1099,38 @@ export default function KpiTeacherStaff() {
 
                 {/* Điểm tự chấm */}
                 <td className="p-3 text-center font-black text-blue-800 bg-blue-50/40 text-xs sm:text-sm border-r border-blue-100/60 font-mono min-w-[115px]">
-                  {form.totalScore !== null && form.totalScore !== undefined ? (
-                    <>{form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                  ) : (
-                    <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
-                  )}
+                  {(() => {
+                    const selfScore = getFormTotalScore(form);
+                    return selfScore !== null && selfScore !== undefined && selfScore > 0 ? (
+                      <>{selfScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                    ) : (
+                      <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                    );
+                  })()}
                 </td>
 
                 {/* Điểm TTCM đánh giá */}
                 <td className="p-3 text-center font-black text-purple-800 bg-purple-50/40 text-xs sm:text-sm border-r border-purple-100/60 font-mono min-w-[125px]">
-                  {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? (
-                    <>{form.ttcmTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                  ) : (
-                    <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
-                  )}
+                  {(() => {
+                    const ttcmScore = getFormTtcmTotalScore(form);
+                    return ttcmScore !== null && ttcmScore !== undefined && ttcmScore > 0 ? (
+                      <>{ttcmScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                    ) : (
+                      <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                    );
+                  })()}
                 </td>
 
                 {/* Điểm BGH đánh giá */}
                 <td className="p-3 text-center font-black text-indigo-800 bg-indigo-50/40 text-xs sm:text-sm border-r border-indigo-100/60 font-mono min-w-[125px]">
-                  {form.managerTotalScore !== null && form.managerTotalScore !== undefined ? (
-                    <>{form.managerTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                  ) : (
-                    <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
-                  )}
+                  {(() => {
+                    const mgrScore = getFormManagerTotalScore(form);
+                    return mgrScore !== null && mgrScore !== undefined && mgrScore > 0 ? (
+                      <>{mgrScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                    ) : (
+                      <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                    );
+                  })()}
                 </td>
 
                 {/* Kết quả thực hiện nhiệm vụ (Xếp loại) */}

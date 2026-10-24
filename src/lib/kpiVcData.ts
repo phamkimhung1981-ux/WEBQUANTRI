@@ -907,6 +907,39 @@ export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
 
 export const calculateVcSelfTotals = calculateVcTotals;
 
+export const getFormTotalScore = (form: KpiVcForm): number => {
+  if (form.totalScore !== null && form.totalScore !== undefined && form.totalScore > 0) {
+    return form.totalScore;
+  }
+  if (form.items && form.items.length > 0) {
+    const calc = calculateVcTotals(form.items);
+    if (calc.totalScore > 0) return calc.totalScore;
+  }
+  return Number(form.totalScore || 0);
+};
+
+export const getFormTtcmTotalScore = (form: KpiVcForm): number | null => {
+  if (form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined) {
+    return form.ttcmTotalScore;
+  }
+  if (form.items && form.items.length > 0) {
+    const calc = calculateVcTtcmTotals(form.items);
+    if (calc.ttcmTotalScore > 0) return calc.ttcmTotalScore;
+  }
+  return form.ttcmTotalScore ?? null;
+};
+
+export const getFormManagerTotalScore = (form: KpiVcForm): number | null => {
+  if (form.managerTotalScore !== null && form.managerTotalScore !== undefined) {
+    return form.managerTotalScore;
+  }
+  if (form.items && form.items.length > 0) {
+    const calc = calculateVcManagerTotals(form.items);
+    if (calc.managerTotalScore > 0) return calc.managerTotalScore;
+  }
+  return form.managerTotalScore ?? null;
+};
+
 /**
  * Kết quả tính xếp loại KPI
  */
