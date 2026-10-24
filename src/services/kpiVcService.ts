@@ -27,7 +27,8 @@ import {
   DEFAULT_VC_CRITERIA, 
   DEFAULT_VC_PERIODS,
   DEFAULT_VC_RATING_TIERS,
-  DEFAULT_VC_FALLBACK_FORMS
+  DEFAULT_VC_FALLBACK_FORMS,
+  getFormTotalScore
 } from '../lib/kpiVcData';
 import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
 
@@ -212,8 +213,8 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
       currentCached.forEach(cachedForm => {
         const key = `${cachedForm.employeeId || cachedForm.employeeName}__${cachedForm.periodId}`;
         const fsForm = firestoreMap.get(key);
-        const cachedScore = Number(cachedForm.totalScore || 0);
-        const fsScore = fsForm ? Number(fsForm.totalScore || 0) : 0;
+        const cachedScore = getFormTotalScore(cachedForm);
+        const fsScore = fsForm ? getFormTotalScore(fsForm) : 0;
 
         if (cachedScore > fsScore && fsForm) {
           const merged = { ...fsForm, ...cachedForm };
