@@ -1218,9 +1218,9 @@ export const generateDefaultVcForms = (): KpiVcForm[] => {
 
   for (const p of periods) {
     for (const t of eligibleTeachers) {
-      const formId = p.id === 'vc_period_2026_09' 
-        ? `vc_vc_period_2026_09_${t.id}`
-        : `vc_form_${t.id}_${p.id}`;
+      const sanitizedPeriodId = (p.id || 'period').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const sanitizedEmployeeId = (t.id || 'emp').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const formId = `vc_${sanitizedPeriodId}_${sanitizedEmployeeId}`;
 
       forms.push({
         id: formId,

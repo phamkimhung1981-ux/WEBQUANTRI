@@ -109,6 +109,14 @@ export const seedVcInitialDataIfNeeded = async () => {
         await setDoc(doc(db, VC_COLLECTIONS.PERIODS, p.id), cleanFirestoreData(p));
       }
     }
+
+    // 4. Forms - Ensure default KPI forms are seeded in Firestore if empty
+    const formsSnap = await getDocs(collection(db, VC_COLLECTIONS.FORMS));
+    if (formsSnap.empty) {
+      for (const form of DEFAULT_VC_FALLBACK_FORMS) {
+        await setDoc(doc(db, VC_COLLECTIONS.FORMS, form.id), cleanFirestoreData(form), { merge: true });
+      }
+    }
   } catch (error) {
     console.error('Error seeding initial VC KPI data:', error);
   }
@@ -120,7 +128,12 @@ const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache';
 export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
   if (!forms || forms.length === 0) return [];
   const map = new Map<string, KpiVcForm>();
-  const sorted = [...forms].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  const sorted = [...forms].sort((a, b) => {
+    const scoreA = Number(a.totalScore || 0);
+    const scoreB = Number(b.totalScore || 0);
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+  });
   
   sorted.forEach(f => {
     const canonicalKey = `${f.employeeId || f.employeeName || 'no_emp'}__${f.periodId || 'no_period'}`;
@@ -128,10 +141,16 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       map.set(canonicalKey, f);
     } else {
       const existing = map.get(canonicalKey)!;
-      const existingIsCanonicalId = existing.id && existing.id.startsWith('vc_');
-      const currentIsCanonicalId = f.id && f.id.startsWith('vc_');
-      if (currentIsCanonicalId && !existingIsCanonicalId) {
+      const existingHasScore = (existing.totalScore || 0) > 0;
+      const currentHasScore = (f.totalScore || 0) > 0;
+      if (currentHasScore && !existingHasScore) {
         map.set(canonicalKey, f);
+      } else {
+        const existingIsCanonicalId = existing.id && existing.id.startsWith('vc_');
+        const currentIsCanonicalId = f.id && f.id.startsWith('vc_');
+        if (currentIsCanonicalId && !existingIsCanonicalId) {
+          map.set(canonicalKey, f);
+        }
       }
     }
   });
