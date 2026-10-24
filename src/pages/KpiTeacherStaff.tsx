@@ -72,6 +72,7 @@ import {
   getFormTotalScore,
   getFormTtcmTotalScore,
   getFormManagerTotalScore,
+  getEffectiveFormStatus,
   DEFAULT_VC_GROUPS,
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
@@ -259,13 +260,14 @@ export default function KpiTeacherStaff() {
   const filteredForms = useMemo(() => {
     return forms.filter(f => {
       const matchPeriod = selectedPeriodId === 'all' || f.periodId === selectedPeriodId;
+      const effStatus = getEffectiveFormStatus(f);
       const matchStatus = statusFilter === 'all' || 
-        (statusFilter === 'draft' ? (f.status === 'draft' || f.status === 'returned' || !f.status) :
-         statusFilter === 'submitted' ? (f.status === 'submitted' || f.status === 'self_evaluated') :
-         statusFilter === 'ttcm_evaluated' ? (f.status === 'ttcm_evaluated') :
-         statusFilter === 'completed' ? (f.status === 'completed') :
-         statusFilter === 'locked' ? (f.status === 'locked') :
-         f.status === statusFilter);
+        (statusFilter === 'draft' ? (effStatus === 'draft' || effStatus === 'returned' || !f.status) :
+         statusFilter === 'submitted' ? (effStatus === 'submitted' || effStatus === 'self_evaluated') :
+         statusFilter === 'ttcm_evaluated' ? (effStatus === 'ttcm_evaluated') :
+         statusFilter === 'completed' ? (effStatus === 'completed') :
+         statusFilter === 'locked' ? (effStatus === 'locked') :
+         effStatus === statusFilter);
       
       const formRatingName = getFormRating(f).ratingName;
       const matchClass = classificationFilter === 'all' || (
@@ -1006,16 +1008,17 @@ export default function KpiTeacherStaff() {
         {/* HELPER FUNCTION FOR RENDERING KPI ROW */}
         {(() => {
           const renderKpiRow = (form: KpiVcForm, idx: number) => {
-            const isLocked = form.status === 'locked';
-            const statusMeta = getVcStatusMeta(form.status);
+            const effStatus = getEffectiveFormStatus(form);
+            const isLocked = effStatus === 'locked';
+            const statusMeta = getVcStatusMeta(effStatus);
             const ratingInfo = getFormRating(form);
             const finalClassification = ratingInfo.ratingName;
             const classStyle = ratingInfo.badgeStyle;
             const isSelected = selectedFormIds.includes(form.id);
 
             const isMyForm = user?.id === form.employeeId;
-            const canSelfScore = isMyForm && (!form.status || form.status === 'draft' || form.status === 'returned') && !isLocked;
-            const canTtcmScore = (user?.role === 'TTCM' || user?.role === 'admin' || isAdmin) && form.status === 'submitted' && !isLocked;
+            const canSelfScore = isMyForm && (!effStatus || effStatus === 'draft' || effStatus === 'returned') && !isLocked;
+            const canTtcmScore = (user?.role === 'TTCM' || user?.role === 'admin' || isAdmin) && (effStatus === 'submitted' || effStatus === 'self_evaluated') && !isLocked;
 
             const sttStickyClass = showAdminCheckbox ? 'left-10' : 'left-0';
             const nameStickyClass = showAdminCheckbox ? 'left-[88px]' : 'left-12';

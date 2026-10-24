@@ -113,7 +113,11 @@ export const seedVcInitialDataIfNeeded = async () => {
     // 4. Forms - Ensure default KPI forms are seeded in Firestore if empty
     const formsSnap = await getDocs(collection(db, VC_COLLECTIONS.FORMS));
     if (formsSnap.empty) {
-      for (const form of DEFAULT_VC_FALLBACK_FORMS) {
+      const cached = getVcFormsCache();
+      const formsToSeed = (cached && cached.length >= 40 && cached.some(f => (f.totalScore || 0) > 0)) 
+        ? cached 
+        : DEFAULT_VC_FALLBACK_FORMS;
+      for (const form of formsToSeed) {
         await setDoc(doc(db, VC_COLLECTIONS.FORMS, form.id), cleanFirestoreData(form), { merge: true });
       }
     }

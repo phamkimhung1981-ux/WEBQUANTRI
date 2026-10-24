@@ -940,6 +940,15 @@ export const getFormManagerTotalScore = (form: KpiVcForm): number | null => {
   return form.managerTotalScore ?? null;
 };
 
+export const getEffectiveFormStatus = (form: KpiVcForm): string => {
+  if (!form) return 'draft';
+  const score = getFormTotalScore(form);
+  if (score > 0 && (!form.status || form.status === 'draft')) {
+    return 'self_evaluated';
+  }
+  return form.status || 'draft';
+};
+
 /**
  * Kết quả tính xếp loại KPI
  */
