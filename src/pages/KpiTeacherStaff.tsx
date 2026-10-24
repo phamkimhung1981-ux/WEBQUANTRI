@@ -375,7 +375,7 @@ export default function KpiTeacherStaff() {
     setIsDocModalOpen(true);
   };
 
-  const handleOpenDoc = (form: KpiVcForm, mode: 'edit' | 'self_eval' | 'leader_eval' | 'view') => {
+  const handleOpenDoc = (form: KpiVcForm, mode: 'create' | 'edit' | 'self_eval' | 'ttcm_eval' | 'leader_eval' | 'view') => {
     setSelectedFormForDoc(form);
     setDocModalMode(mode);
     setIsDocModalOpen(true);
@@ -602,7 +602,7 @@ export default function KpiTeacherStaff() {
   const activePeriodObj = periods.find(p => p.id === selectedPeriodId) || periods[0];
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 pb-12">
+    <div className="p-3 sm:p-5 lg:p-6 w-full max-w-full space-y-6 pb-16">
       
       {/* 0. NAVIGATION / BREADCRUMB ROW */}
       <div className="flex items-center gap-4">
@@ -998,463 +998,344 @@ export default function KpiTeacherStaff() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+        {/* HELPER FUNCTION FOR RENDERING KPI ROW */}
+        {(() => {
+          const renderKpiRow = (form: KpiVcForm, idx: number) => {
+            const isLocked = form.status === 'locked';
+            const statusMeta = getVcStatusMeta(form.status);
+            const ratingInfo = getFormRating(form);
+            const finalClassification = ratingInfo.ratingName;
+            const classStyle = ratingInfo.badgeStyle;
+            const isSelected = selectedFormIds.includes(form.id);
+
+            const isMyForm = user?.id === form.employeeId;
+            const canSelfScore = isMyForm && (!form.status || form.status === 'draft' || form.status === 'returned') && !isLocked;
+            const canTtcmScore = (user?.role === 'TTCM' || user?.role === 'admin' || isAdmin) && form.status === 'submitted' && !isLocked;
+
+            const sttStickyClass = showAdminCheckbox ? 'left-10' : 'left-0';
+            const nameStickyClass = showAdminCheckbox ? 'left-[88px]' : 'left-12';
+
+            return (
+              <tr 
+                key={form.id} 
+                className={`group hover:bg-slate-50/90 transition-colors border-b border-slate-200/80 ${isSelected ? 'bg-blue-50/50' : 'bg-white'}`}
+              >
                 {showAdminCheckbox && (
-                  <th className="p-3.5 w-10 text-center">
+                  <td className="p-3 text-center sticky left-0 z-20 bg-white group-hover:bg-slate-50 border-r border-slate-200 transition-colors">
                     <input
                       type="checkbox"
-                      checked={isAllSelected}
-                      onChange={handleToggleSelectAll}
-                      disabled={filteredForms.length === 0}
-                      title={isAllSelected ? "Bỏ chọn tất cả" : `Chọn tất cả ${filteredForms.length} phiếu`}
+                      checked={isSelected}
+                      onChange={() => handleToggleSelectRow(form.id)}
                       className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
                     />
-                  </th>
-                )}
-                <th className="p-3.5 w-12 text-center">STT</th>
-                <th className="p-3.5 min-w-[200px]">Cán bộ / Giáo viên / Nhân viên</th>
-                <th className="p-3.5 min-w-[150px]">Đơn vị công tác</th>
-                <th className="p-3.5 min-w-[140px]">Kỳ đánh giá</th>
-                <th className="p-3.5 text-center w-32 bg-blue-50/70 text-blue-900 font-bold">
-                  Điểm tự đánh giá
-                </th>
-                <th className="p-3.5 text-center w-36 bg-purple-50/70 text-purple-900 font-bold">
-                  Điểm TTCM đánh giá
-                </th>
-                <th className="p-3.5 text-center w-36 bg-indigo-50/70 text-indigo-900 font-bold">
-                  Điểm BGH đánh giá
-                </th>
-                <th className="p-3.5 text-center min-w-[180px]">Xếp loại</th>
-                <th className="p-3.5 text-center w-28">Trạng thái</th>
-                <th className="p-3.5 text-center w-36">Thao tác</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-200">
-              {filteredForms.length === 0 ? (
-                <tr>
-                  <td colSpan={showAdminCheckbox ? 10 : 9} className="p-12 text-center text-slate-400">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <FileText size={32} className="text-slate-300" />
-                      <p className="font-semibold text-slate-600">Chưa có phiếu đánh giá KPI.</p>
-                      {import.meta.env.DEV && (
-                        <p className="text-xs text-slate-400">Nhấn nút "+ Tạo phiếu đánh giá mới" để bắt đầu.</p>
-                      )}
-                    </div>
                   </td>
-                </tr>
-              ) : groupByDept ? (
-                groupedFormsByDept.map(group => {
-                  if (group.forms.length === 0) return null;
-                  return (
-                    <React.Fragment key={group.deptId}>
-                      {/* GROUP HEADER ROW FOR TỔ CHUYÊN MÔN */}
-                      <tr className="bg-slate-100/95 border-y border-slate-300 font-extrabold text-slate-800">
-                        <td colSpan={showAdminCheckbox ? 10 : 9} className="py-2.5 px-4 bg-slate-100/90">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5 text-slate-900 font-extrabold text-xs sm:text-sm">
-                              <Folder size={16} className="text-blue-600 fill-blue-100 shrink-0" />
-                              <span>{group.deptName}</span>
-                              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-bold border border-blue-200">
-                                {group.forms.length} phiếu đánh giá
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
+                )}
 
-                      {group.forms.map((form, idx) => {
-                        const isLocked = form.status === 'locked';
-                        const statusMeta = getVcStatusMeta(form.status);
-                        const ratingInfo = getFormRating(form);
-                        const finalClassification = ratingInfo.ratingName;
-                        const classStyle = ratingInfo.badgeStyle;
-                        const isSelected = selectedFormIds.includes(form.id);
+                {/* STT */}
+                <td className={`p-3 text-center font-bold text-slate-500 sticky ${sttStickyClass} z-20 bg-white group-hover:bg-slate-50 border-r border-slate-200 transition-colors`}>
+                  {idx + 1}
+                </td>
 
-                        return (
-                          <tr key={form.id} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}>
-                            {showAdminCheckbox && (
-                              <td className="p-3.5 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleSelectRow(form.id)}
-                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
-                                />
-                              </td>
-                            )}
-                            <td className="p-3.5 text-center font-bold text-slate-500">
-                              {idx + 1}
-                            </td>
-
-                            <td className="p-3.5">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs shrink-0">
-                                  {form.employeeName.charAt(0)}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-slate-900 hover:text-blue-600 transition-colors cursor-pointer"
-                                     onClick={() => handleOpenDoc(form, 'view')}>
-                                    {form.employeeName}
-                                  </p>
-                                  <p className="text-[11px] text-slate-500">
-                                    {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
-                                  </p>
-                                  <div className="text-[10px] space-y-0.5 mt-1">
-                                    {form.ttcmEvaluatorName && (
-                                      <div className="text-slate-600">
-                                        <span className="font-bold text-purple-700">Tổ:</span> {form.ttcmEvaluatorName}
-                                        {typeof form.ttcmTotalScore === 'number' && form.ttcmTotalScore !== null ? (
-                                          <span className="ml-1 font-mono text-purple-900 font-bold">({form.ttcmTotalScore}đ)</span>
-                                        ) : (
-                                          <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
-                                        )}
-                                      </div>
-                                    )}
-                                    {(form.bghEvaluatorName || form.evaluatorName) && (
-                                      <div className="text-slate-600">
-                                        <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
-                                        {typeof form.managerTotalScore === 'number' && form.managerTotalScore !== null ? (
-                                          <span className="ml-1 font-mono text-blue-900 font-bold">({form.managerTotalScore}đ)</span>
-                                        ) : (
-                                          <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="p-3.5 text-slate-700 font-medium">
-                              {form.department}
-                            </td>
-
-                            <td className="p-3.5">
-                              <span className="font-semibold text-slate-900 block">{form.periodName}</span>
-                              <span className="text-[11px] text-slate-500">{form.academicYear}</span>
-                            </td>
-
-                            <td className="p-3.5 text-center font-extrabold text-blue-800 bg-blue-50/30 text-sm">
-                              {form.totalScore !== null && form.totalScore !== undefined ? (
-                                <>{form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                              ) : (
-                                <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
-                              )}
-                            </td>
-
-                            <td className="p-3.5 text-center font-extrabold text-purple-800 bg-purple-50/30 text-sm">
-                              {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? (
-                                <>{form.ttcmTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                              ) : (
-                                <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
-                              )}
-                            </td>
-
-                            <td className="p-3.5 text-center font-extrabold text-indigo-800 bg-indigo-50/30 text-sm">
-                              {form.managerTotalScore !== null && form.managerTotalScore !== undefined ? (
-                                <>
-                                  {form.managerTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
-                                </>
-                              ) : (
-                                <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
-                              )}
-                            </td>
-
-                            <td className="p-3.5 text-center">
-                              <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${classStyle.bg} ${classStyle.text} ${classStyle.border}`}>
-                                {finalClassification}
-                              </span>
-                            </td>
-
-                            <td className="p-3.5 text-center">
-                              {isLocked ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                                  <Lock size={12} /> Đã khóa
-                                </span>
-                              ) : (
-                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusMeta.badgeClass}`} title={statusMeta.description}>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
-                                  {statusMeta.label}
-                                </span>
-                              )}
-                            </td>
-
-                            <td className="p-3.5 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenDoc(form, 'view')}
-                                  title="Xem chi tiết phiếu"
-                                  className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  <Eye size={15} />
-                                </button>
-
-                                {(!isLocked || isAdmin) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenDoc(form, 'edit')}
-                                    title="Chỉnh sửa / Tự chấm"
-                                    className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                  >
-                                    <Edit3 size={15} />
-                                  </button>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenPrint(form)}
-                                  title="In phiếu A4 chuẩn"
-                                  className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  <Printer size={15} />
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleExportWord(form)}
-                                  disabled={exportingWordId === form.id}
-                                  title="Xuất Word (.doc)"
-                                  className="p-1.5 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  {exportingWordId === form.id ? (
-                                    <Loader2 size={15} className="animate-spin text-blue-600" />
-                                  ) : (
-                                    <FileText size={15} />
-                                  )}
-                                </button>
-
-                                {isAdmin && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleLock(form)}
-                                    title={isLocked ? "Mở khóa phiếu" : "Khóa phiếu"}
-                                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                      isLocked ? 'text-amber-600 hover:bg-amber-50' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    {isLocked ? <Unlock size={15} /> : <Lock size={15} />}
-                                  </button>
-                                )}
-
-                                {!isProductionWeb() && canDeleteForm(form) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRequestDeleteForm(form)}
-                                    title="Xóa phiếu đánh giá này"
-                                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  );
-                })
-              ) : (
-                filteredForms.map((form, idx) => {
-                  const isLocked = form.status === 'locked';
-                  const statusMeta = getVcStatusMeta(form.status);
-                  const ratingInfo = getFormRating(form);
-                  const finalClassification = ratingInfo.ratingName;
-                  const classStyle = ratingInfo.badgeStyle;
-
-                  const isSelected = selectedFormIds.includes(form.id);
-
-                  return (
-                    <tr key={form.id} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}>
-                      {showAdminCheckbox && (
-                        <td className="p-3.5 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleSelectRow(form.id)}
-                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
-                          />
-                        </td>
-                      )}
-                      <td className="p-3.5 text-center font-bold text-slate-500">
-                        {idx + 1}
-                      </td>
-
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs shrink-0">
-                            {form.employeeName.charAt(0)}
-                          </div>
-                          <div>
-                            <p className="font-bold text-slate-900 hover:text-blue-600 transition-colors cursor-pointer"
-                               onClick={() => handleOpenDoc(form, 'view')}>
-                              {form.employeeName}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
-                            </p>
-                            <div className="text-[10px] space-y-0.5 mt-1">
-                              {form.ttcmEvaluatorName && (
-                                <div className="text-slate-600">
-                                  <span className="font-bold text-purple-700">Tổ:</span> {form.ttcmEvaluatorName}
-                                  {typeof form.ttcmTotalScore === 'number' && form.ttcmTotalScore !== null ? (
-                                    <span className="ml-1 font-mono text-purple-900 font-bold">({form.ttcmTotalScore}đ)</span>
-                                  ) : (
-                                    <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
-                                  )}
-                                </div>
-                              )}
-                              {(form.bghEvaluatorName || form.evaluatorName) && (
-                                <div className="text-slate-600">
-                                  <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
-                                  {typeof form.managerTotalScore === 'number' && form.managerTotalScore !== null ? (
-                                    <span className="ml-1 font-mono text-blue-900 font-bold">({form.managerTotalScore}đ)</span>
-                                  ) : (
-                                    <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="p-3.5 text-slate-700 font-medium">
-                        {form.department}
-                      </td>
-
-                      <td className="p-3.5">
-                        <span className="font-semibold text-slate-900 block">{form.periodName}</span>
-                        <span className="text-[11px] text-slate-500">{form.academicYear}</span>
-                      </td>
-
-                      <td className="p-3.5 text-center font-extrabold text-blue-800 bg-blue-50/30 text-sm">
-                        {form.totalScore !== null && form.totalScore !== undefined ? (
-                          <>{form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                        ) : (
-                          <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
-                        )}
-                      </td>
-
-                      <td className="p-3.5 text-center font-extrabold text-purple-800 bg-purple-50/30 text-sm">
-                        {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? (
-                          <>{form.ttcmTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                        ) : (
-                          <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
-                        )}
-                      </td>
-
-                      <td className="p-3.5 text-center font-extrabold text-indigo-800 bg-indigo-50/30 text-sm">
-                        {form.managerTotalScore !== null && form.managerTotalScore !== undefined ? (
-                          <>
-                            {form.managerTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400 text-xs font-normal">Chưa chấm</span>
-                        )}
-                      </td>
-
-                      <td className="p-3.5 text-center">
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${classStyle.bg} ${classStyle.text} ${classStyle.border}`}>
-                          {finalClassification}
-                        </span>
-                      </td>
-
-                      <td className="p-3.5 text-center">
-                        {isLocked ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                            <Lock size={12} /> Đã khóa
-                          </span>
-                        ) : (
-                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusMeta.badgeClass}`} title={statusMeta.description}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
-                            {statusMeta.label}
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDoc(form, 'view')}
-                            title="Xem chi tiết phiếu"
-                            className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                          >
-                            <Eye size={15} />
-                          </button>
-
-                          {(!isLocked || isAdmin) && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenDoc(form, 'edit')}
-                              title="Chỉnh sửa / Tự chấm"
-                              className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                            >
-                              <Edit3 size={15} />
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => handleOpenPrint(form)}
-                            title="In phiếu A4 chuẩn"
-                            className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                          >
-                            <Printer size={15} />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleExportWord(form)}
-                            disabled={exportingWordId === form.id}
-                            title="Xuất Word (.doc)"
-                            className="p-1.5 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            {exportingWordId === form.id ? (
-                              <Loader2 size={15} className="animate-spin text-blue-600" />
+                {/* Họ và tên giáo viên (Sticky Column) */}
+                <td className={`p-3 sticky ${nameStickyClass} z-20 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.08)] transition-colors min-w-[220px] max-w-[260px]`}>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs">
+                      {form.employeeName.charAt(0)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p 
+                        className="font-bold text-slate-900 text-xs sm:text-sm hover:text-blue-600 transition-colors cursor-pointer truncate"
+                        onClick={() => handleOpenDoc(form, 'view')}
+                        title={`Xem chi tiết: ${form.employeeName}`}
+                      >
+                        {form.employeeName}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate" title={`${form.position} ${form.employeeCode ? `• Mã: ${form.employeeCode}` : ''}`}>
+                        {form.position} {form.employeeCode ? `• ${form.employeeCode}` : ''}
+                      </p>
+                      <div className="text-[10px] space-y-0.5 mt-0.5">
+                        {form.ttcmEvaluatorName && (
+                          <div className="text-slate-600 truncate" title={`TTCM: ${form.ttcmEvaluatorName}`}>
+                            <span className="font-bold text-purple-700">Tổ:</span> {form.ttcmEvaluatorName}
+                            {typeof form.ttcmTotalScore === 'number' && form.ttcmTotalScore !== null ? (
+                              <span className="ml-1 font-mono text-purple-900 font-bold">({form.ttcmTotalScore}đ)</span>
                             ) : (
-                              <FileText size={15} />
+                              <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
                             )}
-                          </button>
+                          </div>
+                        )}
+                        {(form.bghEvaluatorName || form.evaluatorName) && (
+                          <div className="text-slate-600 truncate" title={`BGH: ${form.bghEvaluatorName || form.evaluatorName}`}>
+                            <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
+                            {typeof form.managerTotalScore === 'number' && form.managerTotalScore !== null ? (
+                              <span className="ml-1 font-mono text-blue-900 font-bold">({form.managerTotalScore}đ)</span>
+                            ) : (
+                              <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </td>
 
-                          {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleLock(form)}
-                              title={isLocked ? "Mở khóa phiếu" : "Khóa phiếu"}
-                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                isLocked ? 'text-amber-600 hover:bg-amber-50' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                              }`}
-                            >
-                              {isLocked ? <Unlock size={15} /> : <Lock size={15} />}
-                            </button>
-                          )}
+                {/* Tổ chuyên môn */}
+                <td className="p-3 text-slate-700 font-medium border-r border-slate-100 whitespace-nowrap min-w-[150px]">
+                  <span className="inline-block px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-800">
+                    {form.department}
+                  </span>
+                </td>
 
-                          {!isProductionWeb() && canDeleteForm(form) && (
-                            <button
-                              type="button"
-                              onClick={() => handleRequestDeleteForm(form)}
-                              title="Xóa phiếu đánh giá này"
-                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            >
-                              <Trash2 size={15} />
-                            </button>
+                {/* Tháng đánh giá */}
+                <td className="p-3 border-r border-slate-100 min-w-[130px] whitespace-nowrap">
+                  <span className="font-bold text-slate-900 block text-xs">{form.periodName}</span>
+                  <span className="text-[11px] text-slate-500 font-medium">{form.academicYear}</span>
+                </td>
+
+                {/* Điểm tự chấm */}
+                <td className="p-3 text-center font-black text-blue-800 bg-blue-50/40 text-xs sm:text-sm border-r border-blue-100/60 font-mono min-w-[115px]">
+                  {form.totalScore !== null && form.totalScore !== undefined ? (
+                    <>{form.totalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                  ) : (
+                    <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                  )}
+                </td>
+
+                {/* Điểm TTCM đánh giá */}
+                <td className="p-3 text-center font-black text-purple-800 bg-purple-50/40 text-xs sm:text-sm border-r border-purple-100/60 font-mono min-w-[125px]">
+                  {form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? (
+                    <>{form.ttcmTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                  ) : (
+                    <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                  )}
+                </td>
+
+                {/* Điểm BGH đánh giá */}
+                <td className="p-3 text-center font-black text-indigo-800 bg-indigo-50/40 text-xs sm:text-sm border-r border-indigo-100/60 font-mono min-w-[125px]">
+                  {form.managerTotalScore !== null && form.managerTotalScore !== undefined ? (
+                    <>{form.managerTotalScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                  ) : (
+                    <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                  )}
+                </td>
+
+                {/* Kết quả thực hiện nhiệm vụ (Xếp loại) */}
+                <td className="p-3 text-center border-r border-slate-100 min-w-[170px]">
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold border whitespace-nowrap shadow-2xs ${classStyle.bg} ${classStyle.text} ${classStyle.border}`}>
+                    {finalClassification}
+                  </span>
+                </td>
+
+                {/* Trạng thái */}
+                <td className="p-3 text-center border-r border-slate-100 min-w-[130px]">
+                  {isLocked ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                      <Lock size={12} /> Đã khóa
+                    </span>
+                  ) : (
+                    <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border whitespace-nowrap ${statusMeta.badgeClass}`} title={statusMeta.description}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
+                      {statusMeta.label}
+                    </span>
+                  )}
+                </td>
+
+                {/* Thao tác */}
+                <td className="p-3 text-center min-w-[200px]">
+                  <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
+                    {/* Nút Tự chấm nổi bật */}
+                    {canSelfScore && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoc(form, 'self_eval')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
+                        title="Tự chấm điểm phiếu KPI"
+                      >
+                        <Edit3 size={12} /> Tự chấm
+                      </button>
+                    )}
+
+                    {/* Nút Chấm TTCM */}
+                    {canTtcmScore && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoc(form, 'ttcm_eval')}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
+                        title="Tổ trưởng chuyên môn chấm điểm"
+                      >
+                        <Edit3 size={12} /> Chấm TTCM
+                      </button>
+                    )}
+
+                    {/* Xem chi tiết */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDoc(form, 'view')}
+                      title="Xem chi tiết phiếu"
+                      className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Eye size={15} />
+                    </button>
+
+                    {/* Chỉnh sửa */}
+                    {(!isLocked || isAdmin) && !canSelfScore && !canTtcmScore && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoc(form, 'edit')}
+                        title="Chỉnh sửa phiếu"
+                        className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Edit3 size={15} />
+                      </button>
+                    )}
+
+                    {/* In */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPrint(form)}
+                      title="In phiếu A4 chuẩn"
+                      className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Printer size={15} />
+                    </button>
+
+                    {/* Word */}
+                    <button
+                      type="button"
+                      onClick={() => handleExportWord(form)}
+                      disabled={exportingWordId === form.id}
+                      title="Xuất Word (.doc)"
+                      className="p-1.5 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {exportingWordId === form.id ? (
+                        <Loader2 size={15} className="animate-spin text-blue-600" />
+                      ) : (
+                        <FileText size={15} />
+                      )}
+                    </button>
+
+                    {/* Khóa/Mở khóa */}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleLock(form)}
+                        title={isLocked ? "Mở khóa phiếu" : "Khóa phiếu"}
+                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                          isLocked ? 'text-amber-600 hover:bg-amber-50' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {isLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                      </button>
+                    )}
+
+                    {/* Xóa */}
+                    {!isProductionWeb() && canDeleteForm(form) && (
+                      <button
+                        type="button"
+                        onClick={() => handleRequestDeleteForm(form)}
+                        title="Xóa phiếu đánh giá này"
+                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          };
+
+          return (
+            <div className="overflow-x-auto relative w-full scrollbar-thin">
+              <table className="w-full text-left border-collapse text-xs min-w-[1200px]">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
+                    {showAdminCheckbox && (
+                      <th className="p-3.5 w-10 min-w-[40px] text-center sticky left-0 z-30 bg-slate-100 border-r border-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={isAllSelected}
+                          onChange={handleToggleSelectAll}
+                          disabled={filteredForms.length === 0}
+                          title={isAllSelected ? "Bỏ chọn tất cả" : `Chọn tất cả ${filteredForms.length} phiếu`}
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                        />
+                      </th>
+                    )}
+                    <th className={`p-3.5 w-12 min-w-[48px] text-center sticky ${showAdminCheckbox ? 'left-10' : 'left-0'} z-30 bg-slate-100 border-r border-slate-300`}>
+                      STT
+                    </th>
+                    <th className={`p-3.5 min-w-[220px] max-w-[260px] sticky ${showAdminCheckbox ? 'left-[88px]' : 'left-12'} z-30 bg-slate-100 border-r border-slate-300 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.08)]`}>
+                      Họ và tên giáo viên
+                    </th>
+                    <th className="p-3.5 min-w-[150px] border-r border-slate-200">Tổ chuyên môn</th>
+                    <th className="p-3.5 min-w-[130px] border-r border-slate-200">Tháng đánh giá</th>
+                    <th className="p-3.5 text-center min-w-[115px] bg-blue-100/70 text-blue-950 font-extrabold border-r border-blue-200">
+                      Điểm tự chấm
+                    </th>
+                    <th className="p-3.5 text-center min-w-[125px] bg-purple-100/70 text-purple-950 font-extrabold border-r border-purple-200">
+                      Điểm TTCM
+                    </th>
+                    <th className="p-3.5 text-center min-w-[125px] bg-indigo-100/70 text-indigo-950 font-extrabold border-r border-indigo-200">
+                      Điểm BGH
+                    </th>
+                    <th className="p-3.5 text-center min-w-[170px] border-r border-slate-200">
+                      Kết quả thực hiện nhiệm vụ
+                    </th>
+                    <th className="p-3.5 text-center min-w-[130px] border-r border-slate-200">
+                      Trạng thái
+                    </th>
+                    <th className="p-3.5 text-center min-w-[200px]">
+                      Thao tác
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-200">
+                  {filteredForms.length === 0 ? (
+                    <tr>
+                      <td colSpan={showAdminCheckbox ? 11 : 10} className="p-12 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <FileText size={32} className="text-slate-300" />
+                          <p className="font-semibold text-slate-600">Chưa có phiếu đánh giá KPI.</p>
+                          {import.meta.env.DEV && (
+                            <p className="text-xs text-slate-400">Nhấn nút "+ Tạo phiếu đánh giá mới" để bắt đầu.</p>
                           )}
                         </div>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                  ) : groupByDept ? (
+                    groupedFormsByDept.map(group => {
+                      if (group.forms.length === 0) return null;
+                      return (
+                        <React.Fragment key={group.deptId}>
+                          {/* GROUP HEADER ROW FOR TỔ CHUYÊN MÔN */}
+                          <tr className="bg-slate-100/95 border-y border-slate-300 font-extrabold text-slate-800">
+                            <td colSpan={showAdminCheckbox ? 11 : 10} className="py-2.5 px-4 bg-slate-100/95 sticky left-0 z-10">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5 text-slate-900 font-extrabold text-xs sm:text-sm">
+                                  <Folder size={16} className="text-blue-600 fill-blue-100 shrink-0" />
+                                  <span>{group.deptName}</span>
+                                  <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-bold border border-blue-200">
+                                    {group.forms.length} phiếu đánh giá
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {group.forms.map((form, idx) => renderKpiRow(form, idx))}
+                        </React.Fragment>
+                      );
+                    })
+                  ) : (
+                    filteredForms.map((form, idx) => renderKpiRow(form, idx))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
 
       </div>
 

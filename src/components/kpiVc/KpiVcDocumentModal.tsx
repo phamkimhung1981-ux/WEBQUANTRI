@@ -132,7 +132,7 @@ export default function KpiVcDocumentModal({
   }, [teachers]);
 
   // --- SINGLE FORM STATE (FOR EDIT / VIEW / EVAL MODES) ---
-  const [zoomLevel, setZoomLevel] = useState<number>(0.75);
+  const [zoomLevel, setZoomLevel] = useState<number>(1.0);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>('');
@@ -918,14 +918,20 @@ export default function KpiVcDocumentModal({
     return false;
   }, [user, form, isAdmin]);
 
+  const isOwnerOfThisForm = useMemo(() => {
+    if (!user || !form) return false;
+    return form.employeeId === user.id;
+  }, [user, form]);
+
   // VAI TRÒ THỰC THI (CHO PHÉP ROLE SIMULATOR ĐỂ THỬ NGHIỆM TIỆN LỢI)
   const effectiveRole = useMemo<'TEACHER' | 'TTCM' | 'BGH' | 'ADMIN'>(() => {
     if (simulatedRole !== 'AUTO') return simulatedRole;
+    if (isOwnerOfThisForm && isDraftOrReturned) return 'TEACHER';
     if (isAdmin) return 'ADMIN';
     if (isBghForThisForm) return 'BGH';
     if (isTtcmForThisForm) return 'TTCM';
     return 'TEACHER';
-  }, [simulatedRole, isAdmin, isBghForThisForm, isTtcmForThisForm]);
+  }, [simulatedRole, isAdmin, isBghForThisForm, isTtcmForThisForm, isOwnerOfThisForm, isDraftOrReturned]);
 
   // Kiểm tra hoàn thành tự chấm: tất cả tiêu chí đều phải có điểm tự chấm hợp lệ (kể cả 0 điểm)
   const missingSelfCriteria = useMemo(() => {
@@ -943,9 +949,9 @@ export default function KpiVcDocumentModal({
 
   // RÀNG BUỘC CHẶT CHẼ THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ:
   // (1) Giáo viên tự chấm điểm và gửi phiếu:
-  //     Chỉ mở khi đang ở Cấp 1 (Chưa tự chấm / Yêu cầu tự chấm lại), đúng quyền Giáo viên / Admin
+  //     Chỉ mở khi đang ở Cấp 1 (Chưa tự chấm / Yêu cầu tự chấm lại), đúng quyền Giáo viên / Admin / Chủ sở hữu
   const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && 
-    (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN') && 
+    (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN' || mode === 'self_eval' || isOwnerOfThisForm) && 
     mode !== 'view';
 
   // (2) TTCM chỉ được xem, đánh giá và chấm điểm sau khi giáo viên đã hoàn thành và gửi phiếu tự chấm:
@@ -1280,7 +1286,7 @@ export default function KpiVcDocumentModal({
   // =========================================================================
   if (mode === 'create' || !form) {
     return (
-      <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-40 bg-slate-50 flex flex-col font-sans overflow-y-auto">
+      <div className="fixed inset-0 z-[2000] bg-slate-50 flex flex-col font-sans overflow-y-auto">
         <div className="bg-slate-50 w-full min-h-screen flex flex-col">
           
           {/* HEADER */}
@@ -2006,12 +2012,12 @@ export default function KpiVcDocumentModal({
   // RENDER 2: SINGLE FORM DOCUMENT MODAL (FOR EDIT / SELF_EVAL / LEADER_EVAL / VIEW)
   // =========================================================================
   return (
-    <div className="fixed top-0 bottom-0 right-0 left-0 lg:left-[var(--sidebar-width)] z-[2000] flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       
       {/* Container phiếu */}
       <div 
         id="kpi-vc-document-modal" 
-        className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col my-auto max-h-[96vh] overflow-hidden border border-slate-200 font-sans"
+        className="bg-white w-full max-w-6xl xl:max-w-7xl rounded-2xl shadow-2xl flex flex-col my-auto max-h-[96vh] overflow-hidden border border-slate-200 font-sans"
         style={{ zoom: zoomLevel }}
       >
         
@@ -2566,19 +2572,19 @@ export default function KpiVcDocumentModal({
             </div>
 
             {/* 5. BẢNG CHẤM ĐIỂM CHUẨN */}
-            <div className="border border-slate-400 rounded-lg overflow-x-auto mb-8">
-              <table className="w-full text-left border-collapse min-w-[700px]">
+            <div className="border border-slate-300 rounded-xl overflow-x-auto mb-8 bg-white shadow-2xs">
+              <table className="w-full text-left border-collapse min-w-[850px]">
                 <thead>
-                  <tr className="bg-slate-200/90 text-slate-900 border-b border-slate-400 font-bold text-center text-xs">
-                    <th className="p-2 border-r border-slate-400 w-10">Stt</th>
-                    <th className="p-2 border-r border-slate-400 text-left min-w-[200px]">Nội dung đánh giá</th>
-                    <th className="p-2 border-r border-slate-400 w-16">Tối đa</th>
+                  <tr className="bg-slate-100 text-slate-800 border-b border-slate-300 font-bold text-center text-xs">
+                    <th className="p-2.5 border-r border-slate-300 w-12 text-center">STT</th>
+                    <th className="p-2.5 border-r border-slate-300 text-left min-w-[280px]">Nội dung tiêu chí đánh giá</th>
+                    <th className="p-2.5 border-r border-slate-300 w-16 text-center font-bold">Tối đa</th>
                     
                     {/* CỘT TỰ CHẤM (CẤP 1) */}
-                    <th className={`p-2 border-r border-slate-400 font-extrabold w-28 ${
+                    <th className={`p-2.5 border-r border-slate-300 font-extrabold w-32 ${
                       canEditSelf 
-                        ? 'bg-blue-100 text-blue-950 ring-1 ring-blue-400' 
-                        : 'bg-blue-50/70 text-blue-950'
+                        ? 'bg-blue-100 text-blue-950 ring-2 ring-blue-500/30' 
+                        : 'bg-blue-50 text-blue-950'
                     }`}>
                       <div>Tự chấm</div>
                       <div className="text-[10px] font-bold text-blue-700">
@@ -2588,10 +2594,10 @@ export default function KpiVcDocumentModal({
 
                     {/* CỘT TTCM ĐÁNH GIÁ (CẤP 2) */}
                     <th 
-                      className={`p-2 border-r border-slate-400 font-extrabold w-28 ${
+                      className={`p-2.5 border-r border-slate-300 font-extrabold w-32 ${
                         canEditTtcm 
-                          ? 'bg-purple-100 text-purple-950 ring-1 ring-purple-400' 
-                          : 'bg-purple-50/70 text-purple-950'
+                          ? 'bg-purple-100 text-purple-950 ring-2 ring-purple-500/30' 
+                          : 'bg-purple-50 text-purple-950'
                       }`}
                       title={lockReasonTtcm}
                     >
@@ -2603,10 +2609,10 @@ export default function KpiVcDocumentModal({
 
                     {/* CỘT CBQL ĐÁNH GIÁ (CẤP 3) */}
                     <th 
-                      className={`p-2 border-r border-slate-400 font-extrabold w-28 ${
+                      className={`p-2.5 border-r border-slate-300 font-extrabold w-32 ${
                         canEditManager 
-                          ? 'bg-amber-100 text-amber-950 ring-1 ring-amber-400' 
-                          : 'bg-amber-50/70 text-amber-950'
+                          ? 'bg-amber-100 text-amber-950 ring-2 ring-amber-500/30' 
+                          : 'bg-amber-50 text-amber-950'
                       }`}
                       title={lockReasonManager}
                     >
@@ -2616,7 +2622,7 @@ export default function KpiVcDocumentModal({
                       </div>
                     </th>
 
-                    <th className="p-2 text-slate-800 text-left min-w-[120px]">Ghi chú / Minh chứng</th>
+                    <th className="p-2.5 text-slate-800 text-left min-w-[150px]">Ghi chú / Minh chứng</th>
                   </tr>
                 </thead>
 
@@ -2629,23 +2635,23 @@ export default function KpiVcDocumentModal({
 
                     return (
                       <React.Fragment key={group.id}>
-                        <tr className="bg-slate-100/95 font-extrabold text-slate-900 border-y border-slate-400">
-                          <td className="p-2 text-center font-bold border-r border-slate-400 uppercase">
+                        <tr className="bg-slate-100/95 font-extrabold text-slate-900 border-y border-slate-300">
+                          <td className="p-2 text-center font-bold border-r border-slate-300 uppercase">
                             {group.code}
                           </td>
-                          <td className="p-2 border-r border-slate-400 uppercase font-bold text-blue-950">
+                          <td className="p-2 border-r border-slate-300 uppercase font-bold text-blue-950">
                             {group.name}
                           </td>
-                          <td className="p-2 text-center border-r border-slate-400 font-bold text-slate-900 font-mono">
+                          <td className="p-2 text-center border-r border-slate-300 font-bold text-slate-900 font-mono">
                             {group.maxScore}
                           </td>
-                          <td className="p-2 text-center border-r border-slate-400 bg-blue-50/50 font-extrabold text-blue-900 font-mono">
+                          <td className="p-2 text-center border-r border-slate-300 bg-blue-50/50 font-extrabold text-blue-900 font-mono">
                             {scoreItems.some(it => it.groupId === group.id && typeof it.selfScore === 'number') ? `${groupScore} / ${group.maxScore}` : `--- / ${group.maxScore}`}
                           </td>
-                          <td className="p-2 text-center border-r border-slate-400 bg-purple-50/50 font-extrabold text-purple-900 font-mono">
+                          <td className="p-2 text-center border-r border-slate-300 bg-purple-50/50 font-extrabold text-purple-900 font-mono">
                             {hasAnyTtcmScore || canEditTtcm ? `${groupTtcmScore} / ${group.maxScore}` : '---'}
                           </td>
-                          <td className="p-2 text-center border-r border-slate-400 bg-amber-50/50 font-extrabold text-amber-900 font-mono">
+                          <td className="p-2 text-center border-r border-slate-300 bg-amber-50/50 font-extrabold text-amber-900 font-mono">
                             {hasAnyManagerScore || canEditManager ? `${groupMgrScore} / ${group.maxScore}` : '---'}
                           </td>
                           <td className="p-2 bg-slate-50"></td>
@@ -2733,28 +2739,30 @@ export default function KpiVcDocumentModal({
                               </td>
 
                               {/* TỰ CHẤM */}
-                              <td className="p-2 text-center border-r border-slate-300 bg-blue-50/30">
+                              <td className="p-2 text-center border-r border-slate-300 bg-blue-50/40">
                                 {canEditSelf ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={criterion.maxScore}
-                                    step={0.5}
-                                    value={typeof itemScore?.selfScore === 'number' ? itemScore.selfScore : ''}
-                                    onChange={(e) => {
-                                      const raw = e.target.value;
-                                      if (raw === '') {
-                                        handleSelfScoreChange(criterion.id, null);
-                                      } else {
-                                        const num = parseFloat(raw);
-                                        if (!isNaN(num)) {
-                                          handleSelfScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                  <div className="flex items-center justify-center">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={criterion.maxScore}
+                                      step={0.5}
+                                      value={typeof itemScore?.selfScore === 'number' ? itemScore.selfScore : ''}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        if (raw === '') {
+                                          handleSelfScoreChange(criterion.id, null);
+                                        } else {
+                                          const num = parseFloat(raw);
+                                          if (!isNaN(num)) {
+                                            handleSelfScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                          }
                                         }
-                                      }
-                                    }}
-                                    placeholder="---"
-                                    className="w-14 p-1 text-center font-bold bg-white border border-blue-300 rounded text-blue-900 focus:ring-2 focus:ring-blue-500 font-mono"
-                                  />
+                                      }}
+                                      placeholder="---"
+                                      className="w-16 px-1.5 py-1 text-center font-bold bg-white border border-blue-400 rounded-lg text-blue-900 focus:ring-2 focus:ring-blue-500 font-mono shadow-2xs text-xs sm:text-sm"
+                                    />
+                                  </div>
                                 ) : (
                                   <span className="font-bold text-blue-900 font-mono">
                                     {typeof currentSelfScore === 'number' ? currentSelfScore : '---'}
@@ -2765,26 +2773,28 @@ export default function KpiVcDocumentModal({
                               {/* TTCM ĐÁNH GIÁ */}
                               <td className={`p-2 text-center border-r border-slate-300 ${canEditTtcm ? 'bg-purple-50/40' : (isDraftOrReturned ? 'bg-slate-100/50' : 'bg-purple-50/20')}`}>
                                 {canEditTtcm ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={criterion.maxScore}
-                                    step={0.5}
-                                    value={typeof currentTtcmScore === 'number' ? currentTtcmScore : ''}
-                                    onChange={(e) => {
-                                      const raw = e.target.value;
-                                      if (raw === '') {
-                                        handleTtcmScoreChange(criterion.id, null);
-                                      } else {
-                                        const num = parseFloat(raw);
-                                        if (!isNaN(num)) {
-                                          handleTtcmScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                  <div className="flex items-center justify-center">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={criterion.maxScore}
+                                      step={0.5}
+                                      value={typeof currentTtcmScore === 'number' ? currentTtcmScore : ''}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        if (raw === '') {
+                                          handleTtcmScoreChange(criterion.id, null);
+                                        } else {
+                                          const num = parseFloat(raw);
+                                          if (!isNaN(num)) {
+                                            handleTtcmScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                          }
                                         }
-                                      }
-                                    }}
-                                    className="w-14 p-1 text-center font-bold bg-white border border-purple-300 rounded text-purple-950 focus:ring-2 focus:ring-purple-500 font-mono shadow-xs"
-                                    placeholder="---"
-                                  />
+                                      }}
+                                      className="w-16 px-1.5 py-1 text-center font-bold bg-white border border-purple-400 rounded-lg text-purple-950 focus:ring-2 focus:ring-purple-500 font-mono shadow-2xs text-xs sm:text-sm"
+                                      placeholder="---"
+                                    />
+                                  </div>
                                 ) : isDraftOrReturned ? (
                                   <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title="Khóa: Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm">
                                     <Lock size={11} className="text-slate-300 shrink-0" /> ---
@@ -2799,26 +2809,28 @@ export default function KpiVcDocumentModal({
                               {/* CBQL ĐÁNH GIÁ */}
                               <td className={`p-2 text-center border-r border-slate-300 ${canEditManager ? 'bg-amber-50/40' : (isDraftOrReturned || isSubmittedToTtcm ? 'bg-slate-100/50' : 'bg-amber-50/20')}`}>
                                 {canEditManager ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={criterion.maxScore}
-                                    step={0.5}
-                                    value={typeof currentManagerScore === 'number' ? currentManagerScore : ''}
-                                    onChange={(e) => {
-                                      const raw = e.target.value;
-                                      if (raw === '') {
-                                        handleManagerScoreChange(criterion.id, null);
-                                      } else {
-                                        const num = parseFloat(raw);
-                                        if (!isNaN(num)) {
-                                          handleManagerScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                  <div className="flex items-center justify-center">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={criterion.maxScore}
+                                      step={0.5}
+                                      value={typeof currentManagerScore === 'number' ? currentManagerScore : ''}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        if (raw === '') {
+                                          handleManagerScoreChange(criterion.id, null);
+                                        } else {
+                                          const num = parseFloat(raw);
+                                          if (!isNaN(num)) {
+                                            handleManagerScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
+                                          }
                                         }
-                                      }
-                                    }}
-                                    className="w-14 p-1 text-center font-bold bg-white border border-amber-300 rounded text-amber-950 focus:ring-2 focus:ring-amber-500 font-mono shadow-xs"
-                                    placeholder="---"
-                                  />
+                                      }}
+                                      className="w-16 px-1.5 py-1 text-center font-bold bg-white border border-amber-400 rounded-lg text-amber-950 focus:ring-2 focus:ring-amber-500 font-mono shadow-2xs text-xs sm:text-sm"
+                                      placeholder="---"
+                                    />
+                                  </div>
                                 ) : (isDraftOrReturned || isSubmittedToTtcm) ? (
                                   <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title={isDraftOrReturned ? "Khóa: Đang chờ giáo viên gửi phiếu tự chấm" : "Khóa: Đang chờ TTCM hoàn thành và gửi kết quả"}>
                                     <Lock size={11} className="text-slate-300 shrink-0" /> ---
