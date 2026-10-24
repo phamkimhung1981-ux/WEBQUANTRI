@@ -134,8 +134,8 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
   if (!forms || forms.length === 0) return [];
   const map = new Map<string, KpiVcForm>();
   const sorted = [...forms].sort((a, b) => {
-    const scoreA = Number(a.totalScore || 0);
-    const scoreB = Number(b.totalScore || 0);
+    const scoreA = getFormTotalScore(a);
+    const scoreB = getFormTotalScore(b);
     if (scoreB !== scoreA) return scoreB - scoreA;
     return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
   });
@@ -146,8 +146,8 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       map.set(canonicalKey, f);
     } else {
       const existing = map.get(canonicalKey)!;
-      const existingHasScore = (existing.totalScore || 0) > 0;
-      const currentHasScore = (f.totalScore || 0) > 0;
+      const existingHasScore = getFormTotalScore(existing) > 0;
+      const currentHasScore = getFormTotalScore(f) > 0;
       if (currentHasScore && !existingHasScore) {
         map.set(canonicalKey, f);
       } else {
