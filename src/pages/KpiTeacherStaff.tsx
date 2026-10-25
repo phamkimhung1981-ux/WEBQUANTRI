@@ -168,6 +168,7 @@ export default function KpiTeacherStaff() {
   const [selectedFormForPrint, setSelectedFormForPrint] = useState<KpiVcForm | null>(null);
 
   const [exportingWordId, setExportingWordId] = useState<string | null>(null);
+  const [togglingLockFormId, setTogglingLockFormId] = useState<string | null>(null);
 
   const handleExportWord = async (form: KpiVcForm) => {
     if (!form || !form.id) {
@@ -454,15 +455,31 @@ export default function KpiTeacherStaff() {
 
   const handleToggleLock = async (form: KpiVcForm) => {
     const isLocked = form.status === 'locked';
+    setTogglingLockFormId(form.id);
     try {
       await toggleLockVcForm(form.id, !isLocked, {
         id: user?.id || 'admin',
         name: user?.name || 'Admin',
         role: user?.role
       });
-      setForms(prev => prev.map(f => f.id === form.id ? { ...f, status: isLocked ? 'completed' : 'locked' } : f));
+      setForms(prev => prev.map(f => {
+        if (f.id === form.id) {
+          const unlockedStatus = f.managerTotalScore ? 'completed' : (f.ttcmTotalScore ? 'ttcm_evaluated' : 'submitted');
+          return {
+            ...f,
+            status: !isLocked ? 'locked' : unlockedStatus,
+            lockedAt: !isLocked ? new Date().toISOString() : null,
+            lockedBy: !isLocked ? (user?.name || 'Admin') : null
+          };
+        }
+        return f;
+      }));
+      setNotificationMessage(`Đã ${!isLocked ? 'khóa' : 'mở khóa'} phiếu KPI thành công cho ${form.employeeName}.`);
+      setTimeout(() => setNotificationMessage(null), 4000);
     } catch (err: any) {
       alert(err.message || 'Lỗi khi thay đổi trạng thái khóa');
+    } finally {
+      setTogglingLockFormId(null);
     }
   };
 
@@ -1355,12 +1372,17 @@ export default function KpiTeacherStaff() {
                       <button
                         type="button"
                         onClick={() => handleToggleLock(form)}
+                        disabled={togglingLockFormId === form.id}
                         title={isLocked ? "Mở khóa phiếu" : "Khóa phiếu"}
-                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                        className={`p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 ${
                           isLocked ? 'text-amber-600 hover:bg-amber-50' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
                         }`}
                       >
-                        {isLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                        {togglingLockFormId === form.id ? (
+                          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" />
+                        ) : (
+                          isLocked ? <Unlock size={15} /> : <Lock size={15} />
+                        )}
                       </button>
                     )}
 

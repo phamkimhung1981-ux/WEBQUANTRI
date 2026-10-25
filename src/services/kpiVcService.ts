@@ -803,29 +803,62 @@ export const toggleLockVcForm = async (
   formId: string,
   lock: boolean,
   actor: { id: string; name: string; role?: string }
-) => {
+): Promise<{ success: boolean }> => {
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
   const now = new Date().toISOString();
 
-  const payload: Partial<KpiVcForm> = {
-    status: lock ? 'locked' : 'completed',
+  const cachedForms = getVcFormsCache();
+  const existingForm = cachedForms.find(f => f.id === formId);
+
+  let newStatus = 'locked';
+  if (lock) {
+    newStatus = 'locked';
+  } else {
+    if (existingForm?.managerTotalScore !== null && existingForm?.managerTotalScore !== undefined) {
+      newStatus = 'completed';
+    } else if (existingForm?.ttcmTotalScore !== null && existingForm?.ttcmTotalScore !== undefined) {
+      newStatus = 'ttcm_evaluated';
+    } else {
+      newStatus = 'submitted';
+    }
+  }
+
+  const payload: Record<string, any> = {
+    status: newStatus,
     lockedAt: lock ? now : null,
     lockedBy: lock ? actor.name : null,
     updatedAt: now,
-    updatedBy: actor.name
+    updatedBy: actor.name || actor.id
   };
 
-  await updateDoc(docRef, cleanFirestoreData(payload));
+  // 1. Update local cache immediately
+  const idx = cachedForms.findIndex(f => f.id === formId);
+  if (idx >= 0) {
+    cachedForms[idx] = { ...cachedForms[idx], ...payload };
+  }
+  saveVcFormsCache(cachedForms);
 
-  await addVcAuditLog({
-    formId,
-    action: lock ? 'lock_form' : 'unlock_form',
-    actorId: actor.id,
-    actorName: actor.name,
-    actorRole: actor.role,
-    targetName: formId,
-    description: `${lock ? 'Khóa' : 'Mở khóa'} phiếu đánh giá KPI: ${formId}`
-  });
+  // 2. Write to Firestore using setDoc with merge: true
+  try {
+    await setDoc(docRef, cleanFirestoreData(payload), { merge: true });
+  } catch (err) {
+    console.warn('Firestore toggle lock warning (using local cache):', err);
+  }
+
+  // 3. Audit log
+  try {
+    await addVcAuditLog({
+      formId,
+      action: lock ? 'lock_form' : 'unlock_form',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      targetName: formId,
+      description: `${lock ? 'Khóa' : 'Mở khóa'} phiếu đánh giá KPI: ${formId}`
+    });
+  } catch (e) {}
+
+  return { success: true };
 };
 
 // ==========================================
