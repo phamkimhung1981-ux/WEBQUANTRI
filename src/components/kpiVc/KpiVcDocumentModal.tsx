@@ -1075,8 +1075,8 @@ export default function KpiVcDocumentModal({
         managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
 
         // Cấp 1 - Giáo viên tự chấm
-        selfClassification: selfClassification || 'Hoàn thành tốt nhiệm vụ',
-        selfDate: selfDate || todayStr,
+        selfClassification: (totalScore > 0 ? (selfClassification || 'Hoàn thành tốt nhiệm vụ') : 'Chưa tự đánh giá'),
+        selfDate: (totalScore > 0 ? (selfDate || todayStr) : ''),
         selfComment: selfComment || '',
         selfEvaluatedAt: targetStatus === 'submitted' ? now : (form.selfEvaluatedAt || (form.submittedAt ? form.submittedAt : null)),
         submittedAt: targetStatus === 'submitted' ? now : form.submittedAt,

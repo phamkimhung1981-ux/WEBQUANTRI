@@ -913,6 +913,10 @@ export const calculateVcSelfTotals = calculateVcTotals;
  */
 export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolean => {
   if (!form) return false;
+  // Bất kỳ phiếu nào có điểm tự chấm bằng 100/100 đều là lỗi mặc định cũ chưa chấm, luôn coi là chưa tự chấm
+  if (form.totalScore === 100) {
+    return false;
+  }
   // Nếu điểm tự chấm bằng 0 và không có tiêu chí nào có điểm -> chưa tự chấm
   if (form.totalScore === 0 && (!form.items || !form.items.some(i => i.selfScore !== null && i.selfScore !== undefined))) {
     return false;
@@ -931,9 +935,12 @@ export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolea
   }
   // Nếu trạng thái self_evaluated và có ngày tự chấm hoặc người ký tự chấm
   if (s === 'self_evaluated') {
-    if (typeof form.totalScore === 'number' && form.totalScore > 0) return true;
+    if (typeof form.totalScore === 'number' && form.totalScore > 0 && form.totalScore < 100) return true;
     if (form.selfDate || form.selfSignName) {
-      if (form.items && form.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) return true;
+      if (form.items && form.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) {
+        const sumSelf = form.items.reduce((acc, curr) => acc + (Number(curr.selfScore) || 0), 0);
+        if (sumSelf > 0 && sumSelf < 100) return true;
+      }
     }
   }
   return false;
@@ -941,18 +948,23 @@ export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolea
 
 export const getFormTotalScore = (form: KpiVcForm): number => {
   if (!form) return 0;
+  // Phiếu có điểm 100 mặc định cũ luôn trả về 0 điểm
+  if (form.totalScore === 100) {
+    return 0;
+  }
   // Nếu chưa có kết quả chấm hợp lệ, điểm hiển thị là 0
   if (!hasFormBeenEvaluated(form)) {
     return 0;
   }
-  if (form.totalScore !== null && form.totalScore !== undefined && form.totalScore >= 0) {
+  if (form.totalScore !== null && form.totalScore !== undefined && form.totalScore >= 0 && form.totalScore < 100) {
     return form.totalScore;
   }
   if (form.items && form.items.length > 0) {
     const calc = calculateVcTotals(form.items);
+    if (calc.totalScore === 100) return 0;
     return calc.totalScore;
   }
-  return Number(form.totalScore || 0);
+  return 0;
 };
 
 export const getFormTtcmTotalScore = (form: KpiVcForm): number | null => {

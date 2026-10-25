@@ -256,7 +256,7 @@ export default function SchoolWorkSchedulePage() {
 
   // Handle Save (Create or Update) task
   const handleSaveItem = async () => {
-    if (!editingItem || !schedule || !formContent.trim()) {
+    if (!editingItem || !formContent.trim()) {
       showToast('Vui lòng nhập nội dung công việc');
       return;
     }
@@ -264,8 +264,12 @@ export default function SchoolWorkSchedulePage() {
     try {
       setSaving(true);
 
+      const curSched = schedule || await schoolWorkScheduleService.getSchedule(selectedWeek, selectedYear, selectedDeptId);
+
       const isEdit = !!editingItem.item;
-      const taskId = isEdit ? editingItem.item!.id : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const taskId = (isEdit && editingItem.item?.id)
+        ? editingItem.item.id
+        : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       const updatedTask: SchoolWorkItem = {
         id: taskId,
@@ -286,23 +290,41 @@ export default function SchoolWorkSchedulePage() {
         const targetDayIndex = formDayIndex;
         const targetTimeSlot = formTimeSlot;
 
-        const newDays = schedule.days.map((day, dIdx) => {
+        const newDays = curSched.days.map((day, dIdx) => {
           let morningTasks = [...day.morning_tasks];
           let afternoonTasks = [...day.afternoon_tasks];
 
-          // If this is the original day and it's an edit or we are moving away
+          // 1.1 In-place update: same day and same time slot
+          if (dIdx === originalDayIndex && dIdx === targetDayIndex && originalTimeSlot === targetTimeSlot && isEdit) {
+            const taskList = targetTimeSlot === 'morning' ? morningTasks : afternoonTasks;
+            const existIdx = taskList.findIndex(t => t.id === taskId || (editingItem.item?.content && t.content === editingItem.item.content));
+            if (existIdx >= 0) {
+              taskList[existIdx] = updatedTask;
+            } else {
+              taskList.push(updatedTask);
+            }
+
+            return {
+              ...day,
+              morning_tasks: morningTasks,
+              afternoon_tasks: afternoonTasks,
+              completion_date: formCompletionDate.trim() || day.completion_date,
+              duty_evaluator: formLeaderInCharge.trim() || day.duty_evaluator
+            };
+          }
+
+          // 1.2 Moving away from original day or slot: remove old task
           if (dIdx === originalDayIndex && isEdit) {
             if (originalTimeSlot === 'morning') {
-              morningTasks = morningTasks.filter(t => t.id !== taskId);
+              morningTasks = morningTasks.filter(t => t.id !== taskId && (!editingItem.item?.content || t.content !== editingItem.item.content));
             } else {
-              afternoonTasks = afternoonTasks.filter(t => t.id !== taskId);
+              afternoonTasks = afternoonTasks.filter(t => t.id !== taskId && (!editingItem.item?.content || t.content !== editingItem.item.content));
             }
           }
 
-          // If this is the target day, insert the task
+          // 1.3 Inserting into target day
           if (dIdx === targetDayIndex) {
             if (targetTimeSlot === 'morning') {
-              // Add or replace
               const existIdx = morningTasks.findIndex(t => t.id === taskId);
               if (existIdx >= 0) {
                 morningTasks[existIdx] = updatedTask;
@@ -318,7 +340,6 @@ export default function SchoolWorkSchedulePage() {
               }
             }
 
-            // Sync day-level completion date & duty evaluator if provided
             return {
               ...day,
               morning_tasks: morningTasks,
@@ -336,35 +357,41 @@ export default function SchoolWorkSchedulePage() {
         });
 
         const updatedSchedule: SchoolWorkSchedule = {
-          ...schedule,
+          ...curSched,
           days: newDays,
           updated_at: new Date().toISOString()
         };
 
+        // Update UI immediately and close modal
         setSchedule(updatedSchedule);
-        await schoolWorkScheduleService.saveSchedule(updatedSchedule);
+        setEditingItem(null);
         showToast(isEdit ? 'Đã cập nhật công việc thành công!' : 'Đã thêm công việc mới thành công!');
+
+        // Save persistently in background
+        await schoolWorkScheduleService.saveSchedule(updatedSchedule);
       } else {
         // Case 2: Moved to a different week
         // Remove from current schedule
-        const currentDays = schedule.days.map((day, dIdx) => {
+        const currentDays = curSched.days.map((day, dIdx) => {
           if (dIdx === editingItem.dayIndex && isEdit) {
             return {
               ...day,
-              morning_tasks: editingItem.timeSlot === 'morning' ? day.morning_tasks.filter(t => t.id !== taskId) : day.morning_tasks,
-              afternoon_tasks: editingItem.timeSlot === 'afternoon' ? day.afternoon_tasks.filter(t => t.id !== taskId) : day.afternoon_tasks
+              morning_tasks: editingItem.timeSlot === 'morning'
+                ? day.morning_tasks.filter(t => t.id !== taskId && (!editingItem.item?.content || t.content !== editingItem.item.content))
+                : day.morning_tasks,
+              afternoon_tasks: editingItem.timeSlot === 'afternoon'
+                ? day.afternoon_tasks.filter(t => t.id !== taskId && (!editingItem.item?.content || t.content !== editingItem.item.content))
+                : day.afternoon_tasks
             };
           }
           return day;
         });
 
         const updatedCurrentSchedule: SchoolWorkSchedule = {
-          ...schedule,
+          ...curSched,
           days: currentDays,
           updated_at: new Date().toISOString()
         };
-        setSchedule(updatedCurrentSchedule);
-        await schoolWorkScheduleService.saveSchedule(updatedCurrentSchedule);
 
         // Fetch target week and insert
         const targetSchedule = await schoolWorkScheduleService.getSchedule(formWeekNumber, selectedYear, selectedDeptId);
@@ -393,11 +420,17 @@ export default function SchoolWorkSchedulePage() {
           days: targetDays,
           updated_at: new Date().toISOString()
         };
+
+        // Save both schedules
+        await schoolWorkScheduleService.saveSchedule(updatedCurrentSchedule);
         await schoolWorkScheduleService.saveSchedule(updatedTargetSchedule);
+
+        // Switch to the target week so user immediately sees their changes
+        setSelectedWeek(formWeekNumber);
+        setSchedule(updatedTargetSchedule);
+        setEditingItem(null);
         showToast(`Đã chuyển công việc sang Tuần ${formWeekNumber} thành công!`);
       }
-
-      setEditingItem(null);
     } catch (e) {
       console.error('Error saving item:', e);
       showToast('Lỗi khi lưu công việc vào cơ sở dữ liệu');
@@ -1403,8 +1436,8 @@ export default function SchoolWorkSchedulePage() {
                   disabled={saving || !formContent.trim()}
                   className="px-5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer font-sans"
                 >
-                  <Save size={16} />
-                  <span>{editingItem.item ? 'Lưu thay đổi' : 'Tạo công việc'}</span>
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  <span>{saving ? 'Đang lưu...' : editingItem.item ? 'Lưu thay đổi' : 'Tạo công việc'}</span>
                 </button>
               </div>
             </div>

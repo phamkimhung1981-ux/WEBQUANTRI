@@ -219,6 +219,19 @@ export function generateSampleSchoolWorkSchedule(
     base.days[6].afternoon_tasks = [];
     base.days[6].completion_date = '27/09/2026';
     base.days[6].duty_evaluator = 'An ninh trật tự đảm bảo tuyệt đối, ghi chép nhật ký trực đầy đủ.';
+  } else if (weekNumber === 8) {
+    // Thứ 2 (26/10)
+    base.days[0].morning_tasks = [
+      {
+        id: 'task_w8_m_1',
+        timeSlot: 'morning',
+        content: '- CBGVN nhân viên thực hiện nghiêm túc nền nếp, nội quy nhà trường, quy chế chuyên môn, văn hóa công sở.\n- Đoàn trường chỉ đạo đội cờ đỏ, TNXK kiểm tra nền nếp học sinh và cập nhật hàng ngày lên phần mềm để GVCN năm bắt, giáo dục',
+        deadlineDate: '26/10',
+        completionDate: '26/10',
+        status: 'Chưa thực hiện'
+      }
+    ];
+    base.days[0].completion_date = '26/10';
   }
 
   return base;
@@ -232,48 +245,88 @@ export const schoolWorkScheduleService = {
   ): Promise<SchoolWorkSchedule> {
     const docId = `sws_${academicYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${String(weekNumber).padStart(2, '0')}_${departmentId}`;
     
-    // 1. Try Firestore
-    try {
-      const docRef = doc(db, COLLECTION_NAME, docId);
-      const snapshot = await getDoc(docRef);
-      if (snapshot.exists()) {
-        const data = snapshot.data() as SchoolWorkSchedule;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(data));
-        }
-        return data;
-      }
-    } catch (e) {
-      console.warn('Firestore getSchedule warning, fallback to cache:', e);
-    }
-
-    // 2. Try localStorage
+    // 1. Read cached schedule from localStorage first
+    let cachedSchedule: SchoolWorkSchedule | null = null;
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem(STORAGE_KEY_PREFIX + docId);
       if (cached) {
         try {
-          return JSON.parse(cached);
+          cachedSchedule = JSON.parse(cached);
         } catch (e) {
           console.error('Error parsing cached schedule:', e);
         }
       }
     }
 
-    // 3. Fallback: generate sample if week 3 or empty
-    const sample = weekNumber === 3 
+    // 2. Try Firestore with a 1500ms timeout guard
+    let firestoreSchedule: SchoolWorkSchedule | null = null;
+    try {
+      const docRef = doc(db, COLLECTION_NAME, docId);
+      const fetchPromise = getDoc(docRef);
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore read timeout')), 1500)
+      );
+      const snapshot: any = await Promise.race([fetchPromise, timeoutPromise]);
+      if (snapshot && typeof snapshot.exists === 'function' && snapshot.exists()) {
+        firestoreSchedule = snapshot.data() as SchoolWorkSchedule;
+      }
+    } catch (e) {
+      console.warn('Firestore getSchedule warning / timeout, fallback to cache:', e);
+    }
+
+    // 3. Smart resolution between Cache and Firestore:
+    // If we have both, compare timestamps and non-empty tasks so user edits are NEVER wiped out by stale/empty Firestore docs
+    if (cachedSchedule && firestoreSchedule) {
+      const cachedTime = new Date(cachedSchedule.updated_at || 0).getTime();
+      const firestoreTime = new Date(firestoreSchedule.updated_at || 0).getTime();
+      const cachedTasks = cachedSchedule.days?.reduce((acc, d) => acc + (d.morning_tasks?.length || 0) + (d.afternoon_tasks?.length || 0), 0) || 0;
+      const firestoreTasks = firestoreSchedule.days?.reduce((acc, d) => acc + (d.morning_tasks?.length || 0) + (d.afternoon_tasks?.length || 0), 0) || 0;
+
+      if (cachedTime > firestoreTime || (cachedTasks > 0 && firestoreTasks === 0)) {
+        return cachedSchedule;
+      }
+
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(firestoreSchedule));
+        } catch (err) {
+          console.warn('localStorage setItem error:', err);
+        }
+      }
+      return firestoreSchedule;
+    }
+
+    if (cachedSchedule) {
+      return cachedSchedule;
+    }
+
+    if (firestoreSchedule) {
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(firestoreSchedule));
+        } catch (err) {
+          console.warn('localStorage setItem error:', err);
+        }
+      }
+      return firestoreSchedule;
+    }
+
+    // 4. Fallback: generate sample if week 3 or 8 or empty
+    const sample = (weekNumber === 3 || weekNumber === 8)
       ? generateSampleSchoolWorkSchedule(weekNumber, academicYear, departmentId)
       : generateEmptySchoolWorkSchedule(weekNumber, academicYear, departmentId);
 
-    // Auto save
-    await this.saveSchedule(sample);
+    // Auto save asynchronously
+    this.saveSchedule(sample).catch(() => {});
     return sample;
   },
 
   async saveSchedule(schedule: SchoolWorkSchedule): Promise<void> {
-    const docId = schedule.id;
+    const docId = schedule.id || `sws_${(schedule.school_year || '2026_2027').replace(/[^a-zA-Z0-9]/g, '_')}_w${String(schedule.week_number).padStart(2, '0')}_${schedule.department_id || 'all'}`;
+    schedule.id = docId;
     schedule.updated_at = new Date().toISOString();
 
-    // Save to localStorage immediately
+    // 1. Save to localStorage immediately and synchronously
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(schedule));
@@ -282,12 +335,17 @@ export const schoolWorkScheduleService = {
       }
     }
 
-    // Save to Firestore
+    // 2. Save to Firestore with timeout guard (2000ms max) to prevent freezing when quota is exceeded
     try {
+      const cleanData = JSON.parse(JSON.stringify(schedule));
       const docRef = doc(db, COLLECTION_NAME, docId);
-      await setDoc(docRef, JSON.parse(JSON.stringify(schedule)));
+      const firestorePromise = setDoc(docRef, cleanData);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore save timeout')), 2000)
+      );
+      await Promise.race([firestorePromise, timeoutPromise]);
     } catch (e) {
-      console.warn('Firestore saveSchedule error, data saved locally:', e);
+      console.warn('Firestore saveSchedule error / quota / timeout, saved in local cache:', e);
     }
   },
 

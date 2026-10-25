@@ -194,6 +194,17 @@ export default function KpiTeacherStaff() {
   useEffect(() => {
     seedVcInitialDataIfNeeded();
 
+    // Tự động rà soát và đưa toàn bộ phiếu 100 điểm mặc định cũ về 0 điểm
+    resetFormsWith100Points('all', {
+      id: user?.id || 'admin',
+      name: user?.name || 'Ban Giám hiệu',
+      role: user?.role || 'BGH'
+    }).then(res => {
+      if (res && res.updatedCount > 0) {
+        console.log(`[Auto-Reset] Đã tự động đưa ${res.updatedCount} phiếu 100 điểm về 0.`);
+      }
+    }).catch(err => console.warn('Background reset 100 warning:', err));
+
     const unsubForms = subscribeVcForms(setForms);
     const unsubPeriods = subscribeVcPeriods((pList) => {
       setPeriods(pList);
@@ -846,7 +857,9 @@ export default function KpiTeacherStaff() {
               </h3>
               <p className="text-xs text-slate-600 mt-0.5">
                 {myFormInPeriod 
-                  ? `Bạn đã có phiếu đánh giá trong ${myFormInPeriod.periodName}. Tổng điểm hiện tại: ${myFormInPeriod.totalScore}/100 (${myFormInPeriod.selfClassification}).`
+                  ? (myFormInPeriod.totalScore > 0 
+                      ? `Bạn đã có phiếu đánh giá trong ${myFormInPeriod.periodName}. Tổng điểm tự chấm: ${myFormInPeriod.totalScore}/100 (${myFormInPeriod.selfClassification}).`
+                      : `Bạn đã có phiếu đánh giá trong ${myFormInPeriod.periodName} (Trạng thái: Chưa tự chấm). Vui lòng nhấn nút bên phải để tự chấm điểm.`)
                   : `Bạn chưa hoàn thành tự chấm điểm cho kỳ ${activePeriodObj?.name || 'này'}. Vui lòng tạo phiếu để hoàn thành.`}
               </p>
             </div>
@@ -1227,14 +1240,14 @@ export default function KpiTeacherStaff() {
                 {/* Điểm tự chấm */}
                 <td className="p-3 text-center border-r border-blue-100/60 font-mono min-w-[115px] bg-blue-50/30">
                   {(() => {
-                    const isEvaluated = hasFormBeenEvaluated(form);
+                    const isEvaluated = hasFormBeenEvaluated(form) && form.totalScore !== 100;
                     const selfScore = isEvaluated ? getFormTotalScore(form) : 0;
                     return (
                       <div className="flex flex-col items-center justify-center">
-                        <span className={`text-xs sm:text-sm font-black ${isEvaluated ? 'text-blue-900' : 'text-slate-500'}`}>
+                        <span className={`text-xs sm:text-sm font-black ${isEvaluated && selfScore > 0 ? 'text-blue-900' : 'text-slate-500'}`}>
                           {selfScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
                         </span>
-                        {!isEvaluated && (
+                        {(!isEvaluated || selfScore === 0) && (
                           <span className="text-[10px] text-amber-600 font-semibold italic mt-0.5">Chưa chấm</span>
                         )}
                       </div>
