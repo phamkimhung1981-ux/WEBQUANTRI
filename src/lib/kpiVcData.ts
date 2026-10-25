@@ -907,47 +907,89 @@ export const calculateVcTotals = (items: KpiVcScoreItem[]) => {
 
 export const calculateVcSelfTotals = calculateVcTotals;
 
+/**
+ * Kiểm tra xem phiếu đánh giá đã được giáo viên tự chấm / lưu điểm thực sự hay chưa.
+ * Phân biệt rõ giữa phiếu chưa chấm (draft/0 điểm) và phiếu đã chấm (kể cả chấm 0 điểm).
+ */
+export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolean => {
+  if (!form) return false;
+  // Nếu điểm tự chấm bằng 0 và không có tiêu chí nào có điểm -> chưa tự chấm
+  if (form.totalScore === 0 && (!form.items || !form.items.some(i => i.selfScore !== null && i.selfScore !== undefined))) {
+    return false;
+  }
+  const s = form.status;
+  if (s === 'draft') {
+    return false;
+  }
+  // Các trạng thái đã thực sự gửi chấm hoặc cấp trên đánh giá
+  if (s === 'submitted' || s === 'ttcm_evaluated' || s === 'completed' || s === 'locked') {
+    // Nếu tổng điểm tự chấm bằng 0 và tất cả tiêu chí tự chấm đều null -> chưa hoàn thành tự chấm
+    if (form.totalScore === 0 && (!form.items || !form.items.some(i => i.selfScore !== null && i.selfScore !== undefined))) {
+      return false;
+    }
+    return true;
+  }
+  // Nếu trạng thái self_evaluated và có ngày tự chấm hoặc người ký tự chấm
+  if (s === 'self_evaluated') {
+    if (typeof form.totalScore === 'number' && form.totalScore > 0) return true;
+    if (form.selfDate || form.selfSignName) {
+      if (form.items && form.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) return true;
+    }
+  }
+  return false;
+};
+
 export const getFormTotalScore = (form: KpiVcForm): number => {
-  if (form.totalScore !== null && form.totalScore !== undefined && form.totalScore > 0) {
+  if (!form) return 0;
+  // Nếu chưa có kết quả chấm hợp lệ, điểm hiển thị là 0
+  if (!hasFormBeenEvaluated(form)) {
+    return 0;
+  }
+  if (form.totalScore !== null && form.totalScore !== undefined && form.totalScore >= 0) {
     return form.totalScore;
   }
   if (form.items && form.items.length > 0) {
     const calc = calculateVcTotals(form.items);
-    if (calc.totalScore > 0) return calc.totalScore;
+    return calc.totalScore;
   }
   return Number(form.totalScore || 0);
 };
 
 export const getFormTtcmTotalScore = (form: KpiVcForm): number | null => {
+  if (!form) return null;
+  // Bảo toàn nguyên vẹn điểm TTCM nếu đã có đánh giá
   if (form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined) {
     return form.ttcmTotalScore;
   }
-  if (form.items && form.items.length > 0) {
-    const calc = calculateVcTtcmTotals(form.items);
-    if (calc.ttcmTotalScore > 0) return calc.ttcmTotalScore;
+  if (form.status === 'ttcm_evaluated' || form.status === 'completed' || form.status === 'locked' || form.ttcmStatus === 'evaluated') {
+    if (form.items && form.items.length > 0) {
+      const calc = calculateVcTtcmTotals(form.items);
+      if (calc.ttcmTotalScore > 0) return calc.ttcmTotalScore;
+    }
   }
-  return form.ttcmTotalScore ?? null;
+  return null;
 };
 
 export const getFormManagerTotalScore = (form: KpiVcForm): number | null => {
+  if (!form) return null;
+  // Bảo toàn nguyên vẹn điểm BGH nếu đã có đánh giá
   if (form.managerTotalScore !== null && form.managerTotalScore !== undefined) {
     return form.managerTotalScore;
   }
-  if (form.items && form.items.length > 0) {
-    const calc = calculateVcManagerTotals(form.items);
-    if (calc.managerTotalScore > 0) return calc.managerTotalScore;
+  if (form.status === 'completed' || form.status === 'locked' || form.bghStatus === 'evaluated') {
+    if (form.items && form.items.length > 0) {
+      const calc = calculateVcManagerTotals(form.items);
+      if (calc.managerTotalScore > 0) return calc.managerTotalScore;
+    }
   }
-  return form.managerTotalScore ?? null;
+  return null;
 };
 
 export const getEffectiveFormStatus = (form: KpiVcForm): string => {
   if (!form) return 'draft';
-  const score = getFormTotalScore(form);
-  if (score > 0 && (!form.status || form.status === 'draft')) {
-    return 'self_evaluated';
-  }
   return form.status || 'draft';
 };
+
 
 /**
  * Kết quả tính xếp loại KPI

@@ -59,7 +59,9 @@ import {
   seedVcInitialDataIfNeeded,
   deleteVcForm,
   bulkDeleteVcForms,
-  toggleLockVcForm
+  toggleLockVcForm,
+  resetFormsWith100Points,
+  Reset100BatchResult
 } from '../services/kpiVcService';
 import { 
   getEligibleVcTeachers,
@@ -73,6 +75,8 @@ import {
   getFormTtcmTotalScore,
   getFormManagerTotalScore,
   getEffectiveFormStatus,
+  hasFormBeenEvaluated,
+  KPI_RATING_COLOR_MAP,
   DEFAULT_VC_GROUPS,
   DEFAULT_VC_CRITERIA,
   DEFAULT_VC_PERIODS
@@ -127,6 +131,12 @@ export default function KpiTeacherStaff() {
   const [totalDeleteConfirmInput, setTotalDeleteConfirmInput] = useState<string>('');
   const [isTotalDeleting, setIsTotalDeleting] = useState<boolean>(false);
   const [totalDeleteError, setTotalDeleteError] = useState<string | null>(null);
+
+  // Batch Reset 100 Points to 0 Modal State
+  const [isReset100ModalOpen, setIsReset100ModalOpen] = useState<boolean>(false);
+  const [isResetting100, setIsResetting100] = useState<boolean>(false);
+  const [reset100Result, setReset100Result] = useState<Reset100BatchResult | null>(null);
+  const [reset100Error, setReset100Error] = useState<string | null>(null);
 
   // Firestore Data State
   const [forms, setForms] = useState<KpiVcForm[]>([]);
@@ -206,6 +216,13 @@ export default function KpiTeacherStaff() {
 
   // Hàm xác định xếp loại động của phiếu dựa theo cấu hình
   const getFormRating = (form: KpiVcForm) => {
+    if (!hasFormBeenEvaluated(form)) {
+      return {
+        ratingName: 'Chưa xếp loại',
+        badgeStyle: KPI_RATING_COLOR_MAP.slate
+      };
+    }
+
     const managerScore = getFormManagerTotalScore(form);
     const selfScore = getFormTotalScore(form);
     const finalScore = (managerScore !== null && managerScore !== undefined && managerScore > 0) 
@@ -335,17 +352,20 @@ export default function KpiTeacherStaff() {
   const stats = useMemo(() => {
     const totalForms = filteredForms.length;
     const completedCount = filteredForms.filter(f => f.status === 'completed' || f.status === 'locked').length;
-    const evaluatingCount = filteredForms.filter(f => f.status === 'draft' || f.status === 'self_evaluated').length;
+    const evaluatingCount = filteredForms.filter(f => hasFormBeenEvaluated(f) && f.status !== 'completed' && f.status !== 'locked').length;
+    const unratedCount = filteredForms.filter(f => !hasFormBeenEvaluated(f)).length;
     
+    // Chỉ tính điểm trung bình cho các phiếu đã được chấm điểm thực tế
+    const evaluatedForms = filteredForms.filter(f => hasFormBeenEvaluated(f));
     let sumScore = 0;
-    filteredForms.forEach(f => {
-      sumScore += Number(f.totalScore) || 0;
+    evaluatedForms.forEach(f => {
+      sumScore += getFormTotalScore(f);
     });
-    const avgScore = totalForms > 0 ? (Math.round((sumScore / totalForms) * 10) / 10) : 0;
+    const avgScore = evaluatedForms.length > 0 ? (Math.round((sumScore / evaluatedForms.length) * 10) / 10) : 0;
 
-    // Tính thống kê động theo các mức xếp loại cấu hình
+    // Tính thống kê động theo các mức xếp loại cấu hình (chỉ tính phiếu đã được chấm)
     const ratingCounts: Record<string, number> = {};
-    filteredForms.forEach(f => {
+    evaluatedForms.forEach(f => {
       const rName = getFormRating(f).ratingName;
       ratingCounts[rName] = (ratingCounts[rName] || 0) + 1;
     });
@@ -361,6 +381,7 @@ export default function KpiTeacherStaff() {
       totalForms,
       completedCount,
       evaluatingCount,
+      unratedCount,
       avgScore,
       topCount,
       topTier1Name,
@@ -608,6 +629,73 @@ export default function KpiTeacherStaff() {
 
   const activePeriodObj = periods.find(p => p.id === selectedPeriodId) || periods[0];
 
+  // Candidates for Batch Reset (teacherSelfScore === 100)
+  const formsWith100InPeriod = useMemo(() => {
+    return forms.filter(f => {
+      if (selectedPeriodId !== 'all' && f.periodId !== selectedPeriodId) return false;
+      return f.totalScore === 100;
+    });
+  }, [forms, selectedPeriodId]);
+
+  const formsUnder100InPeriod = useMemo(() => {
+    return forms.filter(f => {
+      if (selectedPeriodId !== 'all' && f.periodId !== selectedPeriodId) return false;
+      return typeof f.totalScore === 'number' && f.totalScore >= 0 && f.totalScore < 100;
+    });
+  }, [forms, selectedPeriodId]);
+
+  const invalidFormsInPeriod = useMemo(() => {
+    return forms.filter(f => {
+      if (selectedPeriodId !== 'all' && f.periodId !== selectedPeriodId) return false;
+      return typeof f.totalScore !== 'number' || Number.isNaN(f.totalScore) || f.totalScore > 100;
+    });
+  }, [forms, selectedPeriodId]);
+
+  const handleConfirmReset100 = async () => {
+    setIsResetting100(true);
+    setReset100Error(null);
+    try {
+      const res = await resetFormsWith100Points(selectedPeriodId, {
+        id: user?.id || 'admin',
+        name: user?.name || 'Ban Giám hiệu',
+        role: user?.role || 'BGH'
+      });
+      setReset100Result(res);
+
+      // Cập nhật state forms ngay lập tức trên UI
+      setForms(prev => prev.map(f => {
+        const found = res.updatedForms.find(u => u.id === f.id);
+        if (found) {
+          return {
+            ...f,
+            totalScore: 0,
+            groupScores: { group_I: 0, group_II: 0, group_III: 0 },
+            selfClassification: 'Chưa tự đánh giá',
+            status: 'draft',
+            items: (f.items || []).map(i => ({
+              ...i,
+              selfScore: null,
+              selectedLevelId: null,
+              selectedLevelName: null,
+              selectedLevelCode: null,
+              note: '',
+              evidenceUrl: ''
+            }))
+          };
+        }
+        return f;
+      }));
+
+      setNotificationMessage(`Đã đưa ${res.updatedCount} phiếu 100 điểm về 0 điểm thành công để giáo viên chấm lại.`);
+      setTimeout(() => setNotificationMessage(null), 6000);
+    } catch (err: any) {
+      console.error('Lỗi khi đưa phiếu 100 điểm về 0:', err);
+      setReset100Error(err.message || 'Lỗi khi cập nhật dữ liệu. Vui lòng thử lại.');
+    } finally {
+      setIsResetting100(false);
+    }
+  };
+
   return (
     <div className="p-3 sm:p-5 lg:p-6 w-full max-w-full space-y-6 pb-16">
       
@@ -673,6 +761,25 @@ export default function KpiTeacherStaff() {
                 title="Cấu hình điểm xếp loại KPI"
               >
                 <Sliders size={15} /> Cấu hình xếp loại
+              </button>
+
+              {/* Nút Đưa phiếu 100đ về 0 (Admin / BGH) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setReset100Result(null);
+                  setReset100Error(null);
+                  setIsReset100ModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 text-xs font-black rounded-xl border border-amber-300 transition-all cursor-pointer shadow-md"
+                title="Lệnh sửa dữ liệu KPI: Đưa phiếu 100 điểm về 0 điểm để giáo viên chấm lại"
+              >
+                <RefreshCw size={15} /> Đưa phiếu 100đ về 0
+                {formsWith100InPeriod.length > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] bg-red-600 text-white font-black rounded-full animate-pulse">
+                    {formsWith100InPeriod.length}
+                  </span>
+                )}
               </button>
             </>
           )}
@@ -1101,23 +1208,32 @@ export default function KpiTeacherStaff() {
                 </td>
 
                 {/* Điểm tự chấm */}
-                <td className="p-3 text-center font-black text-blue-800 bg-blue-50/40 text-xs sm:text-sm border-r border-blue-100/60 font-mono min-w-[115px]">
+                <td className="p-3 text-center border-r border-blue-100/60 font-mono min-w-[115px] bg-blue-50/30">
                   {(() => {
-                    const selfScore = getFormTotalScore(form);
-                    return selfScore !== null && selfScore !== undefined && selfScore > 0 ? (
-                      <>{selfScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
-                    ) : (
-                      <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                    const isEvaluated = hasFormBeenEvaluated(form);
+                    const selfScore = isEvaluated ? getFormTotalScore(form) : 0;
+                    return (
+                      <div className="flex flex-col items-center justify-center">
+                        <span className={`text-xs sm:text-sm font-black ${isEvaluated ? 'text-blue-900' : 'text-slate-500'}`}>
+                          {selfScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
+                        </span>
+                        {!isEvaluated && (
+                          <span className="text-[10px] text-amber-600 font-semibold italic mt-0.5">Chưa chấm</span>
+                        )}
+                      </div>
                     );
                   })()}
                 </td>
 
                 {/* Điểm TTCM đánh giá */}
-                <td className="p-3 text-center font-black text-purple-800 bg-purple-50/40 text-xs sm:text-sm border-r border-purple-100/60 font-mono min-w-[125px]">
+                <td className="p-3 text-center border-r border-purple-100/60 font-mono min-w-[125px] bg-purple-50/30">
                   {(() => {
                     const ttcmScore = getFormTtcmTotalScore(form);
-                    return ttcmScore !== null && ttcmScore !== undefined && ttcmScore > 0 ? (
-                      <>{ttcmScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                    const hasTtcm = typeof ttcmScore === 'number' && ttcmScore !== null;
+                    return hasTtcm ? (
+                      <span className="text-xs sm:text-sm font-black text-purple-900">
+                        {ttcmScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
+                      </span>
                     ) : (
                       <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
                     );
@@ -1125,11 +1241,14 @@ export default function KpiTeacherStaff() {
                 </td>
 
                 {/* Điểm BGH đánh giá */}
-                <td className="p-3 text-center font-black text-indigo-800 bg-indigo-50/40 text-xs sm:text-sm border-r border-indigo-100/60 font-mono min-w-[125px]">
+                <td className="p-3 text-center border-r border-indigo-100/60 font-mono min-w-[125px] bg-indigo-50/30">
                   {(() => {
                     const mgrScore = getFormManagerTotalScore(form);
-                    return mgrScore !== null && mgrScore !== undefined && mgrScore > 0 ? (
-                      <>{mgrScore}<span className="text-[10px] font-normal text-slate-400">/100</span></>
+                    const hasMgr = typeof mgrScore === 'number' && mgrScore !== null;
+                    return hasMgr ? (
+                      <span className="text-xs sm:text-sm font-black text-indigo-900">
+                        {mgrScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
+                      </span>
                     ) : (
                       <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
                     );
@@ -1772,6 +1891,249 @@ export default function KpiTeacherStaff() {
                   </>
                 )}
               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL LỆNH SỬA DỮ LIỆU KPI HÀNG LOẠT: ĐƯA PHIẾU 100 ĐIỂM VỀ 0 */}
+      {isReset100ModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] flex flex-col">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3 text-amber-600">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                  <RefreshCw size={20} className={isResetting100 ? 'animate-spin' : ''} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base sm:text-lg text-slate-900">
+                    Lệnh sửa dữ liệu: Đưa phiếu 100 điểm về 0 điểm
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Kỳ đánh giá: <span className="font-bold text-blue-700">{activePeriodObj?.name || selectedPeriodId}</span> ({activePeriodObj?.academicYear || '2026-2027'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReset100ModalOpen(false)}
+                className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+              
+              {!reset100Result ? (
+                <>
+                  {/* Quy tắc và phạm vi xử lý */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-950 space-y-2">
+                    <p className="font-bold text-amber-900 flex items-center gap-1.5">
+                      <ShieldCheck size={16} className="text-amber-700 shrink-0" />
+                      Quy tắc nghiệp vụ & bảo vệ an toàn dữ liệu:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-1 text-amber-900 font-medium leading-relaxed">
+                      <li>
+                        <strong>Điều kiện xử lý:</strong> Lọc chính xác <code className="px-1 py-0.5 bg-amber-200/70 rounded text-[11px] font-bold">teacherSelfScore === 100</code>.
+                      </li>
+                      <li>
+                        <strong>Các phiếu dưới 100 điểm:</strong> Giữ nguyên tuyệt đối toàn bộ điểm đã lưu (không can thiệp vào các phiếu 98.5, 97, 94.5, 90.5, 86...).
+                      </li>
+                      <li>
+                        <strong>Bảo toàn dữ liệu cấp trên:</strong> Điểm TTCM, điểm BGH, nhận xét, minh chứng và lịch sử đánh giá được giữ nguyên 100%.
+                      </li>
+                      <li>
+                        <strong>Tự chấm lại:</strong> Toàn bộ tiêu chí tự chấm của phiếu 100 điểm được đưa về trạng thái chưa chấm để giáo viên tự nhập điểm và lưu kết quả mới.
+                      </li>
+                      <li>
+                        <strong>Tự động sao lưu:</strong> Hệ thống tự động tạo bản sao lưu toàn bộ trước khi áp dụng.
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Thống kê dự kiến */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                      <div className="text-xl font-black text-amber-700">{formsWith100InPeriod.length}</div>
+                      <div className="text-[11px] font-bold text-amber-900 mt-0.5">Phiếu 100đ sẽ chuyển về 0</div>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+                      <div className="text-xl font-black text-emerald-700">{formsUnder100InPeriod.length}</div>
+                      <div className="text-[11px] font-bold text-emerald-900 mt-0.5">Phiếu &lt; 100đ giữ nguyên</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                      <div className="text-xl font-black text-slate-700">{invalidFormsInPeriod.length}</div>
+                      <div className="text-[11px] font-bold text-slate-900 mt-0.5">Phiếu bất thường (&gt;100)</div>
+                    </div>
+                  </div>
+
+                  {/* Danh sách phiếu 100 điểm phát hiện */}
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                      <span>Danh sách phiếu 100/100 điểm trong kỳ:</span>
+                      <span className="text-amber-700 font-extrabold">{formsWith100InPeriod.length} phiếu</span>
+                    </h4>
+
+                    {formsWith100InPeriod.length === 0 ? (
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs text-slate-600 font-medium">
+                        ✓ Hiện không có phiếu nào có điểm tự chấm 100/100 trong kỳ này. Toàn bộ các phiếu đã ở mức điểm thực tế hoặc đã ở trạng thái 0 điểm (chưa chấm).
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0">
+                            <tr>
+                              <th className="p-2 text-center w-10">STT</th>
+                              <th className="p-2">Họ và tên</th>
+                              <th className="p-2">Tổ / Đơn vị</th>
+                              <th className="p-2 text-center">Điểm tự chấm</th>
+                              <th className="p-2 text-center">Điểm TTCM</th>
+                              <th className="p-2 text-center">Trạng thái</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {formsWith100InPeriod.map((f, i) => (
+                              <tr key={f.id} className="hover:bg-amber-50/50">
+                                <td className="p-2 text-center text-slate-400 font-bold">{i + 1}</td>
+                                <td className="p-2 font-bold text-slate-900">{f.employeeName}</td>
+                                <td className="p-2 text-slate-600">{f.department || 'Trường THPT Sơn Lương'}</td>
+                                <td className="p-2 text-center font-black text-rose-600 bg-rose-50/70">{f.totalScore}/100</td>
+                                <td className="p-2 text-center font-bold text-blue-700">
+                                  {f.ttcmTotalScore !== null && f.ttcmTotalScore !== undefined ? `${f.ttcmTotalScore}/100` : 'Chưa chấm'}
+                                </td>
+                                <td className="p-2 text-center">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                    {f.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {reset100Error && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-bold flex items-center gap-2">
+                      <AlertCircle size={16} className="text-rose-600 shrink-0" />
+                      <span>{reset100Error}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Kết quả sau khi thực hiện */
+                <div className="space-y-4">
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-950 space-y-2">
+                    <div className="flex items-center gap-2 font-black text-emerald-800 text-sm">
+                      <CheckCircle2 size={18} className="text-emerald-600" />
+                      <span>Đã hoàn thành lệnh sửa dữ liệu hàng loạt!</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-200 text-xs">
+                      <div>
+                        <span className="text-slate-500 block">1. Số phiếu 100đ đã về 0:</span>
+                        <strong className="text-emerald-700 text-base">{reset100Result.updatedCount}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">2. Số phiếu &lt; 100 giữ nguyên:</span>
+                        <strong className="text-blue-700 text-base">{reset100Result.unchangedCount}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">3. Phiếu bất thường:</span>
+                        <strong className="text-slate-700 text-base">{reset100Result.invalidCount}</strong>
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-500 border-t border-emerald-100 pt-2 flex flex-col gap-0.5">
+                      <span>• Bản sao lưu đã lưu: <code className="bg-white/80 px-1 py-0.5 rounded border border-emerald-200 text-emerald-800">{reset100Result.backupKey}</code></span>
+                      <span>• Thời gian cập nhật: <strong>{new Date(reset100Result.timestamp).toLocaleString('vi-VN')}</strong></span>
+                    </div>
+                  </div>
+
+                  {reset100Result.updatedForms.length > 0 && (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="p-2.5 bg-slate-100 text-slate-800 font-bold text-xs">
+                        Chi tiết các phiếu đã cập nhật:
+                      </div>
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead className="bg-slate-50 text-slate-600">
+                          <tr>
+                            <th className="p-2">Giáo viên</th>
+                            <th className="p-2 text-center">Điểm cũ</th>
+                            <th className="p-2 text-center">Điểm mới</th>
+                            <th className="p-2 text-center">Điểm TTCM</th>
+                            <th className="p-2 text-center">Trạng thái mới</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {reset100Result.updatedForms.map(u => (
+                            <tr key={u.id} className="hover:bg-slate-50">
+                              <td className="p-2 font-bold text-slate-900">{u.employeeName}</td>
+                              <td className="p-2 text-center text-rose-600 line-through font-semibold">{u.oldScore}đ</td>
+                              <td className="p-2 text-center font-extrabold text-emerald-600 bg-emerald-50/50">{u.newScore}/100</td>
+                              <td className="p-2 text-center font-bold text-blue-700">
+                                {u.ttcmScore !== null ? `${u.ttcmScore}/100 (bảo toàn)` : 'Chưa chấm'}
+                              </td>
+                              <td className="p-2 text-center">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                                  Chưa chấm (draft)
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="pt-3 flex justify-end gap-2.5 border-t border-slate-100">
+              {!reset100Result ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={isResetting100}
+                    onClick={() => setIsReset100ModalOpen(false)}
+                    className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isResetting100 || formsWith100InPeriod.length === 0}
+                    onClick={handleConfirmReset100}
+                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    {isResetting100 ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" />
+                        <span>Đang xử lý dữ liệu...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={15} />
+                        <span>Xác nhận đưa {formsWith100InPeriod.length} phiếu 100đ về 0</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsReset100ModalOpen(false)}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-colors cursor-pointer"
+                >
+                  Hoàn tất và Đóng
+                </button>
+              )}
             </div>
 
           </div>

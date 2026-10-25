@@ -32,7 +32,8 @@ import {
   calculateVcTotals,
   calculateVcTtcmTotals,
   calculateVcManagerTotals,
-  isEligibleVcEmployee
+  isEligibleVcEmployee,
+  hasFormBeenEvaluated
 } from '../lib/kpiVcData';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { CANONICAL_51_VC_FORMS } from '../data/canonical51Forms';
@@ -145,6 +146,23 @@ const getStatusWeight = (status?: string): number => {
   return 1;
 };
 
+const hasTeacherActuallyEvaluated = (form: KpiVcForm): boolean => {
+  if (!form.items || form.items.length === 0) return false;
+  const hasScores = form.items.some(i => i.selfScore !== null && i.selfScore !== undefined && !Number.isNaN(Number(i.selfScore)));
+  if (!hasScores) return false;
+
+  if (form.totalScore === 100) {
+    if (form.status === 'draft' || form.selfClassification === 'Chưa tự đánh giá' || !form.selfDate) {
+      return false;
+    }
+    const sumSelf = form.items.reduce((acc, curr) => acc + (Number(curr.selfScore) || 0), 0);
+    if (Math.abs(sumSelf - 100) > 0.5) {
+      return false;
+    }
+  }
+  return true;
+};
+
 // Local Storage Cache Helpers
 const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache';
 
@@ -244,9 +262,13 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
         primary.items = primary.items.map((pItem, idx) => {
           const sItem = sec.items?.find(si => si.criterionId === pItem.criterionId) || sec.items?.[idx];
           if (!sItem) return pItem;
+          // Chỉ lấy selfScore từ sec nếu sec không phải là phiếu có điểm 100
+          const secSelfScore = (sItem.selfScore !== null && sItem.selfScore !== undefined && sec.totalScore !== 100) 
+            ? sItem.selfScore 
+            : null;
           return {
             ...pItem,
-            selfScore: (pItem.selfScore !== null && pItem.selfScore !== undefined) ? pItem.selfScore : ((sItem.selfScore !== null && sItem.selfScore !== undefined) ? sItem.selfScore : null),
+            selfScore: (pItem.selfScore !== null && pItem.selfScore !== undefined) ? pItem.selfScore : secSelfScore,
             ttcmScore: (pItem.ttcmScore !== null && pItem.ttcmScore !== undefined) ? pItem.ttcmScore : ((sItem.ttcmScore !== null && sItem.ttcmScore !== undefined) ? sItem.ttcmScore : null),
             ttcmComment: pItem.ttcmComment || sItem.ttcmComment || '',
             managerScore: (pItem.managerScore !== null && pItem.managerScore !== undefined) ? pItem.managerScore : ((sItem.managerScore !== null && sItem.managerScore !== undefined) ? sItem.managerScore : null),
@@ -264,17 +286,32 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
         primary.managerTotalScore = sec.managerTotalScore;
         primary.managerGroupScores = sec.managerGroupScores;
       }
-      if ((!primary.totalScore || primary.totalScore === 0) && sec.totalScore > 0) {
+      // Không lấy điểm 100 từ nguồn phụ
+      if ((!primary.totalScore || primary.totalScore === 0) && sec.totalScore > 0 && sec.totalScore < 100) {
         primary.totalScore = sec.totalScore;
         primary.groupScores = sec.groupScores;
       }
-      if (getStatusWeight(sec.status) > getStatusWeight(primary.status)) {
+      if (getStatusWeight(sec.status) > getStatusWeight(primary.status) && sec.totalScore !== 100) {
         primary.status = sec.status;
       }
     }
 
-    // Tự động tính toán lại tổng điểm nhất quán
-    if (primary.items && primary.items.length > 0) {
+    // Tự động tính toán lại tổng điểm nhất quán (nếu chưa chấm, luôn giữ 0 điểm và draft)
+    if (!hasFormBeenEvaluated(primary)) {
+      primary.totalScore = 0;
+      primary.groupScores = { group_I: 0, group_II: 0, group_III: 0 };
+      // Giữ nguyên điểm TTCM và BGH nếu đã có đánh giá
+      if (primary.ttcmTotalScore === undefined) {
+        primary.ttcmTotalScore = null;
+      }
+      if (primary.managerTotalScore === undefined) {
+        primary.managerTotalScore = null;
+      }
+      primary.selfClassification = 'Chưa tự đánh giá';
+      if (primary.status === 'submitted' || primary.status === 'self_evaluated') {
+        primary.status = 'draft';
+      }
+    } else if (primary.items && primary.items.length > 0) {
       const selfCalc = calculateVcTotals(primary.items);
       primary.totalScore = selfCalc.totalScore;
       primary.groupScores = selfCalc.groupScores;
@@ -288,6 +325,22 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
         const mgrCalc = calculateVcManagerTotals(primary.items);
         primary.managerTotalScore = mgrCalc.managerTotalScore;
         primary.managerGroupScores = mgrCalc.managerGroupScores;
+      }
+    }
+
+    if (!hasTeacherActuallyEvaluated(primary)) {
+      primary.totalScore = 0;
+      primary.groupScores = { group_I: 0, group_II: 0, group_III: 0 };
+      primary.selfClassification = 'Chưa tự đánh giá';
+      primary.status = 'draft';
+      if (primary.items) {
+        primary.items = primary.items.map(item => ({
+          ...item,
+          selfScore: null,
+          selectedLevelId: null,
+          selectedLevelName: null,
+          selectedLevelCode: null
+        }));
       }
     }
 
@@ -1183,6 +1236,178 @@ export const copyVcRatingConfig = async (
   };
 
   await saveVcRatingConfig(newConfig, actor, null, `Sao chép cấu hình từ kỳ ${fromPeriodId}`);
+};
+
+export interface Reset100BatchResult {
+  updatedCount: number;
+  unchangedCount: number;
+  invalidCount: number;
+  updatedForms: Array<{
+    id: string;
+    employeeCode?: string;
+    employeeName: string;
+    periodId: string;
+    oldScore: number;
+    newScore: number;
+    ttcmScore: number | null;
+    managerScore: number | null;
+    status: string;
+  }>;
+  unchangedForms: Array<{
+    id: string;
+    employeeName: string;
+    score: number;
+  }>;
+  invalidForms: Array<{
+    id: string;
+    employeeName: string;
+    score: any;
+    reason: string;
+  }>;
+  backupKey: string;
+  timestamp: string;
+}
+
+/**
+ * LỆNH SỬA DỮ LIỆU KPI HÀNG LOẠT – ĐƯA PHIẾU 100 ĐIỂM VỀ 0 ĐIỂM
+ * - Chỉ xử lý phiếu có tổng điểm đúng bằng 100/100 (teacherSelfScore === 100).
+ * - Phiếu < 100: giữ nguyên tuyệt đối điểm đã lưu.
+ * - Phiếu > 100 hoặc không hợp lệ: đưa vào danh sách kiểm tra riêng.
+ * - Giữ nguyên tuyệt đối điểm TTCM, điểm BGH, nhận xét và minh chứng.
+ * - Đưa điểm tự chấm về 0 và trạng thái 'draft' (Chưa chấm) để giáo viên tự chấm lại.
+ */
+export const resetFormsWith100Points = async (
+  targetPeriodId: string = 'vc_period_2026_09',
+  actor?: { id: string; name: string; role?: string }
+): Promise<Reset100BatchResult> => {
+  const currentForms = getVcFormsCache();
+  const now = new Date().toISOString();
+  const backupKey = `kpi_vc_forms_backup_100_reset_${Date.now()}`;
+
+  // 1. Sao lưu toàn bộ dữ liệu trước khi xử lý
+  safeLocalStorageSet(backupKey, JSON.stringify(currentForms));
+
+  const updatedForms: Reset100BatchResult['updatedForms'] = [];
+  const unchangedForms: Reset100BatchResult['unchangedForms'] = [];
+  const invalidForms: Reset100BatchResult['invalidForms'] = [];
+
+  const processedList = currentForms.map(form => {
+    // Chỉ xử lý các phiếu thuộc kỳ đánh giá được chọn (hoặc tất cả nếu targetPeriodId === 'all')
+    if (targetPeriodId !== 'all' && form.periodId !== targetPeriodId) {
+      return form;
+    }
+
+    const selfScore = form.totalScore;
+
+    // Kiểm tra dữ liệu bất thường (> 100 hoặc không phải số hợp lệ)
+    if (typeof selfScore !== 'number' || Number.isNaN(selfScore) || selfScore > 100) {
+      invalidForms.push({
+        id: form.id,
+        employeeName: form.employeeName,
+        score: selfScore,
+        reason: typeof selfScore !== 'number' ? 'Điểm không phải là số' : (selfScore > 100 ? 'Điểm vượt quá 100' : 'Dữ liệu không hợp lệ')
+      });
+      return form; // Không tự ý sửa phiếu bất thường
+    }
+
+    // Điều kiện xử lý: ĐÚNG BẰNG 100 (teacherSelfScore === 100)
+    if (selfScore === 100) {
+      const oldScore = form.totalScore;
+
+      // Xóa điểm chi tiết tiêu chí tự chấm, đưa về null để giáo viên tự chấm lại
+      // Giữ nguyên tuyệt đối điểm TTCM, điểm BGH và nhận xét cấp trên
+      const updatedItems = (form.items || []).map(item => ({
+        ...item,
+        selfScore: null,
+        selectedLevelId: null,
+        selectedLevelName: null,
+        selectedLevelCode: null,
+        note: '',
+        evidenceUrl: ''
+      }));
+
+      const newHistoryEntry = {
+        id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        actorId: actor?.id || 'admin',
+        actorName: actor?.name || 'Ban Giám hiệu',
+        actorRole: actor?.role || 'BGH',
+        action: 'reset_100_to_0',
+        previousScore: 100,
+        newScore: 0,
+        comment: 'Đưa điểm tự chấm 100 về 0 để giáo viên chấm lại theo quy định',
+        timestamp: now
+      };
+
+      const updatedForm: KpiVcForm = {
+        ...form,
+        totalScore: 0,
+        groupScores: { group_I: 0, group_II: 0, group_III: 0 },
+        selfClassification: 'Chưa tự đánh giá',
+        status: 'draft',
+        items: updatedItems,
+        history: [...(form.history || []), newHistoryEntry],
+        updatedAt: now,
+        updatedBy: actor?.name || 'Hệ thống'
+      };
+
+      updatedForms.push({
+        id: form.id,
+        employeeCode: form.employeeCode,
+        employeeName: form.employeeName,
+        periodId: form.periodId,
+        oldScore,
+        newScore: 0,
+        ttcmScore: form.ttcmTotalScore ?? null,
+        managerScore: form.managerTotalScore ?? null,
+        status: 'draft'
+      });
+
+      // Cố gắng ghi đồng bộ sang Firestore
+      try {
+        const docRef = doc(db, VC_COLLECTIONS.FORMS, form.id);
+        setDoc(docRef, cleanFirestoreData(updatedForm), { merge: true }).catch(err => {
+          console.warn('Firestore write warning during batch reset:', err);
+        });
+      } catch (err) {}
+
+      return updatedForm;
+    }
+
+    // Các phiếu có điểm dưới 100: giữ nguyên tuyệt đối
+    unchangedForms.push({
+      id: form.id,
+      employeeName: form.employeeName,
+      score: selfScore
+    });
+    return form;
+  });
+
+  // Lưu lại cache
+  saveVcFormsCache(processedList);
+
+  // Ghi nhận Audit Log
+  try {
+    await addVcAuditLog({
+      periodId: targetPeriodId,
+      action: 'batch_reset_100_to_0',
+      actorId: actor?.id || 'admin',
+      actorName: actor?.name || 'Ban Giám hiệu',
+      actorRole: actor?.role || 'BGH',
+      targetName: `Kỳ ${targetPeriodId}`,
+      description: `Đã đưa ${updatedForms.length} phiếu có điểm 100/100 về 0 để giáo viên chấm lại. Giữ nguyên ${unchangedForms.length} phiếu dưới 100.`
+    });
+  } catch (e) {}
+
+  return {
+    updatedCount: updatedForms.length,
+    unchangedCount: unchangedForms.length,
+    invalidCount: invalidForms.length,
+    updatedForms,
+    unchangedForms,
+    invalidForms,
+    backupKey,
+    timestamp: now
+  };
 };
 
 

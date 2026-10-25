@@ -68,7 +68,7 @@ export interface KpiVcScoreItem {
   selectedLevelId?: string | null;
   selectedLevelName?: string | null;
   selectedLevelCode?: string | null;
-  selfScore: number; // Điểm cá nhân tự chấm
+  selfScore: number | null; // Điểm cá nhân tự chấm (null nếu chưa chấm)
   note?: string; // Ghi chú / minh chứng cá nhân
   evidenceUrl?: string;
 
@@ -147,6 +147,7 @@ export interface KpiVcFormHistory {
 
 export interface KpiVcForm {
   id: string;
+  _docId?: string;
   employeeId: string;
   employeeName: string;
   employeeCode?: string;
@@ -209,8 +210,8 @@ export interface KpiVcForm {
 
   // Self Assessment
   selfClassification: string; // 'Hoàn thành xuất sắc nhiệm vụ' | ...
-  selfDate: string;
-  selfSignName: string;
+  selfDate?: string;
+  selfSignName?: string;
   selfComment?: string;
 
   // Manager Assessment (Phần dành cho CBQL / Người đứng đầu)
@@ -241,7 +242,7 @@ export interface KpiVcAuditLog {
   formId?: string;
   periodId?: string;
   criterionId?: string;
-  action: 'create_form' | 'update_form' | 'submit_form' | 'lock_form' | 'unlock_form' | 'delete_form' | 'bulk_delete_forms' | 'create_criterion' | 'update_criterion' | 'delete_criterion' | 'create_period' | 'update_period';
+  action: 'create_form' | 'update_form' | 'submit_form' | 'lock_form' | 'unlock_form' | 'delete_form' | 'bulk_delete_forms' | 'batch_reset_100_to_0' | 'create_criterion' | 'update_criterion' | 'delete_criterion' | 'create_period' | 'update_period';
   actorId: string;
   actorName: string;
   actorRole?: string;

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { KpiVcForm, KpiVcCriterion, KpiVcRatingConfig } from '../types/kpiVc';
-import { resolveVcClassification, getEffectiveRatingConfig } from '../lib/kpiVcData';
+import { resolveVcClassification, getEffectiveRatingConfig, hasFormBeenEvaluated } from '../lib/kpiVcData';
 
 /**
  * Xuất danh sách tổng hợp KPI Giáo viên ra file Excel
@@ -12,9 +12,10 @@ export const exportVcSummaryToExcel = (
   ratingConfigs?: KpiVcRatingConfig[]
 ) => {
   const data = forms.map((f, idx) => {
-    const groupI = f.groupScores?.group_I ?? 0;
-    const groupII = f.groupScores?.group_II ?? 0;
-    const groupIII = f.groupScores?.group_III ?? 0;
+    const isEvaluated = hasFormBeenEvaluated(f);
+    const groupI = isEvaluated ? (f.groupScores?.group_I ?? 0) : 0;
+    const groupII = isEvaluated ? (f.groupScores?.group_II ?? 0) : 0;
+    const groupIII = isEvaluated ? (f.groupScores?.group_III ?? 0) : 0;
 
     let statusText = 'Chưa tự chấm';
     if (f.status === 'submitted' || f.status === 'self_evaluated') statusText = 'Chờ TTCM';
@@ -25,16 +26,22 @@ export const exportVcSummaryToExcel = (
 
     // Xếp loại cá nhân động
     const effectiveCfg = getEffectiveRatingConfig(f.periodId, ratingConfigs);
-    let selfRating = f.selfClassification;
-    if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
-      selfRating = resolveVcClassification(f.totalScore, f.periodId, ratingConfigs);
+    let selfRating = 'Chưa xếp loại';
+    if (isEvaluated) {
+      selfRating = f.selfClassification || resolveVcClassification(f.totalScore, f.periodId, ratingConfigs);
+      if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
+        selfRating = resolveVcClassification(f.totalScore, f.periodId, ratingConfigs);
+      }
     }
 
     // Xếp loại lãnh đạo / chính thức động
-    const finalScore = (f.managerTotalScore !== null && f.managerTotalScore !== undefined) ? f.managerTotalScore : f.totalScore;
-    let finalRating = f.leaderClassification || selfRating;
-    if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
-      finalRating = resolveVcClassification(finalScore, f.periodId, ratingConfigs);
+    let finalRating = 'Chưa xếp loại';
+    if (isEvaluated) {
+      const finalScore = (f.managerTotalScore !== null && f.managerTotalScore !== undefined) ? f.managerTotalScore : f.totalScore;
+      finalRating = f.leaderClassification || selfRating;
+      if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
+        finalRating = resolveVcClassification(finalScore, f.periodId, ratingConfigs);
+      }
     }
 
     return {
@@ -48,11 +55,11 @@ export const exportVcSummaryToExcel = (
       'Nhóm I (Tối đa 15)': groupI,
       'Nhóm II (Tối đa 15)': groupII,
       'Nhóm III (Tối đa 70)': groupIII,
-      'Điểm tự đánh giá (100đ)': f.totalScore,
-      'Điểm TTCM đánh giá (100đ)': f.ttcmTotalScore !== null && f.ttcmTotalScore !== undefined ? f.ttcmTotalScore : 'Chưa chấm',
-      'Điểm BGH đánh giá (100đ)': f.managerTotalScore !== null && f.managerTotalScore !== undefined ? f.managerTotalScore : 'Chưa chấm',
-      'Cá nhân tự xếp loại': selfRating || 'Chưa xếp loại',
-      'Xếp loại KPI chính thức': finalRating || 'Chưa xếp loại',
+      'Điểm tự đánh giá (100đ)': isEvaluated ? f.totalScore : '0/100 (Chưa chấm)',
+      'Điểm TTCM đánh giá (100đ)': (isEvaluated && f.ttcmTotalScore !== null && f.ttcmTotalScore !== undefined) ? f.ttcmTotalScore : 'Chưa chấm',
+      'Điểm BGH đánh giá (100đ)': (isEvaluated && f.managerTotalScore !== null && f.managerTotalScore !== undefined) ? f.managerTotalScore : 'Chưa chấm',
+      'Cá nhân tự xếp loại': selfRating,
+      'Xếp loại KPI chính thức': finalRating,
       'Trạng thái': statusText,
       'Ngày cập nhật': f.updatedAt ? new Date(f.updatedAt).toLocaleDateString('vi-VN') : ''
     };
@@ -91,11 +98,14 @@ export const exportVcSummaryToExcel = (
  * Xuất chi tiết một phiếu đánh giá ra file Excel
  */
 export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVcRatingConfig[]) => {
-  const dynamicRating = resolveVcClassification(
-    form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : form.totalScore,
-    form.periodId,
-    ratingConfigs
-  );
+  const isEvaluated = hasFormBeenEvaluated(form);
+  const dynamicRating = isEvaluated
+    ? resolveVcClassification(
+        form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : form.totalScore,
+        form.periodId,
+        ratingConfigs
+      )
+    : 'Chưa xếp loại';
   const headerInfo = [
     { A: 'SỞ GD&ĐT TỈNH PHÚ THỌ', B: '', C: 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM' },
     { A: 'TRƯỜNG THPT SƠN LƯƠNG', B: '', C: 'Độc lập – Tự do – Hạnh phúc' },
@@ -111,14 +121,14 @@ export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVc
 
   const criteriaRows = form.items.map((item, idx) => {
     let levelText = '';
-    if (item.selectedLevelName) {
+    if (item.selectedLevelName && isEvaluated) {
       levelText = ` [Đã chọn: ${item.selectedLevelName} - ${item.selfScore} điểm]`;
     }
     return {
       'STT': item.criterionCode || `${idx + 1}`,
       'Nội dung đánh giá': item.content + levelText,
       'Điểm tối đa': item.maxScore,
-      'Điểm cá nhân tự chấm': item.selfScore
+      'Điểm cá nhân tự chấm': (isEvaluated && item.selfScore !== null && item.selfScore !== undefined) ? item.selfScore : 'Chưa chấm'
     };
   });
 
@@ -127,11 +137,11 @@ export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVc
       'STT': 'TỔNG',
       'Nội dung đánh giá': 'TỔNG ĐIỂM ĐÁNH GIÁ',
       'Điểm tối đa': 100,
-      'Điểm cá nhân tự chấm': form.totalScore
+      'Điểm cá nhân tự chấm': isEvaluated ? form.totalScore : 0
     },
     {
       'STT': '',
-      'Nội dung đánh giá': `Cá nhân tự xếp loại: ${form.selfClassification || 'Chưa xếp loại'}`,
+      'Nội dung đánh giá': `Cá nhân tự xếp loại: ${isEvaluated ? (form.selfClassification || dynamicRating) : 'Chưa xếp loại'}`,
       'Điểm tối đa': '',
       'Điểm cá nhân tự chấm': ''
     }
