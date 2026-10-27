@@ -41,6 +41,7 @@ export default function Sidebar({ isOpen, setIsOpen, hideOnDesktop = false }: Si
     { name: 'Lịch giao việc tổ CM', href: '/department-schedule', icon: FileSpreadsheet },
     { name: 'Đoàn TN - Nền nếp HS', href: '/youth-discipline', icon: ShieldAlert },
     { name: 'Lịch trực Đoàn TN', href: '/youth-duty-schedule', icon: CalendarDays },
+    { name: 'Theo dõi học tập', href: '/academic-tracking', icon: BookOpen },
     { name: 'KPI Cán bộ Quản lý', href: '/kpi-cbql', icon: Award },
     { name: 'KPI Giáo viên', href: '/kpi-gvnv', icon: GraduationCap },
     { name: 'KPI Nhân viên', href: '/kpi-nv', icon: UserCheck },

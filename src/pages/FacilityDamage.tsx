@@ -16,7 +16,8 @@ import {
   Calendar,
   Layers,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  FileText
 } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { useAppContext } from '../store/AppContext';
@@ -29,6 +30,9 @@ export default function FacilityDamagePage() {
   const { user } = useAuth();
   const { classes, teachers } = useAppContext();
   const isBgh = user?.role?.toUpperCase() === 'BGH' || user?.role?.toUpperCase() === 'ADMIN' || user?.username === 'admin';
+
+  // View mode tab: 'list' (Danh sách phiếu) vs 'report_table' (Bảng Báo hỏng & Đề nghị sửa CSVC Lớp học theo mẫu)
+  const [viewMode, setViewMode] = useState<'list' | 'report_table'>('report_table');
 
   // Find user's homeroom class if user is GVCN
   const userClass = classes.find(c => c.homeroomTeacherId === user?.id || c.homeroomTeacher?.toLowerCase() === user?.name?.toLowerCase());
@@ -48,6 +52,53 @@ export default function FacilityDamagePage() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<FacilityDamageReport | null>(null);
   const [editingReport, setEditingReport] = useState<FacilityDamageReport | null>(null);
+
+  const [quickInputs, setQuickInputs] = useState<Record<string, { assetName: string; description: string; quantity: number }>>({});
+  const [submittingClassId, setSubmittingClassId] = useState<string | null>(null);
+
+  const handleQuickSubmit = async (cls: any) => {
+    const input = quickInputs[cls.id];
+    if (!input || !input.assetName?.trim()) {
+      alert('Vui lòng nhập tên thiết bị hỏng trước khi gửi BGH!');
+      return;
+    }
+    try {
+      setSubmittingClassId(cls.id);
+      await facilityDamageService.saveReport({
+        ticketCode: facilityDamageService.generateTicketCode(),
+        reportedAt: new Date().toISOString(),
+        classId: cls.id,
+        className: cls.name,
+        teacherId: user?.id || cls.homeroomTeacherId || 'GV',
+        teacherName: user?.name || cls.homeroomTeacher || 'Giáo viên',
+        classroom: `Phòng học ${cls.name}`,
+        facilityGroup: 'khác',
+        assetName: input.assetName.trim(),
+        quantity: input.quantity || 1,
+        description: input.description?.trim() || 'Báo hỏng cơ sở vật chất lớp học',
+        severity: 'trung bình',
+        detectionTime: 'Giờ học',
+        attachments: [],
+        status: 'Đã gửi báo hỏng',
+        academicYear: '2026-2027',
+        month: String(new Date().getMonth() + 1).padStart(2, '0'),
+        history: [{
+          id: Math.random().toString(36).substring(2, 9),
+          status: 'Đã gửi báo hỏng',
+          updatedBy: user?.id || 'GV',
+          updatedByName: user?.name || 'Giáo viên',
+          timestamp: new Date().toISOString(),
+          content: 'Báo hỏng cơ sở vật chất gửi BGH'
+        }]
+      });
+      setQuickInputs(prev => ({ ...prev, [cls.id]: { assetName: '', description: '', quantity: 1 } }));
+      await fetchReports();
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi gửi báo hỏng lên BGH.');
+    } finally {
+      setSubmittingClassId(null);
+    }
+  };
 
   const fetchReports = async () => {
     try {
@@ -114,7 +165,6 @@ export default function FacilityDamagePage() {
     if (!isBgh && userClass && r.className.toLowerCase() !== userClass.name.toLowerCase()) {
       return false;
     }
-    // Search query: class, device name, or ticket code
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchCode = r.ticketCode?.toLowerCase().includes(q);
@@ -122,18 +172,13 @@ export default function FacilityDamagePage() {
       const matchClass = r.className?.toLowerCase().includes(q) || r.classroom?.toLowerCase().includes(q);
       if (!matchCode && !matchAsset && !matchClass) return false;
     }
-    // Facility Group filter
     if (selectedGroup !== 'all' && r.facilityGroup !== selectedGroup) return false;
-    // Status filter
     if (selectedStatus !== 'all' && r.status !== selectedStatus) return false;
-    // Month/Year filter (MM/YYYY)
     if (selectedMonthYear !== 'all') {
       const myStr = formatMonthVN(r.reportedAt || r.createdAt);
       if (myStr !== selectedMonthYear) return false;
     }
-    // Class filter
     if (selectedClassFilter !== 'all' && r.className.toLowerCase() !== selectedClassFilter.toLowerCase()) return false;
-    // Teacher filter
     if (selectedTeacherFilter !== 'all' && r.teacherName.toLowerCase() !== selectedTeacherFilter.toLowerCase()) return false;
 
     return true;
@@ -155,18 +200,36 @@ export default function FacilityDamagePage() {
     setSelectedTeacherFilter('all');
   };
 
-  const handleDelete = async (id: string, status: DamageReportStatus) => {
-    if (status !== 'Nháp' && status !== 'Đã gửi báo hỏng') {
-      alert('Không thể xóa phiếu đã được tiếp nhận hoặc đang xử lý!');
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string; status: DamageReportStatus } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleDelete = (id: string, status: DamageReportStatus, name?: string) => {
+    if (!isBgh && status !== 'Nháp' && status !== 'Đã gửi báo hỏng') {
+      setToastMessage({ type: 'error', text: 'Không thể xóa phiếu đã được tiếp nhận hoặc đang xử lý!' });
+      setTimeout(() => setToastMessage(null), 3000);
       return;
     }
-    if (window.confirm('Bạn có chắc chắn muốn xóa phiếu báo hỏng này?')) {
-      try {
-        await facilityDamageService.deleteReport(id);
-        fetchReports();
-      } catch (err: any) {
-        alert(err.message || 'Lỗi khi xóa phiếu.');
-      }
+    setDeleteConfirmTarget({ id, name: name || 'thiết bị', status });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmTarget) return;
+    try {
+      setIsDeleting(true);
+      const targetId = deleteConfirmTarget.id;
+      setReports(prev => prev.filter(r => r.id !== targetId));
+      await facilityDamageService.deleteReport(targetId);
+      setToastMessage({ type: 'success', text: `Đã xóa phiếu "${deleteConfirmTarget.name}" thành công!` });
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Error deleting report:', err);
+      setToastMessage({ type: 'error', text: err.message || 'Lỗi khi xóa phiếu trên máy chủ.' });
+      setTimeout(() => setToastMessage(null), 4000);
+      await fetchReports();
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmTarget(null);
     }
   };
 
@@ -189,14 +252,13 @@ export default function FacilityDamagePage() {
     window.print();
   };
 
-  // Unique month/year list for filter dropdown
   const uniqueMonthYears = Array.from(new Set(reports.map(r => formatMonthVN(r.reportedAt || r.createdAt)))).filter(Boolean);
 
   return (
     <div className="min-h-screen bg-slate-50/65 pb-12 font-sans select-none">
       
       {/* Top Banner Header */}
-      <div className="bg-gradient-to-r from-[#123B78] via-[#1457D9] to-blue-600 text-white px-6 py-8 shadow-md">
+      <div className="bg-gradient-to-r from-[#123B78] via-[#1457D9] to-blue-600 text-white px-6 py-8 shadow-md no-print">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -210,7 +272,7 @@ export default function FacilityDamagePage() {
               BÁO HỎNG CƠ SỞ VẬT CHẤT LỚP HỌC
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 mt-1 max-w-2xl font-medium">
-              Hệ thống lập phiếu, theo dõi tiến độ khắc phục sự cố thiết bị lớp học và quản lý tài sản nhà trường.
+              Hệ thống lập phiếu, theo dõi tiến độ khắc phục sự cố thiết bị lớp học và báo cáo đề nghị sửa chữa lên Ban Giám Hiệu.
             </p>
           </div>
 
@@ -253,7 +315,7 @@ export default function FacilityDamagePage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 -mt-4 space-y-6">
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 no-print">
           <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Tổng số phiếu</span>
             <div className="flex items-baseline justify-between mt-1">
@@ -303,109 +365,38 @@ export default function FacilityDamagePage() {
           </div>
         </div>
 
-        {/* Filters and Search Toolbar */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-          <div className="w-full md:w-80 relative">
-            <Search size={16} className="absolute left-3.5 top-3 text-slate-400" />
-            <input 
-              type="text" 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo lớp, thiết bị, mã phiếu..."
-              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium"
-            />
-          </div>
+        {/* VIEW MODE TABS: BẢNG BÁO HỎNG & ĐỀ NGHỊ SỬA CSVC LỚP HỌC VS DANH SÁCH CHI TIẾT */}
+        <div className="flex items-center gap-2 no-print border-b border-slate-200 pb-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setViewMode('report_table')}
+            className={`px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+              viewMode === 'report_table'
+                ? 'bg-[#123B78] text-white shadow-md'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <FileText size={16} />
+            <span>📑 Bảng Báo hỏng & Đề nghị sửa CSVC Lớp học (Mẫu BGH)</span>
+          </button>
 
-          <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
-            {/* Lọc theo tháng/năm hỏng */}
-            <select
-              value={selectedMonthYear}
-              onChange={(e) => setSelectedMonthYear(e.target.value)}
-              className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 outline-none"
-            >
-              <option value="all">Tất cả tháng hỏng</option>
-              {uniqueMonthYears.map(my => (
-                <option key={my} value={my}>Tháng {my}</option>
-              ))}
-            </select>
-
-            {/* Lọc theo lớp */}
-            <select
-              value={selectedClassFilter}
-              onChange={(e) => setSelectedClassFilter(e.target.value)}
-              className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 outline-none"
-            >
-              <option value="all">Tất cả các lớp</option>
-              {classes.map(c => (
-                <option key={c.id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-
-            {/* Lọc theo GVCN */}
-            <select
-              value={selectedTeacherFilter}
-              onChange={(e) => setSelectedTeacherFilter(e.target.value)}
-              className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 outline-none"
-            >
-              <option value="all">Tất cả GVCN</option>
-              {teachers.map(t => (
-                <option key={t.id} value={t.name}>{t.name}</option>
-              ))}
-            </select>
-
-            {/* Lọc theo nhóm thiết bị */}
-            <select
-              value={selectedGroup}
-              onChange={(e) => setSelectedGroup(e.target.value)}
-              className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 outline-none capitalize"
-            >
-              <option value="all">Tất cả nhóm thiết bị</option>
-              <option value="điều hòa">Điều hòa</option>
-              <option value="bàn ghế học sinh">Bàn ghế học sinh</option>
-              <option value="bàn ghế giáo viên">Bàn ghế giáo viên</option>
-              <option value="bảng lớp học">Bảng lớp học</option>
-              <option value="đèn chiếu sáng">Đèn chiếu sáng</option>
-              <option value="quạt điện">Quạt điện</option>
-              <option value="cửa ra vào, cửa sổ">Cửa ra vào, cửa sổ</option>
-              <option value="hệ thống điện">Hệ thống điện</option>
-              <option value="hệ thống nước">Hệ thống nước</option>
-              <option value="máy chiếu">Máy chiếu</option>
-              <option value="máy tính">Máy tính</option>
-              <option value="thiết bị dạy học">Thiết bị dạy học</option>
-              <option value="thiết bị vệ sinh">Thiết bị vệ sinh</option>
-              <option value="khác">Khác</option>
-            </select>
-
-            {/* Lọc theo trạng thái xử lý */}
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 outline-none"
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="Nháp">Nháp</option>
-              <option value="Đã gửi báo hỏng">Đã gửi báo hỏng</option>
-              <option value="Đã tiếp nhận">Đã tiếp nhận</option>
-              <option value="Đang xử lý">Đang xử lý</option>
-              <option value="Chờ vật tư hoặc chờ sửa chữa">Chờ vật tư / chờ sửa</option>
-              <option value="Đã khắc phục">Đã khắc phục</option>
-              <option value="GVCN xác nhận hoàn thành">GVCN xác nhận hoàn thành</option>
-              <option value="Đóng phiếu">Đóng phiếu</option>
-            </select>
-
-            <button
-              onClick={handleResetFilters}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1"
-              title="Xóa bộ lọc"
-            >
-              <RefreshCw size={13} /> Xóa bộ lọc
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+              viewMode === 'list'
+                ? 'bg-[#123B78] text-white shadow-md'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Layers size={16} />
+            <span>📋 Quản lý danh sách phiếu chi tiết ({filteredReports.length})</span>
+          </button>
         </div>
 
         {/* ERROR BANNER IF ANY */}
         {errorMsg && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-4 rounded-xl flex items-center justify-between">
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-4 rounded-xl flex items-center justify-between no-print">
             <div className="flex items-center gap-2">
               <AlertTriangle size={18} className="shrink-0 text-rose-600" />
               <span><strong>Lỗi kết nối máy chủ:</strong> {errorMsg}</span>
@@ -414,121 +405,329 @@ export default function FacilityDamagePage() {
           </div>
         )}
 
-        {/* DANH SÁCH BÁO HỎNG CƠ SỞ VẬT CHẤT LỚP HỌC (LUÔN HIỂN THỊ CẤU TRÚC BẢNG) */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/30 flex items-center justify-between">
-            <h2 className="text-sm font-black text-[#123B78] uppercase tracking-wide">
-              DANH SÁCH BÁO HỎNG CƠ SỞ VẬT CHẤT LỚP HỌC
-            </h2>
-            <span className="text-xs font-semibold text-slate-500">
-              Tổng số bản ghi khớp: {filteredReports.length} / {reports.length}
-            </span>
-          </div>
+        {/* VIEW MODE 1: BẢNG BÁO HỎNG VÀ ĐỀ NGHỊ SỬA CSVC LỚP HỌC (THEO MẪU ĐÍNH KÈM) */}
+        {viewMode === 'report_table' && (
+          <div className="bg-white border-2 border-slate-300 rounded-2xl shadow-sm p-6 sm:p-8 space-y-6">
+            <div className="text-center space-y-1">
+              <h2 className="text-lg sm:text-xl font-black text-slate-900 uppercase tracking-wide">
+                BÁO HỎNG VÀ ĐỀ NGHỊ SỬA CSVC LỚP HỌC
+              </h2>
+              <p className="text-xs text-slate-500 italic">
+                Trường THPT Sơn Lương • Năm học 2026–2027
+              </p>
+            </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse border border-slate-200">
-              <thead>
-                <tr className="bg-[#123B78] text-white text-[11px] font-extrabold uppercase tracking-wider">
-                  {/* Cột chính xác theo yêu cầu người dùng */}
-                  <th className="p-3 border border-slate-300 text-center w-12">STT</th>
-                  <th className="p-3 border border-slate-300">Lớp</th>
-                  <th className="p-3 border border-slate-300">Ngày hỏng</th>
-                  <th className="p-3 border border-slate-300">Tháng hỏng</th>
-                  <th className="p-3 border border-slate-300">Thiết bị hỏng</th>
-                  <th className="p-3 border border-slate-300">Tên GVCN</th>
-                  <th className="p-3 border border-slate-300">Trạng thái</th>
-                  <th className="p-3 border border-slate-300 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 text-xs font-medium text-slate-800">
-                {loading ? (
-                  <tr>
-                    <td colSpan={8} className="p-12 text-center text-slate-500 font-semibold bg-white">
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                        <span>Đang tải dữ liệu từ máy chủ thực tế...</span>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse border border-slate-300 text-xs font-sans">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-900 font-black text-center uppercase tracking-wider text-xs border-b-2 border-slate-300">
+                    <th className="p-3 border border-slate-300 w-16">LỚP</th>
+                    <th className="p-3 border border-slate-300 min-w-[280px]">CSVC LỚP ĐỀ NGHỊ SỬA</th>
+                    <th className="p-3 border border-slate-300 w-36">Gửi BGH</th>
+                    <th className="p-3 border border-slate-300 w-44">Xác nhận</th>
+                    <th className="p-3 border border-slate-300 w-36">Ngày hoàn thành sửa</th>
                   </tr>
-                ) : filteredReports.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-16 text-center text-slate-500 bg-white">
-                      <div className="max-w-xs mx-auto space-y-2">
-                        <Wrench className="w-10 h-10 text-slate-300 mx-auto" />
-                        <p className="text-sm font-bold text-slate-700">Chưa có phiếu báo hỏng</p>
-                        <p className="text-xs text-slate-400">
-                          {reports.length === 0 
-                            ? 'Hiện chưa có phiếu báo hỏng nào được tạo trên hệ thống.' 
-                            : 'Không tìm thấy phiếu nào khớp với bộ lọc hiện tại. Hãy thử nhấn "Xóa bộ lọc".'}
-                        </p>
-                        {reports.length > 0 && (
-                          <button 
-                            onClick={handleResetFilters}
-                            className="mt-2 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-xs"
-                          >
-                            Xóa bộ lọc để xem toàn bộ
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredReports.map((r, index) => {
-                    const dateVal = r.reportedAt || r.createdAt;
-                    const formattedDate = formatDateVN(dateVal);
-                    const formattedMonth = formatMonthVN(dateVal);
+                </thead>
+                <tbody className="divide-y divide-slate-300 bg-white">
+                  {classes.map(cls => {
+                    // Find reports for this class
+                    const classReports = filteredReports.filter(r => r.className.toLowerCase() === cls.name.toLowerCase());
 
                     return (
-                      <tr 
-                        key={r.id} 
-                        className={`hover:bg-blue-50/50 transition-colors ${index % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}`}
-                      >
-                        <td className="p-3 border border-slate-200 text-center font-bold text-slate-600">{index + 1}</td>
-                        <td className="p-3 border border-slate-200 font-extrabold text-[#123B78]">{r.className}</td>
-                        <td className="p-3 border border-slate-200 whitespace-nowrap font-semibold">{formattedDate}</td>
-                        <td className="p-3 border border-slate-200 whitespace-nowrap text-slate-600 font-semibold">{formattedMonth}</td>
-                        <td className="p-3 border border-slate-200">
-                          <div className="font-bold text-slate-900 capitalize">{r.assetName} (SL: {r.quantity})</div>
-                          <div className="text-[11px] text-slate-600 line-clamp-1 mt-0.5">{r.description}</div>
-                          {r.acStatus && <div className="text-[10px] text-amber-700 font-bold">Tình trạng: {r.acStatus}</div>}
+                      <tr key={cls.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3 border border-slate-300 text-center font-extrabold text-[#123B78]">
+                          {cls.name}
                         </td>
-                        <td className="p-3 border border-slate-200 font-bold text-slate-700">{r.teacherName}</td>
-                        <td className="p-3 border border-slate-200">
-                          <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 whitespace-nowrap text-[11px]">
-                            {r.status}
-                          </span>
+                        <td className="p-3 border border-slate-300 space-y-3">
+                          {classReports.length > 0 && (
+                            <div className="space-y-2">
+                              {classReports.map(r => (
+                                <div key={r.id} className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-start justify-between gap-2">
+                                  <div>
+                                    <div className="font-bold text-slate-900 capitalize">
+                                      • {r.assetName} (SL: {r.quantity})
+                                    </div>
+                                    <div className="text-[11px] text-slate-600 mt-0.5">
+                                      Mô tả: {r.description}
+                                    </div>
+                                  </div>
+                                  {(r.status === 'Nháp' || r.status === 'Đã gửi báo hỏng' || isBgh) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDelete(r.id, r.status, r.assetName);
+                                      }}
+                                      className="text-rose-500 hover:text-rose-700 p-1.5 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Xóa phiếu"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Quick input form */}
+                          <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+                            <div className="text-[11px] font-bold text-[#123B78]">
+                              + Nhập CSVC hỏng đề nghị sửa:
+                            </div>
+                            <div className="space-y-1.5">
+                              <input
+                                type="text"
+                                placeholder="Tên thiết bị (vd: Quạt trần, Bóng đèn...)"
+                                value={(quickInputs[cls.id] || {}).assetName || ''}
+                                onChange={(e) => setQuickInputs(prev => ({
+                                  ...prev,
+                                  [cls.id]: { ...(prev[cls.id] || { quantity: 1, description: '' }), assetName: e.target.value }
+                                }))}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              />
+                              <div className="flex gap-1.5">
+                                <input
+                                  type="text"
+                                  placeholder="Mô tả chi tiết / Số lượng"
+                                  value={(quickInputs[cls.id] || {}).description || ''}
+                                  onChange={(e) => setQuickInputs(prev => ({
+                                    ...prev,
+                                    [cls.id]: { ...(prev[cls.id] || { quantity: 1, assetName: '' }), description: e.target.value }
+                                  }))}
+                                  className="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={submittingClassId === cls.id}
+                                  onClick={() => handleQuickSubmit(cls)}
+                                  className="px-3.5 py-1.5 bg-[#123B78] hover:bg-blue-800 text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-xs"
+                                >
+                                  {submittingClassId === cls.id ? 'Đang gửi...' : 'Gửi BGH'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         </td>
-                        <td className="p-3 border border-slate-200 text-right space-x-1.5 whitespace-nowrap">
-                          <button
-                            onClick={() => {
-                              setSelectedReport(r);
-                              setIsDetailModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer shadow-xs"
-                            title="Xem chi tiết"
-                          >
-                            <Eye size={13} /> Chi tiết
-                          </button>
-                          {(r.status === 'Nháp' || r.status === 'Đã gửi báo hỏng') && (
-                            <button
-                              onClick={() => handleDelete(r.id, r.status)}
-                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
-                              title="Xóa phiếu"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                        <td className="p-3 border border-slate-300 text-center text-slate-700 font-semibold">
+                          {classReports.length > 0 ? (
+                            <div>
+                              <div>Đã gửi</div>
+                              <div className="text-[11px] text-slate-500 font-normal">{formatDateVN(classReports[0].reportedAt || classReports[0].createdAt)}</div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="p-3 border border-slate-300 text-center">
+                          {classReports.length > 0 ? (
+                            <span className={`px-2.5 py-1 rounded-full font-bold text-[11px] inline-block ${
+                              classReports[0].status === 'Đã khắc phục' || classReports[0].status === 'GVCN xác nhận hoàn thành'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : classReports[0].status === 'Đang xử lý'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}>
+                              {classReports[0].status}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="p-3 border border-slate-300 text-center font-semibold text-slate-700">
+                          {classReports.length > 0 && (classReports[0].status === 'Đã khắc phục' || classReports[0].status === 'GVCN xác nhận hoàn thành') ? (
+                            <span className="text-emerald-700 font-bold">{formatDateVN(classReports[0].updatedAt)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic">Đang tiến hành</span>
                           )}
                         </td>
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* VIEW MODE 2: QUẢN LÝ DANH SÁCH PHIẾU CHI TIẾT */}
+        {viewMode === 'list' && (
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/30 flex items-center justify-between">
+              <h2 className="text-sm font-black text-[#123B78] uppercase tracking-wide">
+                DANH SÁCH PHIẾU BÁO HỎNG CƠ SỞ VẬT CHẤT
+              </h2>
+              <span className="text-xs font-semibold text-slate-500">
+                Tổng số bản ghi khớp: {filteredReports.length} / {reports.length}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse border border-slate-200">
+                <thead>
+                  <tr className="bg-[#123B78] text-white text-[11px] font-extrabold uppercase tracking-wider">
+                    <th className="p-3 border border-slate-300 text-center w-12">STT</th>
+                    <th className="p-3 border border-slate-300">Lớp</th>
+                    <th className="p-3 border border-slate-300">Ngày hỏng</th>
+                    <th className="p-3 border border-slate-300">Tháng hỏng</th>
+                    <th className="p-3 border border-slate-300">Thiết bị hỏng</th>
+                    <th className="p-3 border border-slate-300">Tên GVCN</th>
+                    <th className="p-3 border border-slate-300">Trạng thái</th>
+                    <th className="p-3 border border-slate-300 text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 text-xs font-medium text-slate-800">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={8} className="p-12 text-center text-slate-500 font-semibold bg-white">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                          <span>Đang tải dữ liệu từ máy chủ thực tế...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredReports.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-16 text-center text-slate-500 bg-white">
+                        <div className="max-w-xs mx-auto space-y-2">
+                          <Wrench className="w-10 h-10 text-slate-300 mx-auto" />
+                          <p className="text-sm font-bold text-slate-700">Chưa có phiếu báo hỏng</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredReports.map((r, index) => {
+                      const dateVal = r.reportedAt || r.createdAt;
+                      const formattedDate = formatDateVN(dateVal);
+                      const formattedMonth = formatMonthVN(dateVal);
+
+                      return (
+                        <tr 
+                          key={r.id} 
+                          className={`hover:bg-blue-50/50 transition-colors ${index % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}`}
+                        >
+                          <td className="p-3 border border-slate-200 text-center font-bold text-slate-600">{index + 1}</td>
+                          <td className="p-3 border border-slate-200 font-extrabold text-[#123B78]">{r.className}</td>
+                          <td className="p-3 border border-slate-200 whitespace-nowrap font-semibold">{formattedDate}</td>
+                          <td className="p-3 border border-slate-200 whitespace-nowrap text-slate-600 font-semibold">{formattedMonth}</td>
+                          <td className="p-3 border border-slate-200">
+                            <div className="font-bold text-slate-900 capitalize">{r.assetName} (SL: {r.quantity})</div>
+                            <div className="text-[11px] text-slate-600 line-clamp-1 mt-0.5">{r.description}</div>
+                          </td>
+                          <td className="p-3 border border-slate-200 font-bold text-slate-700">{r.teacherName}</td>
+                          <td className="p-3 border border-slate-200">
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 whitespace-nowrap text-[11px]">
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="p-3 border border-slate-200 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => {
+                                setSelectedReport(r);
+                                setIsDetailModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                              title="Xem chi tiết"
+                            >
+                              <Eye size={13} /> Chi tiết
+                            </button>
+                            {(r.status === 'Nháp' || r.status === 'Đã gửi báo hỏng' || isBgh) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(r.id, r.status, r.assetName);
+                                }}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                title="Xóa phiếu"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
       </div>
+
+      {/* In-App Confirmation Modal for Deleting Report */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-12 h-12 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
+                <Trash2 size={24} className="text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Xác nhận xóa phiếu báo hỏng</h3>
+                <p className="text-xs text-slate-500 font-medium">Hành động này không thể hoàn tác</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 space-y-1">
+              <div>
+                <span className="font-semibold text-slate-500">Thiết bị:</span>{" "}
+                <strong className="text-slate-900 capitalize">{deleteConfirmTarget.name}</strong>
+              </div>
+              <div>
+                <span className="font-semibold text-slate-500">Trạng thái:</span>{" "}
+                <span className="font-bold text-amber-700">{deleteConfirmTarget.status}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Bạn có chắc chắn muốn xóa bản ghi báo hỏng cơ sở vật chất này khỏi hệ thống trường học không?
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteConfirmTarget(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="px-5 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 transition-colors shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Xóa vĩnh viễn</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Toast */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className={`px-4 py-3 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-bold text-white ${
+            toastMessage.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+          }`}>
+            {toastMessage.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+            <span>{toastMessage.text}</span>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       <FacilityDamageModal

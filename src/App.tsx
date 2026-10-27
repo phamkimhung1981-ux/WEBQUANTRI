@@ -28,6 +28,7 @@ import YouthDiscipline from './pages/YouthDiscipline';
 import YouthDutySchedule from './pages/YouthDutySchedule';
 import OfficeDepartment from './pages/OfficeDepartment';
 import FacilityDamagePage from './pages/FacilityDamage';
+import AcademicTrackingPage from './pages/AcademicTracking';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -75,6 +76,9 @@ function AppRoutes() {
         <Route path="/cong-tac-chu-nhiem" element={<Homeroom />} />
         <Route path="/chu-nhiem" element={<Homeroom />} />
         <Route path="/facility-damage" element={<FacilityDamagePage />} />
+        <Route path="/academic-tracking" element={<AcademicTrackingPage />} />
+        <Route path="/hoc-tap" element={<AcademicTrackingPage />} />
+        <Route path="/theo-doi-hoc-tap" element={<AcademicTrackingPage />} />
         <Route path="/bao-hong-csvc" element={<FacilityDamagePage />} />
         <Route path="/co-so-vat-chat" element={<FacilityDamagePage />} />
         <Route path="/tasks" element={<Navigate to="/school-work-schedule" replace />} />
