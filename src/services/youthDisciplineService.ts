@@ -94,7 +94,8 @@ export function getStudentsWithViolationsByClass(
       if (targetWeekInfo && v.violationDate) {
         const dInfo = parseViolationDateInfo(v.violationDate);
         if (dInfo) {
-          if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) {
+          const weekMaxIso = targetWeekInfo.weekSundayIso || targetWeekInfo.endDateIso;
+          if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= weekMaxIso) && Number(v.weekNumber || 0) !== Number(weekNumber)) {
             return false;
           }
         } else if (Number(v.weekNumber || 0) !== Number(weekNumber)) {
@@ -1389,7 +1390,8 @@ export const youthDisciplineService = {
         if (targetWeekInfo && v.violationDate) {
           const dInfo = parseViolationDateInfo(v.violationDate);
           if (dInfo) {
-            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) {
+            const weekMaxIso = targetWeekInfo.weekSundayIso || targetWeekInfo.endDateIso;
+            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= weekMaxIso) && Number(v.weekNumber || 0) !== Number(targetWeek)) {
               return false;
             }
           } else if (Number(v.weekNumber || 0) !== Number(targetWeek)) {

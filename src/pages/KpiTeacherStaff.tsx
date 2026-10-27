@@ -194,17 +194,6 @@ export default function KpiTeacherStaff() {
   useEffect(() => {
     seedVcInitialDataIfNeeded();
 
-    // Tự động rà soát và đưa toàn bộ phiếu 100 điểm mặc định cũ về 0 điểm
-    resetFormsWith100Points('all', {
-      id: user?.id || 'admin',
-      name: user?.name || 'Ban Giám hiệu',
-      role: user?.role || 'BGH'
-    }).then(res => {
-      if (res && res.updatedCount > 0) {
-        console.log(`[Auto-Reset] Đã tự động đưa ${res.updatedCount} phiếu 100 điểm về 0.`);
-      }
-    }).catch(err => console.warn('Background reset 100 warning:', err));
-
     const unsubForms = subscribeVcForms(setForms);
     const unsubPeriods = subscribeVcPeriods((pList) => {
       setPeriods(pList);

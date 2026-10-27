@@ -1063,7 +1063,7 @@ export default function Tasks() {
                 </div>
               </div>
 
-              {/* Hiển thị rõ thông tin sau ô chọn tuần: TUẦN 03 | TỪ 14/09/2026 ĐẾN 20/09/2026 */}
+              {/* Hiển thị rõ thông tin sau ô chọn tuần: TUẦN 03 | TỪ 14/09/2026 ĐẾN 18/09/2026 */}
               <div className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-400/10 rounded-xl border border-amber-400/30 backdrop-blur-md shadow-xs">
                 <span className="text-xs sm:text-sm font-black tracking-wide uppercase text-amber-300">
                   {currentWeek.label}

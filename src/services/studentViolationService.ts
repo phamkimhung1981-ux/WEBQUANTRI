@@ -320,7 +320,8 @@ export const studentViolationService = {
 
       const dInfo = parseViolationDateInfo(v.violationDate || (v as any).violation_date);
       if (dInfo) {
-        return dInfo.isoDate >= wInfo.startDateIso && dInfo.isoDate <= wInfo.endDateIso;
+        const weekMaxIso = wInfo.weekSundayIso || wInfo.endDateIso;
+        return (dInfo.isoDate >= wInfo.startDateIso && dInfo.isoDate <= weekMaxIso) || Number(v.weekNumber || (v as any).week_number) === Number(weekNumber);
       }
       return Number(v.weekNumber || (v as any).week_number) === Number(weekNumber);
     });
@@ -513,8 +514,9 @@ export const studentViolationService = {
     for (const w of weeksToUse) {
       const wInfo = getWeekInfoByNumber(w, academicYear);
       // Violations in week w from monthViolationSummary
+      const weekMaxIso = wInfo.weekSundayIso || wInfo.endDateIso;
       const wViolationsRaw = monthViolationSummary.violations.filter(
-        v => Number(v.weekNumber) === w || (v.violationDate && v.violationDate >= wInfo.startDateIso && v.violationDate <= wInfo.endDateIso)
+        v => Number(v.weekNumber) === w || (v.violationDate && v.violationDate >= wInfo.startDateIso && v.violationDate <= weekMaxIso)
       );
       const seenW = new Set<string>();
       const wViolations = wViolationsRaw.filter(v => {

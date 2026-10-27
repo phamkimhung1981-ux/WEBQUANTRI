@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { 
   initializeFirestore, 
+  persistentLocalCache,
+  persistentMultipleTabManager,
   memoryLocalCache,
   getFirestore
 } from 'firebase/firestore';
@@ -14,15 +16,24 @@ const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId;
 
 let db: any;
 try {
-  db = initializeFirestore(app, {
-    localCache: memoryLocalCache(),
-    experimentalAutoDetectLongPolling: true,
-  }, firestoreDbId);
+  // Ưu tiên sử dụng persistentLocalCache (IndexedDB) trên trình duyệt để lưu bền vững dữ liệu, chống mất điểm khi tải lại trang hoặc mất mạng
+  if (typeof window !== 'undefined' && typeof indexedDB !== 'undefined') {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      experimentalAutoDetectLongPolling: true,
+    }, firestoreDbId);
+  } else {
+    db = initializeFirestore(app, {
+      localCache: memoryLocalCache(),
+      experimentalAutoDetectLongPolling: true,
+    }, firestoreDbId);
+  }
 } catch (e) {
   try {
     db = getFirestore(app, firestoreDbId);
   } catch (err) {
     db = initializeFirestore(app, {
+      localCache: memoryLocalCache(),
       experimentalAutoDetectLongPolling: true,
     }, firestoreDbId);
   }

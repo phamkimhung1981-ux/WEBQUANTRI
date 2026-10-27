@@ -180,36 +180,16 @@ if (typeof window !== 'undefined' && window.localStorage) {
 /**
  * Hàm chuẩn hóa và hợp nhất dữ liệu KPI Giáo viên:
  * - Bảo toàn 100% điểm tự chấm, điểm TTCM, điểm BGH, tệp minh chứng và ghi chú
- * - Đảm bảo chính xác 51 giáo viên/viên chức theo danh sách chính thức của Trường THPT Sơn Lương
- * - Triệt tiêu hoàn toàn trùng lặp do trình duyệt (Chrome, Cốc Cốc) hay sự sai khác mã định danh (id/shortId)
- * - Tự động phát hiện và đưa mọi phiếu 100 điểm chưa chấm về 0 điểm
+ * - Đảm bảo chính xác danh sách giáo viên/viên chức theo danh sách chính thức của Trường THPT Sơn Lương
+ * - Triệt tiêu hoàn toàn trùng lặp do trình duyệt hay sai khác mã định danh (id/shortId)
+ * - TUYỆT ĐỐI KHÔNG TỰ Ý ĐƯA ĐIỂM VỀ 0 HAY RESET 100 ĐIỂM
+ * - Khôi phục điểm đã chấm từ nguồn chuẩn CANONICAL_51_VC_FORMS nếu phiếu bị lỗi trở về 0 chưa chấm
  */
 export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
   if (!forms) forms = [];
 
-  // TỰ ĐỘNG CHUẨN HÓA: Chỉ làm sạch các phiếu bản nháp (draft) bị lỗi 100 điểm ban đầu. Tuyệt đối KHÔNG chạm vào phiếu đã nộp (submitted, ttcm_evaluated, completed, locked)!
-  const sanitizedInputForms: KpiVcForm[] = forms.map(f => {
-    const isSubmittedOrEvaluated = f.status === 'submitted' || f.status === 'ttcm_evaluated' || f.status === 'completed' || f.status === 'locked';
-    if (!isSubmittedOrEvaluated && (f.totalScore === 100 || (f.items && f.items.length > 0 && f.items.every(i => i.selfScore !== null && i.selfScore === i.maxScore)))) {
-      return {
-        ...f,
-        totalScore: 0,
-        groupScores: { group_I: 0, group_II: 0, group_III: 0 },
-        selfClassification: 'Chưa tự đánh giá',
-        status: 'draft' as const,
-        selfDate: '',
-        selfSignName: '',
-        items: (f.items || []).map(i => ({
-          ...i,
-          selfScore: null,
-          selectedLevelId: null,
-          selectedLevelName: null,
-          selectedLevelCode: null
-        }))
-      };
-    }
-    return f;
-  });
+  // BẢO TOÀN NGUYÊN VẸN: Tuyệt đối không xóa điểm, không hạ 100 điểm về 0
+  const inputForms = forms.filter(Boolean);
 
   const eligibleTeachers = DEFAULT_TEACHERS.filter(isEligibleVcEmployee);
   const eligibleNameMap = new Map<string, typeof eligibleTeachers[0]>();
@@ -224,9 +204,12 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
 
   // Gom các phiếu theo: `${periodId}__${teacher.id}`
   const matchedMap = new Map<string, KpiVcForm[]>();
+  const allKnownPeriods = new Set<string>();
+  allKnownPeriods.add('vc_period_2026_09');
 
-  sanitizedInputForms.forEach(f => {
+  inputForms.forEach(f => {
     const periodId = f.periodId || 'vc_period_2026_09';
+    allKnownPeriods.add(periodId);
     const normName = normalizeTeacherName(f.employeeName);
     const code = (f.employeeCode || '').toUpperCase().trim();
     const teacher = (f.employeeId && eligibleIdMap.get(f.employeeId)) ||
@@ -237,76 +220,99 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       const groupKey = `${periodId}__${teacher.id}`;
       if (!matchedMap.has(groupKey)) matchedMap.set(groupKey, []);
       matchedMap.get(groupKey)!.push(f);
+    } else if (f.employeeId || f.employeeName) {
+      // Các nhân sự đặc biệt ngoài danh sách chuẩn
+      const fallbackKey = `${periodId}__${f.employeeId || f.employeeName}`;
+      if (!matchedMap.has(fallbackKey)) matchedMap.set(fallbackKey, []);
+      matchedMap.get(fallbackKey)!.push(f);
     }
   });
 
   const result: KpiVcForm[] = [];
 
-  // Tra cứu bảng dữ liệu gốc chuẩn CANONICAL_51_VC_FORMS để đảm bảo không bị thiếu điểm
+  // Tra cứu bảng dữ liệu gốc chuẩn CANONICAL_51_VC_FORMS để đối chiếu khôi phục điểm nếu phiếu bị mất
   const canonicalFallbackMap = new Map<string, KpiVcForm>();
   CANONICAL_51_VC_FORMS.forEach(f => {
     canonicalFallbackMap.set(f.employeeId, f);
     if (f.employeeName) canonicalFallbackMap.set(normalizeTeacherName(f.employeeName), f);
   });
 
-  // 1. Xử lý kỳ trọng tâm: vc_period_2026_09 (chính xác 51 giáo viên)
+  // Duyệt qua từng giáo viên và kỳ đánh giá
   eligibleTeachers.forEach(t => {
+    // 1. Kỳ trọng tâm: vc_period_2026_09
     const groupKey = `vc_period_2026_09__${t.id}`;
     const matched = matchedMap.get(groupKey) || [];
     const fallback = canonicalFallbackMap.get(t.id) || canonicalFallbackMap.get(normalizeTeacherName(t.name));
 
     if (matched.length === 0) {
-      if (fallback) result.push(fallback);
+      if (fallback) {
+        result.push({ ...fallback });
+      }
       return;
     }
 
-    // Ưu tiên chọn phiếu có dữ liệu chấm đầy đủ nhất làm phiếu chính
+    // Ưu tiên chọn phiếu có dữ liệu chấm thực tế đầy đủ nhất làm phiếu chính
     const sorted = [...matched].sort((a, b) => {
       const aTtcm = (a.ttcmTotalScore !== null && a.ttcmTotalScore !== undefined) ? 1 : 0;
       const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
       if (bTtcm !== aTtcm) return bTtcm - aTtcm;
 
-      const aScore = getFormTotalScore(a);
-      const bScore = getFormTotalScore(b);
-      const aIsCustom = (aScore > 0 && aScore !== 100) ? 1 : 0;
-      const bIsCustom = (bScore > 0 && bScore !== 100) ? 1 : 0;
-      if (bIsCustom !== aIsCustom) return bIsCustom - aIsCustom;
+      const aManager = (a.managerTotalScore !== null && a.managerTotalScore !== undefined) ? 1 : 0;
+      const bManager = (b.managerTotalScore !== null && b.managerTotalScore !== undefined) ? 1 : 0;
+      if (bManager !== aManager) return bManager - aManager;
+
+      const aHasSelf = (a.items && a.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) ? 1 : 0;
+      const bHasSelf = (b.items && b.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) ? 1 : 0;
+      if (bHasSelf !== aHasSelf) return bHasSelf - aHasSelf;
 
       const wA = getStatusWeight(a.status);
       const wB = getStatusWeight(b.status);
       if (wB !== wA) return wB - wA;
 
-      const aNonZero = aScore > 0 ? 1 : 0;
-      const bNonZero = bScore > 0 ? 1 : 0;
-      if (bNonZero !== aNonZero) return bNonZero - aNonZero;
+      const aScore = getFormTotalScore(a);
+      const bScore = getFormTotalScore(b);
+      if (bScore !== aScore) return bScore - aScore;
 
       return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
     });
 
     const primary: KpiVcForm = { ...sorted[0] };
 
-    // Hợp nhất điểm từ tất cả các phiếu của giáo viên (không chèn điểm fallback vào phiếu thực tế)
-    const sourcesToMerge = [...sorted.slice(1)];
-    // Chỉ bổ sung điểm TTCM từ fallback nếu phiếu chính thiếu hoàn toàn cấu trúc
-    if (fallback && fallback.ttcmTotalScore && !primary.ttcmTotalScore && primary.status === 'ttcm_evaluated') {
-      sourcesToMerge.push(fallback);
+    // Khôi phục đối chiếu: Nếu phiếu chính bị rỗng (0 điểm, chưa chấm) nhưng bản chuẩn có điểm thật đã lưu trước đó
+    const primaryHasScore = primary.totalScore > 0 || (primary.items && primary.items.some(i => i.selfScore !== null && Number(i.selfScore) > 0));
+    if (!primaryHasScore && fallback && fallback.totalScore > 0) {
+      primary.items = fallback.items;
+      primary.totalScore = fallback.totalScore;
+      primary.groupScores = fallback.groupScores;
+      primary.selfClassification = fallback.selfClassification;
+      primary.selfDate = fallback.selfDate;
+      primary.selfSignName = fallback.selfSignName;
+      if (fallback.status && fallback.status !== 'draft') {
+        primary.status = fallback.status;
+      }
+      if (fallback.ttcmTotalScore) {
+        primary.ttcmTotalScore = fallback.ttcmTotalScore;
+        primary.ttcmGroupScores = fallback.ttcmGroupScores;
+      }
+      if (fallback.managerTotalScore) {
+        primary.managerTotalScore = fallback.managerTotalScore;
+        primary.managerGroupScores = fallback.managerGroupScores;
+      }
     }
 
+    // Hợp nhất dữ liệu từ tất cả các phiếu phụ của giáo viên (không ghi đè điểm đã có)
+    const sourcesToMerge = [...sorted.slice(1)];
     for (const sec of sourcesToMerge) {
       if (sec.items && primary.items) {
         primary.items = primary.items.map((pItem, idx) => {
           const sItem = sec.items?.find(si => si.criterionId === pItem.criterionId) || sec.items?.[idx];
           if (!sItem) return pItem;
-          // Chỉ lấy selfScore từ sec nếu sec không phải là phiếu có điểm 100
-          const secSelfScore = (sItem.selfScore !== null && sItem.selfScore !== undefined && sec.totalScore !== 100) 
-            ? sItem.selfScore 
-            : null;
           return {
             ...pItem,
-            selfScore: (pItem.selfScore !== null && pItem.selfScore !== undefined) ? pItem.selfScore : secSelfScore,
-            ttcmScore: (pItem.ttcmScore !== null && pItem.ttcmScore !== undefined) ? pItem.ttcmScore : ((sItem.ttcmScore !== null && sItem.ttcmScore !== undefined) ? sItem.ttcmScore : null),
+            selfScore: (pItem.selfScore !== null && pItem.selfScore !== undefined) ? pItem.selfScore : sItem.selfScore,
+            ttcmScore: (pItem.ttcmScore !== null && pItem.ttcmScore !== undefined) ? pItem.ttcmScore : sItem.ttcmScore,
             ttcmComment: pItem.ttcmComment || sItem.ttcmComment || '',
-            managerScore: (pItem.managerScore !== null && pItem.managerScore !== undefined) ? pItem.managerScore : ((sItem.managerScore !== null && sItem.managerScore !== undefined) ? sItem.managerScore : null),
+            managerScore: (pItem.managerScore !== null && pItem.managerScore !== undefined) ? pItem.managerScore : sItem.managerScore,
             managerComment: pItem.managerComment || sItem.managerComment || '',
             note: pItem.note || sItem.note || '',
             evidenceUrl: pItem.evidenceUrl || sItem.evidenceUrl || ''
@@ -321,17 +327,16 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
         primary.managerTotalScore = sec.managerTotalScore;
         primary.managerGroupScores = sec.managerGroupScores;
       }
-      // Không lấy điểm 100 từ nguồn phụ
-      if ((!primary.totalScore || primary.totalScore === 0) && sec.totalScore > 0 && sec.totalScore < 100) {
+      if ((!primary.totalScore || primary.totalScore === 0) && (sec.totalScore || 0) > 0) {
         primary.totalScore = sec.totalScore;
         primary.groupScores = sec.groupScores;
       }
-      if (getStatusWeight(sec.status) > getStatusWeight(primary.status) && sec.totalScore !== 100) {
+      if (getStatusWeight(sec.status) > getStatusWeight(primary.status)) {
         primary.status = sec.status;
       }
     }
 
-    // Tự động tính toán lại tổng điểm nhất quán (Bảo toàn 100% phiếu đã gửi, điểm đã chấm)
+    // Tính toán lại tổng điểm nhất quán từ items
     if (primary.items && primary.items.length > 0) {
       const selfCalc = calculateVcTotals(primary.items);
       if (primary.totalScore === undefined || primary.totalScore === null || (primary.totalScore === 0 && selfCalc.totalScore > 0)) {
@@ -351,34 +356,35 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       }
     }
 
-    // Nếu là bản nháp chưa chấm điểm nào thì giữ trạng thái chưa tự đánh giá
-    if (primary.status === 'draft' && (!primary.totalScore || primary.totalScore === 0) && (!primary.items || !primary.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null))) {
-      primary.totalScore = 0;
-      primary.groupScores = { group_I: 0, group_II: 0, group_III: 0 };
-      primary.selfClassification = 'Chưa tự đánh giá';
+    // Giữ nguyên document ID hiện có của phiếu trong Firestore để đảm bảo updateDoc ghi đúng document
+    if (!primary.id) {
+      primary.id = `vc_period_2026_09_${t.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     }
-
-    const canonicalDocId = 'vc_vc_period_2026_09_' + t.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    primary.id = canonicalDocId;
     primary.employeeId = t.id;
     primary.employeeName = t.name;
     primary.employeeCode = t.code;
     primary.employeeUsername = t.username || '';
-    primary.department = t.departmentName || 'Trường THPT Sơn Lương';
-    primary.departmentId = t.departmentId || null;
-    primary.position = t.position || 'Giáo viên';
+    primary.department = t.departmentName || primary.department || 'Trường THPT Sơn Lương';
+    primary.departmentId = t.departmentId || primary.departmentId || null;
+    primary.position = t.position || primary.position || 'Giáo viên';
     primary.periodId = 'vc_period_2026_09';
-    primary.periodName = 'Tháng 9/2026';
-    primary.academicYear = '2026-2027';
+    primary.periodName = primary.periodName || 'Tháng 9/2026';
+    primary.academicYear = primary.academicYear || '2026-2027';
 
     result.push(primary);
   });
 
-  // 2. Xử lý các kỳ khác (nếu có trong dữ liệu)
+  // 2. Xử lý các kỳ khác (Tháng 10, Tháng 11, v.v...)
   for (const [groupKey, matched] of matchedMap.entries()) {
     if (groupKey.startsWith('vc_period_2026_09__')) continue;
     if (matched.length > 0) {
-      result.push(matched[0]);
+      const sortedOther = [...matched].sort((a, b) => {
+        const wA = getStatusWeight(a.status);
+        const wB = getStatusWeight(b.status);
+        if (wB !== wA) return wB - wA;
+        return (b.totalScore || 0) - (a.totalScore || 0);
+      });
+      result.push(sortedOther[0]);
     }
   }
 
@@ -391,33 +397,12 @@ const getVcFormsCache = (): KpiVcForm[] => {
     const raw = localStorage.getItem(VC_FORMS_CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     if (Array.isArray(parsed) && parsed.length >= 40) {
-      const sanitized = parsed.map((f: any) => {
-        if (f.totalScore === 100 || (f.items && f.items.length > 0 && f.items.every((i: any) => i.selfScore !== null && i.selfScore === i.maxScore))) {
-          return {
-            ...f,
-            totalScore: 0,
-            groupScores: { group_I: 0, group_II: 0, group_III: 0 },
-            selfClassification: 'Chưa tự đánh giá',
-            status: 'draft' as const,
-            selfDate: '',
-            selfSignName: '',
-            items: (f.items || []).map((i: any) => ({
-              ...i,
-              selfScore: null,
-              selectedLevelId: null,
-              selectedLevelName: null,
-              selectedLevelCode: null
-            }))
-          };
-        }
-        return f;
-      });
-      return deduplicateVcForms(sanitized);
+      return deduplicateVcForms(parsed);
     }
   } catch (err) {
     console.warn('Error reading VC forms cache:', err);
   }
-  return DEFAULT_VC_FALLBACK_FORMS;
+  return deduplicateVcForms(CANONICAL_51_VC_FORMS);
 };
 
 const saveVcFormsCache = (forms: KpiVcForm[]) => {
@@ -436,9 +421,9 @@ const saveVcFormsCache = (forms: KpiVcForm[]) => {
  * Lắng nghe danh sách Phiếu đánh giá (kpi_vc_forms)
  */
 export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
-  // Load cache or fallback immediately so UI renders instantly with 47+ forms
+  // Load cache hoặc danh sách chuẩn lập tức để UI hiển thị đầy đủ điểm đã lưu
   const cached = getVcFormsCache();
-  const initialList = cached && cached.length >= 40 ? cached : DEFAULT_VC_FALLBACK_FORMS;
+  const initialList = cached && cached.length >= 40 ? cached : deduplicateVcForms(CANONICAL_51_VC_FORMS);
   callback(initialList);
 
   const handleLocalEvent = () => {
@@ -456,28 +441,7 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
   const unsubFirestore = onSnapshot(q, async (snapshot) => {
     const firestoreList: KpiVcForm[] = [];
     snapshot.forEach((docSnap) => {
-      let data = { id: docSnap.id, ...docSnap.data() } as KpiVcForm;
-      const isSubmittedOrEvaluated = data.status === 'submitted' || data.status === 'ttcm_evaluated' || data.status === 'completed' || data.status === 'locked';
-      if (!isSubmittedOrEvaluated && (data.totalScore === 100 || (data.items && data.items.length > 0 && data.items.every(i => i.selfScore !== null && i.selfScore === i.maxScore)))) {
-        data = {
-          ...data,
-          totalScore: 0,
-          groupScores: { group_I: 0, group_II: 0, group_III: 0 },
-          selfClassification: 'Chưa tự đánh giá',
-          status: 'draft',
-          selfDate: '',
-          selfSignName: '',
-          items: (data.items || []).map(i => ({
-            ...i,
-            selfScore: null,
-            selectedLevelId: null,
-            selectedLevelName: null,
-            selectedLevelCode: null
-          }))
-        };
-        // Update Firestore in background
-        setDoc(doc(db, VC_COLLECTIONS.FORMS, docSnap.id), cleanFirestoreData(data), { merge: true }).catch(() => {});
-      }
+      const data = { id: docSnap.id, ...docSnap.data() } as KpiVcForm;
       firestoreList.push(data);
     });
 
@@ -485,7 +449,7 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
     let finalList: KpiVcForm[] = firestoreList;
     if (finalList.length === 0) {
       const currentCached = getVcFormsCache();
-      finalList = currentCached && currentCached.length > 0 ? currentCached : DEFAULT_VC_FALLBACK_FORMS;
+      finalList = currentCached && currentCached.length > 0 ? currentCached : CANONICAL_51_VC_FORMS;
     }
 
     finalList = deduplicateVcForms(finalList);
@@ -494,7 +458,7 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
     saveVcFormsCache(finalList);
     callback(finalList);
   }, (err) => {
-    console.warn('Firestore subscription fallback for VC Forms, using cached data:', err);
+    console.warn('Firestore subscription notice for VC Forms (reading from persistent cache / backup):', err);
     const fallbackList = getVcFormsCache();
     callback(fallbackList);
   });
@@ -628,15 +592,16 @@ export const createVcForm = async (
   actor: { id: string; name: string; role?: string }
 ): Promise<string> => {
   const sanitizedEmployeeId = (formData.employeeId || 'emp').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const sanitizedPeriodId = (formData.periodId || 'period').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const formId = `vc_${sanitizedPeriodId}_${sanitizedEmployeeId}`;
+  const rawPeriod = (formData.periodId || 'vc_period_2026_09').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const pKey = rawPeriod.startsWith('vc_') ? rawPeriod : `vc_${rawPeriod}`;
+  const formId = `${pKey}_${sanitizedEmployeeId}`;
 
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
   let existingExists = false;
   let existingCreatedAt = '';
   let existingCreatedBy = '';
   try {
-    const timeoutGet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
+    const timeoutGet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
     const existing = await Promise.race([getDoc(docRef), timeoutGet]) as any;
     if (existing && existing.exists()) {
       existingExists = true;
@@ -657,17 +622,7 @@ export const createVcForm = async (
     updatedBy: actor.name || actor.id
   };
 
-  try {
-    const timeoutSet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
-    await Promise.race([
-      setDoc(docRef, cleanFirestoreData(fullForm), { merge: true }),
-      timeoutSet
-    ]);
-  } catch (e) {
-    console.warn('Firestore setDoc timeout/offline, saving to local cache:', e);
-  }
-
-  // Update local cache immediately
+  // 1. Cập nhật cache cục bộ ngay lập tức để UI phản hồi 0ms
   const cachedForms = getVcFormsCache();
   const existingIdx = cachedForms.findIndex(f => f.id === formId);
   if (existingIdx >= 0) {
@@ -677,33 +632,42 @@ export const createVcForm = async (
   }
   saveVcFormsCache(cachedForms);
 
+  // 2. Ghi Firestore với thời gian chờ an toàn (10 giây)
   try {
+    const cleanData = cleanFirestoreData(fullForm);
+    const timeoutSet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000));
     await Promise.race([
-      addVcAuditLog({
-        formId,
-        periodId: formData.periodId,
-        action: existingExists ? 'update_form' : 'create_form',
-        actorId: actor.id,
-        actorName: actor.name,
-        actorRole: actor.role,
-        targetName: `Phiếu KPI của ${formData.employeeName}`,
-        description: `${existingExists ? 'Cập nhật' : 'Tạo'} phiếu đánh giá KPI giáo viên/nhân viên: ${formData.employeeName} (${formData.periodName})`
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      setDoc(docRef, cleanData, { merge: true }),
+      timeoutSet
     ]);
+  } catch (e) {
+    console.warn('Firestore setDoc deferred or offline, data safely preserved in local storage:', e);
+  }
+
+  try {
+    addVcAuditLog({
+      formId,
+      periodId: formData.periodId,
+      action: existingExists ? 'update_form' : 'create_form',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      targetName: `Phiếu KPI của ${formData.employeeName}`,
+      description: `${existingExists ? 'Cập nhật' : 'Tạo'} phiếu đánh giá KPI giáo viên/nhân viên: ${formData.employeeName} (${formData.periodName})`
+    }).catch(() => {});
   } catch (logErr) {}
 
   return formId;
 };
 
 /**
- * CẬP NHẬT PHIẾU ĐÁNH GIÁ (Có bảo vệ chống treo timeout 6s)
+ * CẬP NHẬT PHIẾU ĐÁNH GIÁ (Bảo vệ dữ liệu bền vững, timeout an toàn 10s)
  */
 export const updateVcForm = async (
   formId: string,
   updateData: Partial<KpiVcForm>,
   actor: { id: string; name: string; role?: string }
-): Promise<{ success: boolean; isOfflineQuota?: boolean }> => {
+): Promise<{ success: boolean; isOfflineQuota?: boolean; error?: string }> => {
   console.log('[KPI_SERVICE_STEP_A: UPDATE_VC_FORM_START]', { formId });
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
   const now = new Date().toISOString();
@@ -715,8 +679,9 @@ export const updateVcForm = async (
   };
 
   let quotaErrorOccurred = false;
+  let errorMsg: string | undefined = undefined;
 
-  // 1. Cập nhật cache cục bộ NGAY LẬP TỨC (0ms) để UI phản hồi tức thì và dữ liệu được bảo toàn tuyệt đối
+  // 1. Cập nhật cache cục bộ NGAY LẬP TỨC để UI phản hồi tức thì và dữ liệu được bảo toàn tuyệt đối
   try {
     const cachedForms = getVcFormsCache();
     const idx = cachedForms.findIndex(f => f.id === formId);
@@ -731,26 +696,22 @@ export const updateVcForm = async (
     console.warn('[KPI_SERVICE_WARNING: LOCAL_CACHE_ERROR]', cacheErr);
   }
 
-  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout chống treo 1500ms
+  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout 10 giây (đảm bảo đủ thời gian ghi trên mọi đường truyền)
   try {
     console.log('[KPI_SERVICE_STEP_C: FIRESTORE_SET_DOC_START]', { formId });
     const cleanData = cleanFirestoreData(payload);
     const firestorePromise = setDoc(docRef, cleanData, { merge: true });
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 1500));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000));
     
-    const raceResult = await Promise.race([firestorePromise, timeoutPromise]);
-    if (raceResult === 'timeout') {
-      console.warn('[KPI_SERVICE: Firestore setDoc timed out after 1500ms, data safely preserved in local cache and background sync]');
-      quotaErrorOccurred = true;
-    } else {
-      console.log('[KPI_SERVICE_STEP_D: FIRESTORE_SET_DOC_SUCCESS]', { formId });
-    }
+    await Promise.race([firestorePromise, timeoutPromise]);
+    console.log('[KPI_SERVICE_STEP_D: FIRESTORE_SET_DOC_SUCCESS]', { formId });
   } catch (e: any) {
-    console.warn('[KPI_SERVICE_WARNING: FIRESTORE_SET_DOC_ERROR]', e);
+    console.warn('[KPI_SERVICE_WARNING: FIRESTORE_SET_DOC_DEFERRED_OR_ERROR]', e);
     quotaErrorOccurred = true;
+    errorMsg = e?.message || 'Deferred';
   }
 
-  // 3. Ghi nhận Audit Log hoàn toàn trong Background (KHÔNG await, không chặn giao diện)
+  // 3. Ghi nhận Audit Log hoàn toàn trong Background (KHÔNG chặn giao diện)
   try {
     const empName = updateData.employeeName || formId;
     const pId = updateData.periodId;
@@ -769,7 +730,7 @@ export const updateVcForm = async (
   } catch (logErr) {}
 
   console.log('[KPI_SERVICE_STEP_E: UPDATE_VC_FORM_COMPLETE]', { formId, quotaErrorOccurred });
-  return { success: true, isOfflineQuota: quotaErrorOccurred };
+  return { success: true, isOfflineQuota: quotaErrorOccurred, error: errorMsg };
 };
 
 /**

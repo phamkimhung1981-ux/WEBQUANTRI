@@ -12,14 +12,16 @@ import { safeParseDate } from './dateUtils';
 export interface SchoolWeekInfo {
   weekNumber: number;
   weekLabel: string;    // 'Tuần 03'
-  startDate: Date;
-  endDate: Date;
+  startDate: Date;      // Thứ Hai
+  endDate: Date;        // Thứ Sáu (01 tuần học tính từ Thứ 2 đến hết Thứ 6)
   startDateStr: string; // '14/09/2026'
-  endDateStr: string;   // '20/09/2026'
+  endDateStr: string;   // '18/09/2026'
   startDateIso: string; // '2026-09-14'
-  endDateIso: string;   // '2026-09-20'
-  label: string;        // 'TUẦN 03 | TỪ 14/09/2026 ĐẾN 20/09/2026'
-  timeRangeStr: string; // '14/09/2026 – 20/09/2026'
+  endDateIso: string;   // '2026-09-18'
+  weekSunday?: Date;    // Chủ Nhật cuối tuần (cho bộ lọc nới rộng dữ liệu cuối tuần nếu có)
+  weekSundayIso?: string;// '2026-09-20'
+  label: string;        // 'TUẦN 03 | TỪ 14/09/2026 ĐẾN 18/09/2026'
+  timeRangeStr: string; // '14/09/2026 – 18/09/2026'
 }
 
 export const ACADEMIC_YEARS = [
@@ -42,12 +44,12 @@ export function parseStartYear(academicYear: string = '2026–2027'): number {
 
 /**
  * Lấy Thứ Hai đầu tiên của năm học (Tuần 01)
- * Đối với năm học 2026–2027:
- * - Tuần 01: 07/09/2026 – 13/09/2026
- * - Tuần 02: 14/09/2026 – 20/09/2026
- * - Tuần 03: 21/09/2026 – 27/09/2026
- * - Tuần 04: 28/09/2026 – 04/10/2026
- * - Tuần 05: 05/10/2026 – 11/10/2026
+ * Đối với năm học 2026–2027 (01 tuần học tính từ Thứ 2 đến hết Thứ 6):
+ * - Tuần 01: 07/09/2026 – 11/09/2026
+ * - Tuần 02: 14/09/2026 – 18/09/2026
+ * - Tuần 03: 21/09/2026 – 25/09/2026
+ * - Tuần 04: 28/09/2026 – 02/10/2026
+ * - Tuần 05: 05/10/2026 – 09/10/2026
  */
 export function getSchoolYearStartMonday(academicYear: string | number = '2026–2027'): Date {
   const startYear = typeof academicYear === 'number' ? academicYear : parseStartYear(academicYear);
@@ -79,35 +81,42 @@ export function generateWeekId(weekNumber: number | string, academicYear: string
 }
 
 /**
- * Lấy thông tin chi tiết của 1 tuần học cụ thể trong năm học
+ * Lấy thông tin chi tiết của 1 tuần học cụ thể trong năm học (01 tuần học tính từ Thứ 2 đến hết Thứ 6)
  */
 export function getWeekInfoByNumber(weekNumber: number, academicYear: string = '2026–2027'): SchoolWeekInfo {
   const safeWeekNum = Math.max(1, Math.min(45, weekNumber));
   const startMonday = getSchoolYearStartMonday(academicYear);
   
-  // Tính ngày Thứ Hai của tuần này
+  // Tính ngày Thứ Hai của tuần này (bắt đầu tuần học)
   const weekMonday = addWeeks(startMonday, safeWeekNum - 1);
   weekMonday.setHours(0, 0, 0, 0);
 
-  // Tính Chủ Nhật cuối tuần (thêm 6 ngày)
+  // Tính Thứ Sáu kết thúc tuần học (thêm 4 ngày: Thứ 2 + 4 = Thứ 6)
+  const weekFriday = addDays(weekMonday, 4);
+  weekFriday.setHours(23, 59, 59, 999);
+
+  // Tính Chủ Nhật cuối tuần (cho bộ lọc nới rộng dữ liệu cuối tuần nếu có)
   const weekSunday = addDays(weekMonday, 6);
   weekSunday.setHours(23, 59, 59, 999);
 
   const padNum = String(safeWeekNum).padStart(2, '0');
   const startDateStr = format(weekMonday, 'dd/MM/yyyy');
-  const endDateStr = format(weekSunday, 'dd/MM/yyyy');
+  const endDateStr = format(weekFriday, 'dd/MM/yyyy');
   const startDateIso = format(weekMonday, 'yyyy-MM-dd');
-  const endDateIso = format(weekSunday, 'yyyy-MM-dd');
+  const endDateIso = format(weekFriday, 'yyyy-MM-dd');
+  const weekSundayIso = format(weekSunday, 'yyyy-MM-dd');
 
   return {
     weekNumber: safeWeekNum,
     weekLabel: `Tuần ${padNum}`,
     startDate: weekMonday,
-    endDate: weekSunday,
+    endDate: weekFriday,
     startDateStr,
     endDateStr,
     startDateIso,
     endDateIso,
+    weekSunday,
+    weekSundayIso,
     label: `TUẦN ${padNum} | TỪ ${startDateStr} ĐẾN ${endDateStr}`,
     timeRangeStr: `${startDateStr} – ${endDateStr}`
   };
@@ -288,7 +297,8 @@ export function isTaskInWeek(task: WorkAssignment, weekInfo: SchoolWeekInfo, aca
   }
 
   const weekStart = weekInfo.startDate.getTime();
-  const weekEnd = weekInfo.endDate.getTime();
+  // Nới rộng đến hết Chủ Nhật để không làm sót công việc giao vào cuối tuần
+  const weekEnd = (weekInfo.weekSunday || addDays(weekInfo.startDate, 6)).getTime();
 
   // 4. Kiểm tra ngày giao (workDate)
   if (task.workDate) {

@@ -190,7 +190,8 @@ export default function YouthDisciplinePage() {
         if (targetWeekInfo && v.violationDate) {
           const dInfo = parseViolationDateInfo(v.violationDate);
           if (dInfo) {
-            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) return false;
+            const weekMaxIso = targetWeekInfo.weekSundayIso || targetWeekInfo.endDateIso;
+            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= weekMaxIso) && (!v.weekNumber || Number(v.weekNumber) !== Number(selectedWeek))) return false;
           } else if (v.weekNumber && Number(v.weekNumber) !== Number(selectedWeek)) {
             return false;
           }
@@ -566,7 +567,8 @@ export default function YouthDisciplinePage() {
         if (targetWeekInfo && v.violationDate) {
           const dInfo = parseViolationDateInfo(v.violationDate);
           if (dInfo) {
-            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= targetWeekInfo.endDateIso)) return false;
+            const weekMaxIso = targetWeekInfo.weekSundayIso || targetWeekInfo.endDateIso;
+            if (!(dInfo.isoDate >= targetWeekInfo.startDateIso && dInfo.isoDate <= weekMaxIso) && (!v.weekNumber || Number(v.weekNumber) !== Number(selectedWeek))) return false;
           } else if (v.weekNumber && Number(v.weekNumber) !== Number(selectedWeek)) {
             return false;
           }
@@ -1108,6 +1110,21 @@ export default function YouthDisciplinePage() {
     } catch (err: any) {
       console.error('Lỗi khi ghi nhận vi phạm:', err);
       alert(err.message || 'Lỗi khi lưu vi phạm vào cơ sở dữ liệu. Vui lòng kiểm tra lại.');
+    }
+  };
+
+  const handleUnlockViolation = async (vio: YouthViolationRecord) => {
+    try {
+      const updated: YouthViolationRecord = {
+        ...vio,
+        isLocked: false,
+        updatedAt: new Date().toISOString()
+      };
+      await youthDisciplineService.saveViolation(updated, effectiveRole);
+      setViolations(prev => prev.map(v => v.id === vio.id ? updated : v));
+      showToast('Đã mở khóa bản ghi vi phạm thành công!');
+    } catch (e: any) {
+      showToast(e.message || 'Lỗi khi mở khóa vi phạm');
     }
   };
 

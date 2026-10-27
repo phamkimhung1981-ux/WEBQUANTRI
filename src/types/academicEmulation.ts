@@ -69,3 +69,30 @@ export const DEFAULT_EMULATION_CONFIG: AcademicEmulationConfig = {
   thresholdGood: 95,
   thresholdPass: 80
 };
+
+export interface MonthlyEmulationSummary {
+  classId: string;
+  className: string;
+  monthNumber: number;
+  schoolYear: string;
+  targetWeeks: number[];
+  weekRecords: Record<number, ClassAcademicEmulationRecord | undefined>;
+  weekScores: { weekNumber: number; score: number; hasRecord: boolean }[];
+  totalScore: number;
+  weekCount: number;
+  averageScore: number;
+  classification: string;
+  rank: number;
+  // Accumulated statistics in month
+  totalGoodLessons: number;
+  totalFairLessons: number;
+  totalAvgLessons: number;
+  totalWeakLessons: number;
+  totalGoodDays: number;
+  totalGoodWeeks: number;
+  totalGoodMarks: number;
+  totalBadMarks: number;
+  totalBonusPoints: number;
+  totalDeductionPoints: number;
+}
+

@@ -23,7 +23,11 @@ import {
   CheckCircle,
   HelpCircle,
   Lock,
-  Unlock
+  Unlock,
+  Trophy,
+  Eye,
+  Percent,
+  ChevronRight
 } from 'lucide-react';
 import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
@@ -32,17 +36,34 @@ import { homeroomService } from '../services/homeroomService';
 import { academicService, DEFAULT_SUBJECTS } from '../services/academicService';
 import { academicEmulationService } from '../services/academicEmulationService';
 import { StudentAcademicRecord, SemesterType, ClassAcademicSummary, SubjectScore } from '../types/academic';
-import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATION_CONFIG } from '../types/academicEmulation';
+import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATION_CONFIG, MonthlyEmulationSummary } from '../types/academicEmulation';
 import { ClassInfo, Student } from '../types/homeroom';
-import { ACADEMIC_YEARS, getAllWeeksInYear } from '../utils/schoolWeekUtils';
+import { ACADEMIC_YEARS, getAllWeeksInYear, getWeeksForMonth } from '../utils/schoolWeekUtils';
 
 export default function AcademicTrackingPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'student_grades' | 'class_summary' | 'emulation_table'>('emulation_table');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'student_grades' | 'class_summary' | 'emulation_table' | 'monthly_emulation'>('emulation_table');
+
+  // Month options for Vietnam academic calendar (HK1: 9-1, HK2: 1-5)
+  const MONTH_OPTIONS = useMemo(() => [
+    { value: 9, label: 'Tháng 9 (Khai giảng & Đầu năm)' },
+    { value: 10, label: 'Tháng 10 (Thi đua 20/10)' },
+    { value: 11, label: 'Tháng 11 (Thi đua 20/11)' },
+    { value: 12, label: 'Tháng 12 (Thi đua 22/12)' },
+    { value: 1, label: 'Tháng 1 (Sơ kết Học kỳ 1)' },
+    { value: 2, label: 'Tháng 2 (Đầu HK2 & Mừng Xuân)' },
+    { value: 3, label: 'Tháng 3 (Tháng Thanh niên 26/3)' },
+    { value: 4, label: 'Tháng 4 (Thi đua 30/4 & Giỗ Tổ)' },
+    { value: 5, label: 'Tháng 5 (Nước rút & Tổng kết năm)' },
+  ], []);
 
   // Filters
   const [selectedYear, setSelectedYear] = useState<string>('2026–2027');
   const [selectedSemester, setSelectedSemester] = useState<SemesterType>('HK1');
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => {
+    const curMonth = new Date().getMonth() + 1;
+    return [9, 10, 11, 12, 1, 2, 3, 4, 5].includes(curMonth) ? curMonth : 9;
+  });
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
   const [selectedGrade, setSelectedGrade] = useState<string>('All');
   const [selectedClassId, setSelectedClassId] = useState<string>('All');
@@ -53,6 +74,11 @@ export default function AcademicTrackingPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [records, setRecords] = useState<StudentAcademicRecord[]>([]);
   const [emulationRecords, setEmulationRecords] = useState<ClassAcademicEmulationRecord[]>([]);
+  const [allYearEmulationRecords, setAllYearEmulationRecords] = useState<ClassAcademicEmulationRecord[]>([]);
+  const [activeWeeksForMonth, setActiveWeeksForMonth] = useState<number[]>([]);
+  const [showMonthlyDetails, setShowMonthlyDetails] = useState<boolean>(false);
+  const [selectedClassForMonthDetail, setSelectedClassForMonthDetail] = useState<MonthlyEmulationSummary | null>(null);
+  const [isMonthlyFormulaModalOpen, setIsMonthlyFormulaModalOpen] = useState<boolean>(false);
   const [emulationConfig, setEmulationConfig] = useState<AcademicEmulationConfig>(DEFAULT_EMULATION_CONFIG);
   const [loading, setLoading] = useState<boolean>(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -71,6 +97,12 @@ export default function AcademicTrackingPage() {
   const [formConfig, setFormConfig] = useState<AcademicEmulationConfig>(DEFAULT_EMULATION_CONFIG);
 
   const allWeeks = useMemo(() => getAllWeeksInYear(selectedYear), [selectedYear]);
+
+  // Sync active weeks when selectedMonth or selectedYear changes
+  useEffect(() => {
+    const wks = getWeeksForMonth(selectedMonth, selectedYear);
+    setActiveWeeksForMonth(wks.length > 0 ? wks : [1, 2, 3, 4]);
+  }, [selectedMonth, selectedYear]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -98,6 +130,10 @@ export default function AcademicTrackingPage() {
 
       const emuList = await academicEmulationService.initializeWeekRecords(clsList, selectedYear, selectedWeek, cfg);
       setEmulationRecords(emuList);
+
+      // Tải tất cả dữ liệu thi đua của cả năm để tính bình quân các tháng
+      const allYearEmu = await academicEmulationService.getRecords(selectedYear, 0);
+      setAllYearEmulationRecords(allYearEmu);
 
       if (clsList.length > 0 && !formClassId) {
         setFormClassId(clsList[0].id);
@@ -157,6 +193,15 @@ export default function AcademicTrackingPage() {
 
     const saved = await academicEmulationService.saveRecord(updated, emulationConfig);
     setEmulationRecords(prev => prev.map(r => r.classId === classId ? saved : r));
+    setAllYearEmulationRecords(prev => {
+      const idx = prev.findIndex(r => r.id === saved.id || (r.classId === saved.classId && r.weekNumber === saved.weekNumber && r.schoolYear === saved.schoolYear));
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = saved;
+        return copy;
+      }
+      return [...prev, saved];
+    });
   };
 
   const handleSaveConfig = async () => {
@@ -342,6 +387,145 @@ export default function AcademicTrackingPage() {
     showToast('Đã xuất file Word thi đua học tập thành công!');
   };
 
+  // --- THỐNG KÊ THI ĐUA THEO THÁNG (CỘNG CÁC TUẦN CHIA BÌNH QUÂN) ---
+  const monthlySummaries: MonthlyEmulationSummary[] = useMemo(() => {
+    return academicEmulationService.calculateMonthlySummary(
+      classes,
+      allYearEmulationRecords,
+      selectedMonth,
+      selectedYear,
+      emulationConfig,
+      activeWeeksForMonth
+    );
+  }, [classes, allYearEmulationRecords, selectedMonth, selectedYear, emulationConfig, activeWeeksForMonth]);
+
+  const toggleMonthWeek = (weekNum: number) => {
+    setActiveWeeksForMonth(prev => {
+      if (prev.includes(weekNum)) {
+        if (prev.length <= 1) {
+          showToast('Cần giữ lại ít nhất 1 tuần để tính bình quân tháng.');
+          return prev;
+        }
+        return prev.filter(w => w !== weekNum);
+      } else {
+        return [...prev, weekNum].sort((a, b) => a - b);
+      }
+    });
+  };
+
+  const handleBatchInitializeMonthWeeks = async () => {
+    try {
+      setLoading(true);
+      for (const wk of activeWeeksForMonth) {
+        await academicEmulationService.initializeWeekRecords(classes, selectedYear, wk, emulationConfig);
+      }
+      const allYearEmu = await academicEmulationService.getRecords(selectedYear, 0);
+      setAllYearEmulationRecords(allYearEmu);
+      showToast(`Đã đồng bộ đầy đủ các tuần trong Tháng ${selectedMonth}!`);
+    } catch (e) {
+      showToast('Lỗi khi đồng bộ dữ liệu thi đua tháng');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportMonthlyExcel = () => {
+    const weekHeaders = activeWeeksForMonth.map(w => `Tuần ${w}`).join(',');
+    let csv = `\uFEFFSTT,Lớp,${weekHeaders},Tổng điểm các tuần,Số tuần tính,Điểm bình quân tháng,Xếp loại,Xếp hạng,Tổng giờ Tốt,Tổng giờ Khá,Tổng giờ Tb,Tổng giờ Yếu,Tổng ngày tốt,Tổng tuần tốt,Tổng điểm 8-10,Tổng điểm <5,Tổng điểm cộng,Tổng điểm trừ\n`;
+
+    monthlySummaries.forEach((s, idx) => {
+      const weekScoresStr = activeWeeksForMonth.map(w => {
+        const found = s.weekScores.find(ws => ws.weekNumber === w);
+        return (found && found.hasRecord) ? found.score : '--';
+      }).join(',');
+
+      csv += `"${idx + 1}","${s.className}",${weekScoresStr},"${s.totalScore}","${s.weekCount}","${s.averageScore}","${s.classification}","${s.rank}","${s.totalGoodLessons}","${s.totalFairLessons}","${s.totalAvgLessons}","${s.totalWeakLessons}","${s.totalGoodDays}","${s.totalGoodWeeks}","${s.totalGoodMarks}","${s.totalBadMarks}","+${s.totalBonusPoints}","-${s.totalDeductionPoints}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Thong_ke_thi_dua_hoc_tap_Thang_${selectedMonth}_${selectedYear}.csv`;
+    link.click();
+    showToast(`Đã xuất file Excel thống kê thi đua Tháng ${selectedMonth} thành công!`);
+  };
+
+  const handleExportMonthlyWord = () => {
+    const weekCols = activeWeeksForMonth.map(w => `<th style="text-align:center;">Tuần ${w}</th>`).join('');
+    const tableRows = monthlySummaries.map((s, idx) => {
+      const weekCells = activeWeeksForMonth.map(w => {
+        const found = s.weekScores.find(ws => ws.weekNumber === w);
+        return `<td style="text-align:center;">${(found && found.hasRecord) ? found.score : '--'}</td>`;
+      }).join('');
+      return `
+        <tr>
+          <td style="text-align:center;">${idx + 1}</td>
+          <td style="text-align:center; font-weight:bold;">${s.className}</td>
+          ${weekCells}
+          <td style="text-align:center; font-weight:bold;">${s.totalScore}</td>
+          <td style="text-align:center;">${s.weekCount}</td>
+          <td style="text-align:center; font-weight:bold; font-size:13pt; color:#1e3a8a;">${s.averageScore}</td>
+          <td style="text-align:center; font-weight:bold;">${s.classification}</td>
+          <td style="text-align:center; font-weight:bold; color:#b45309;">Hạng ${s.rank}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <title>Thống kê thi đua học tập Tháng ${selectedMonth}</title>
+        <style>
+          body { font-family: 'Times New Roman', serif; font-size: 11pt; }
+          h2 { text-align: center; text-transform: uppercase; margin-bottom: 4px; }
+          p.sub { text-align: center; font-style: italic; margin-top: 0; margin-bottom: 16px; font-size: 10pt; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #000; padding: 6px 4px; font-size: 9.5pt; }
+          th { background-color: #f2f2f2; text-align: center; font-weight: bold; }
+          .rule { font-size: 9.5pt; color: #333; margin-top: 15px; border-top: 1px dashed #aaa; padding-top: 8px; }
+        </style>
+      </head>
+      <body>
+        <h2>BẢNG TỔNG HỢP THI ĐUA HỌC TẬP — THÁNG ${selectedMonth}</h2>
+        <p class="sub">Trường THPT Sơn Lương • Năm học: ${selectedYear} • Điểm bình quân = Tổng điểm các tuần / Số tuần tính (${activeWeeksForMonth.map(w => 'Tuần ' + w).join(', ')})</p>
+        <table>
+          <thead>
+            <tr>
+              <th>STT</th>
+              <th>Lớp</th>
+              ${weekCols}
+              <th>Tổng điểm các tuần</th>
+              <th>Số tuần tính</th>
+              <th>ĐIỂM BÌNH QUÂN THÁNG</th>
+              <th>Xếp loại</th>
+              <th>Xếp hạng</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        <div class="rule">
+          <p><strong>* Nguyên tắc tính điểm thi đua theo tháng:</strong></p>
+          <p>- Điểm tháng của mỗi lớp là trung bình cộng điểm đạt được của các tuần trong tháng: <em>Điểm TB Tháng = (Tổng điểm các tuần) / (Số tuần tính)</em>.</p>
+          <p>- Ngưỡng xếp loại: Tốt (&ge; ${emulationConfig.thresholdExcellent}đ), Khá (&ge; ${emulationConfig.thresholdGood}đ), Đạt (&ge; ${emulationConfig.thresholdPass}đ), Chưa đạt (&lt; ${emulationConfig.thresholdPass}đ).</p>
+          <p>- Thứ hạng: Xếp theo điểm bình quân tháng từ cao xuống thấp.</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(["\ufeff", htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Thong_ke_thi_dua_hoc_tap_Thang_${selectedMonth}_${selectedYear}.doc`;
+    link.click();
+    showToast(`Đã xuất file Word thống kê thi đua Tháng ${selectedMonth} thành công!`);
+  };
+
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 pb-24 font-sans text-slate-900">
       {/* 1. TOP HEADER */}
@@ -404,6 +588,21 @@ export default function AcademicTrackingPage() {
         </div>
 
         <div className="flex items-center gap-1.5">
+          <span className="text-emerald-400 font-bold flex items-center gap-1">
+            <span>📅</span> Tháng:
+          </span>
+          <select
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(Number(e.target.value))}
+            className="bg-emerald-950/80 text-emerald-200 font-bold px-3 py-1.5 rounded-xl border border-emerald-600 outline-none cursor-pointer"
+          >
+            {MONTH_OPTIONS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5">
           <span className="text-amber-300 font-bold flex items-center gap-1">
             <span>📅</span> Tuần:
           </span>
@@ -446,7 +645,8 @@ export default function AcademicTrackingPage() {
       {/* NAVIGATION TABS */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200 no-print">
         {[
-          { id: 'emulation_table', label: '🏆 Theo dõi thi đua học tập', icon: Award },
+          { id: 'emulation_table', label: '🏆 Theo dõi thi đua học tập (Tuần)', icon: Award },
+          { id: 'monthly_emulation', label: '📅 Thống kê thi đua theo tháng', icon: Calendar, badge: `Tháng ${selectedMonth}` },
           { id: 'dashboard', label: '📊 Tổng quan & Thống kê', icon: BarChart3 },
           { id: 'student_grades', label: '📝 Bảng điểm học sinh', icon: BookOpen, badge: records.length },
           { id: 'class_summary', label: '🏫 Tổng hợp xếp loại theo lớp', icon: Users }
@@ -489,6 +689,15 @@ export default function AcademicTrackingPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap no-print">
+              <button
+                type="button"
+                onClick={() => setActiveTab('monthly_emulation')}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="Xem bảng thống kê thi đua cả tháng (cộng các tuần chia bình quân)"
+              >
+                <Calendar size={14} className="text-indigo-600" />
+                <span>Xem thống kê Tháng {selectedMonth} (Bình quân)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setShowScoreBreakdown(!showScoreBreakdown)}
@@ -719,6 +928,422 @@ export default function AcademicTrackingPage() {
             </table>
           </div>
         </Card>
+      )}
+
+      {/* TAB MỚI: BẢNG TỔNG HỢP & THỐNG KÊ THI ĐUA HỌC TẬP THEO THÁNG */}
+      {activeTab === 'monthly_emulation' && (
+        <div className="space-y-6">
+          <Card className="p-5 sm:p-6 bg-white border border-slate-200 rounded-[24px] shadow-sm space-y-5">
+            {/* Header & Actions */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-200 uppercase">
+                    Thống kê định kỳ
+                  </span>
+                  <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
+                    THỐNG KÊ THI ĐUA HỌC TẬP — THÁNG {selectedMonth} ({selectedYear})
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Công thức: <strong>Điểm thi đua tháng = Cộng điểm các tuần lớp đạt được chia bình quân</strong> • Điểm chuẩn: {emulationConfig.baseScore}đ
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap no-print">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('emulation_table')}
+                  className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Chuyển về nhập và xem chi tiết theo từng tuần"
+                >
+                  <Award size={14} />
+                  <span>Bảng thi đua Tuần {selectedWeek}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchInitializeMonthWeeks}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Khởi tạo hoặc đồng bộ các tuần còn thiếu trong tháng"
+                >
+                  <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                  <span>Đồng bộ các tuần</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMonthlyDetails(!showMonthlyDetails)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Hiện/Ẩn chi tiết tích lũy giờ học và điểm cộng trừ cả tháng"
+                >
+                  <Eye size={14} />
+                  <span>{showMonthlyDetails ? 'Ẩn chi tiết giờ học' : 'Hiện chi tiết giờ học'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsMonthlyFormulaModalOpen(true)}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Xem nguyên tắc và công thức tính điểm bình quân tháng"
+                >
+                  <Calculator size={14} />
+                  <span>Công thức tính</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportMonthlyWord}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Xuất bảng thống kê tháng ra file Word (.doc)"
+                >
+                  <FileText size={14} />
+                  <span>Xuất Word</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportMonthlyExcel}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Xuất bảng thống kê tháng ra file Excel (.csv)"
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>Xuất Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                  title="In bảng thống kê tháng"
+                >
+                  <Printer size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Bộ chọn tháng và danh sách các tuần trong tháng */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                  <Calendar size={15} className="text-blue-600" />
+                  Chọn tháng đánh giá:
+                </span>
+                <select
+                  value={selectedMonth}
+                  onChange={e => setSelectedMonth(Number(e.target.value))}
+                  className="bg-white text-slate-900 font-bold px-3 py-1.5 rounded-xl border border-blue-400 outline-none shadow-xs cursor-pointer text-xs"
+                >
+                  {MONTH_OPTIONS.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Weeks toggle pill list */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-slate-600">Các tuần tính bình quân:</span>
+                {getWeeksForMonth(selectedMonth, selectedYear).map(w => {
+                  const isSelected = activeWeeksForMonth.includes(w);
+                  return (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => toggleMonthWeek(w)}
+                      className={`px-3 py-1 rounded-xl font-bold text-xs transition-all cursor-pointer border ${
+                        isSelected
+                          ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                          : 'bg-white text-slate-400 border-slate-200 hover:border-slate-400 hover:text-slate-700 line-through'
+                      }`}
+                      title={isSelected ? `Bấm để loại trừ Tuần ${w} khỏi điểm bình quân` : `Bấm để đưa Tuần ${w} vào tính điểm bình quân`}
+                    >
+                      Tuần {w}
+                    </button>
+                  );
+                })}
+                <span className="text-[11px] text-slate-500 font-semibold bg-white px-2.5 py-1 rounded-xl border border-slate-200">
+                  (Đang chia cho {activeWeeksForMonth.length} tuần)
+                </span>
+              </div>
+            </div>
+
+            {/* 4 Thẻ KPI Tóm Tắt Tháng */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 no-print">
+              {/* Card 1: Hạng 1 */}
+              <div className="p-4 bg-gradient-to-br from-amber-50 to-amber-100/60 border border-amber-300 rounded-2xl shadow-xs space-y-1">
+                <div className="flex items-center justify-between text-amber-800">
+                  <span className="text-xs font-bold uppercase tracking-wider">Lớp dẫn đầu tháng</span>
+                  <Trophy size={18} className="text-amber-500 fill-amber-500" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-amber-950">
+                    {monthlySummaries[0]?.className || '---'}
+                  </span>
+                  <span className="text-sm font-bold text-amber-700">
+                    ({monthlySummaries[0]?.averageScore || 0} đ)
+                  </span>
+                </div>
+                <p className="text-[11px] font-semibold text-amber-800">
+                  🥇 Hạng 1 toàn trường • Xếp loại: {monthlySummaries[0]?.classification || 'Tốt'}
+                </p>
+              </div>
+
+              {/* Card 2: Điểm TB Toàn Trường */}
+              <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/60 border border-blue-200 rounded-2xl shadow-xs space-y-1">
+                <div className="flex items-center justify-between text-blue-800">
+                  <span className="text-xs font-bold uppercase tracking-wider">ĐTB Toàn Trường Tháng</span>
+                  <TrendingUp size={18} className="text-blue-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-blue-950">
+                    {monthlySummaries.length > 0
+                      ? (monthlySummaries.reduce((a, b) => a + b.averageScore, 0) / monthlySummaries.length).toFixed(1)
+                      : '100.0'} đ
+                  </span>
+                </div>
+                <p className="text-[11px] font-semibold text-blue-700">
+                  Tổng hợp từ {monthlySummaries.length} lớp học trong tháng
+                </p>
+              </div>
+
+              {/* Card 3: Phân bố xếp loại */}
+              <div className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/60 border border-emerald-200 rounded-2xl shadow-xs space-y-1">
+                <div className="flex items-center justify-between text-emerald-800">
+                  <span className="text-xs font-bold uppercase tracking-wider">Xếp Loại Thi Đua</span>
+                  <Award size={18} className="text-emerald-600" />
+                </div>
+                <div className="text-sm font-black text-emerald-950 space-x-1.5">
+                  <span className="text-emerald-700">{monthlySummaries.filter(s => s.classification === 'Tốt').length} Tốt</span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-blue-700">{monthlySummaries.filter(s => s.classification === 'Khá').length} Khá</span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-amber-700">{monthlySummaries.filter(s => s.classification === 'Đạt').length} Đạt</span>
+                </div>
+                <p className="text-[11px] font-semibold text-emerald-700">
+                  {monthlySummaries.filter(s => s.classification === 'Chưa đạt').length > 0
+                    ? `${monthlySummaries.filter(s => s.classification === 'Chưa đạt').length} lớp chưa đạt`
+                    : '100% lớp đạt chuẩn thi đua'}
+                </p>
+              </div>
+
+              {/* Card 4: Tổng giờ & nền nếp tháng */}
+              <div className="p-4 bg-gradient-to-br from-indigo-50 to-indigo-100/60 border border-indigo-200 rounded-2xl shadow-xs space-y-1">
+                <div className="flex items-center justify-between text-indigo-800">
+                  <span className="text-xs font-bold uppercase tracking-wider">Nền Nếp Học Tập Tháng</span>
+                  <CheckCircle2 size={18} className="text-indigo-600" />
+                </div>
+                <div className="text-sm font-black text-indigo-950 space-x-2">
+                  <span className="text-indigo-700">
+                    {monthlySummaries.reduce((a, b) => a + b.totalGoodDays, 0)} Ngày tốt
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-blue-700">
+                    {monthlySummaries.reduce((a, b) => a + b.totalGoodWeeks, 0)} Tuần tốt
+                  </span>
+                </div>
+                <p className="text-[11px] font-semibold text-indigo-700">
+                  Tổng {monthlySummaries.reduce((a, b) => a + b.totalGoodLessons, 0)} giờ học tốt toàn trường
+                </p>
+              </div>
+            </div>
+
+            {/* BẢNG TỔNG HỢP THI ĐUA THEO THÁNG */}
+            <div className="overflow-x-auto border border-slate-300 rounded-xl shadow-xs bg-white">
+              <table className="w-full text-center border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-[11px]">
+                    <th rowSpan={2} className="py-2.5 px-2 border-r border-slate-300 w-10">STT</th>
+                    <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-300 w-20 text-left">Lớp</th>
+                    <th colSpan={activeWeeksForMonth.length} className="py-1.5 px-2 border-r border-slate-300 bg-blue-50/80 text-blue-900">
+                      ĐIỂM TỪNG TUẦN TRONG THÁNG {selectedMonth}
+                    </th>
+                    <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-300 bg-slate-50 w-24">
+                      Tổng điểm các tuần
+                    </th>
+                    <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-300 bg-slate-50 w-16">
+                      Số tuần tính
+                    </th>
+                    <th rowSpan={2} className="py-2 px-3 border-r border-slate-300 bg-amber-100/70 text-blue-950 font-black text-xs w-28">
+                      ĐIỂM BÌNH QUÂN THÁNG
+                    </th>
+                    <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-300 w-20">Xếp loại</th>
+                    <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-300 w-20">Xếp hạng</th>
+
+                    {/* Cột chi tiết tích lũy cả tháng */}
+                    {showMonthlyDetails && (
+                      <>
+                        <th colSpan={4} className="py-1.5 px-2 border-r border-slate-300 bg-slate-200 text-slate-800">
+                          Tổng số giờ học trong tháng
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-indigo-50 text-indigo-900">
+                          Ngày tốt (+10đ)
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-blue-50 text-blue-900">
+                          Tuần tốt (+20đ)
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-emerald-50 text-emerald-900">
+                          Điểm 8-10 (+2đ)
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-rose-50 text-rose-900">
+                          Điểm &lt;5 (-2đ)
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-emerald-100/60 text-emerald-900 font-black">
+                          Tổng điểm cộng
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-rose-100/60 text-rose-900 font-black">
+                          Tổng điểm trừ
+                        </th>
+                      </>
+                    )}
+
+                    <th rowSpan={2} className="py-2 px-2 w-14 no-print">Chi tiết</th>
+                  </tr>
+                  <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-300 text-[10px]">
+                    {activeWeeksForMonth.map(w => (
+                      <th key={w} className="py-1.5 px-2 border-r border-slate-300 min-w-16">
+                        Tuần {w}
+                      </th>
+                    ))}
+                    {showMonthlyDetails && (
+                      <>
+                        <th className="py-1 px-1.5 border-r border-slate-300 text-emerald-700 font-black">Tốt</th>
+                        <th className="py-1 px-1.5 border-r border-slate-300 text-amber-700 font-black">Khá (-1đ)</th>
+                        <th className="py-1 px-1.5 border-r border-slate-300 text-orange-700 font-black">Tb (-3đ)</th>
+                        <th className="py-1 px-1.5 border-r border-slate-300 text-rose-700 font-black">Yếu (-5đ)</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {monthlySummaries.length === 0 ? (
+                    <tr>
+                      <td colSpan={20} className="py-8 text-center text-slate-400 font-medium italic">
+                        Chưa có dữ liệu thi đua tháng.
+                      </td>
+                    </tr>
+                  ) : (
+                    monthlySummaries.map((s, idx) => (
+                      <tr key={s.classId} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2.5 px-2 border-r border-slate-300 font-bold text-slate-600">{idx + 1}</td>
+                        <td className="py-2.5 px-3 border-r border-slate-300 font-black text-blue-900 text-left flex items-center justify-between">
+                          <span>{s.className}</span>
+                          {s.rank === 1 && <Trophy size={14} className="text-amber-500 fill-amber-500 inline ml-1" />}
+                        </td>
+
+                        {/* Các cột điểm tuần trong tháng */}
+                        {activeWeeksForMonth.map(w => {
+                          const wInfo = s.weekScores.find(ws => ws.weekNumber === w);
+                          return (
+                            <td key={w} className="py-2 px-1.5 border-r border-slate-300">
+                              {wInfo && wInfo.hasRecord ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedWeek(w);
+                                    setActiveTab('emulation_table');
+                                  }}
+                                  className="px-2 py-0.5 rounded font-black text-xs bg-slate-100 hover:bg-blue-100 hover:text-blue-900 text-slate-800 transition-colors cursor-pointer border border-slate-200"
+                                  title={`Xem chi tiết Tuần ${w} của lớp ${s.className}`}
+                                >
+                                  {wInfo.score} đ
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 italic text-[11px]" title="Chưa nhập dữ liệu tuần này">
+                                  --
+                                </span>
+                              )}
+                            </td>
+                          );
+                        })}
+
+                        {/* Tổng điểm các tuần */}
+                        <td className="py-2 px-2 border-r border-slate-300 font-bold text-slate-800">
+                          {s.totalScore} đ
+                        </td>
+
+                        {/* Số tuần tính */}
+                        <td className="py-2 px-1.5 border-r border-slate-300 font-medium text-slate-600">
+                          {s.weekCount}
+                        </td>
+
+                        {/* ĐIỂM BÌNH QUÂN THÁNG */}
+                        <td className="py-2.5 px-3 border-r border-slate-300 font-black text-blue-950 bg-amber-50/70 text-sm sm:text-base">
+                          {s.averageScore} đ
+                        </td>
+
+                        {/* Xếp loại tháng */}
+                        <td className="py-2 px-2 border-r border-slate-300 font-bold">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-black inline-block ${
+                            s.classification === 'Tốt' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                            s.classification === 'Khá' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+                            s.classification === 'Đạt' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                            'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}>
+                            {s.classification}
+                          </span>
+                        </td>
+
+                        {/* Xếp hạng */}
+                        <td className="py-2 px-2 border-r border-slate-300 font-black">
+                          {s.rank === 1 ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-400 text-slate-950 shadow-xs inline-flex items-center gap-1">
+                              🥇 Hạng 1
+                            </span>
+                          ) : s.rank === 2 ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-slate-300 text-slate-900 inline-flex items-center gap-1">
+                              🥈 Hạng 2
+                            </span>
+                          ) : s.rank === 3 ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-200 text-amber-950 inline-flex items-center gap-1">
+                              🥉 Hạng 3
+                            </span>
+                          ) : (
+                            <span className="text-slate-600 font-bold text-xs">
+                              Hạng {s.rank}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Chi tiết khi mở */}
+                        {showMonthlyDetails && (
+                          <>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-slate-700">{s.totalGoodLessons}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-amber-700">{s.totalFairLessons}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-orange-700">{s.totalAvgLessons}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-rose-700">{s.totalWeakLessons}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-indigo-700">{s.totalGoodDays}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-blue-700">{s.totalGoodWeeks}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-emerald-700">{s.totalGoodMarks}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-rose-700">{s.totalBadMarks}</td>
+                            <td className="py-2 px-2 border-r border-slate-300 font-black text-emerald-700 bg-emerald-50/20">+{s.totalBonusPoints}đ</td>
+                            <td className="py-2 px-2 border-r border-slate-300 font-black text-rose-700 bg-rose-50/20">-{s.totalDeductionPoints}đ</td>
+                          </>
+                        )}
+
+                        {/* Thao tác xem chi tiết lớp */}
+                        <td className="py-2 px-1 text-center no-print">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedClassForMonthDetail(s)}
+                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer inline-flex items-center"
+                            title={`Xem chi tiết các tuần của lớp ${s.className}`}
+                          >
+                            <Eye size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Chú thích công thức dưới bảng */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-700 space-y-1">
+              <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                <Calculator size={15} className="text-amber-600" />
+                Nguyên tắc xác định thi đua học tập theo tháng:
+              </p>
+              <p>• <strong>Điểm thi đua tháng</strong> = Tổng điểm các tuần lớp đạt được chia bình quân cho số tuần tính điểm.</p>
+              <p>• <strong>Ngưỡng xếp loại tháng</strong>: Tốt (&ge; {emulationConfig.thresholdExcellent}đ) • Khá (&ge; {emulationConfig.thresholdGood}đ) • Đạt (&ge; {emulationConfig.thresholdPass}đ) • Chưa đạt (&lt; {emulationConfig.thresholdPass}đ).</p>
+              <p>• <strong>Thứ hạng</strong>: Sắp xếp theo Điểm bình quân tháng từ cao xuống thấp. Lớp có điểm cao nhất xếp Hạng 1.</p>
+            </div>
+          </Card>
+        </div>
       )}
 
       {/* TAB 1: DASHBOARD */}
@@ -1187,6 +1812,243 @@ export default function AcademicTrackingPage() {
                   Lưu cấu hình
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHI TIẾT TỪNG TUẦN CỦA LỚP TRONG THÁNG */}
+      {selectedClassForMonthDetail && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-[24px] max-w-4xl w-full p-5 sm:p-6 space-y-4 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-200">
+                    Lớp {selectedClassForMonthDetail.className}
+                  </span>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg">
+                    Chi Tiết Thi Đua Học Tập — Tháng {selectedClassForMonthDetail.monthNumber}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Xếp hạng: <strong className="text-amber-600">Hạng {selectedClassForMonthDetail.rank}</strong> • ĐTB Tháng: <strong className="text-blue-900 text-sm">{selectedClassForMonthDetail.averageScore} đ</strong> • Xếp loại: <strong>{selectedClassForMonthDetail.classification}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedClassForMonthDetail(null)}
+                className="text-slate-400 hover:text-slate-700 text-xl font-bold px-2 py-1 cursor-pointer rounded-lg hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Formula badge */}
+            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="font-black uppercase tracking-wider text-blue-950">Công thức tính tháng:</span>
+                <p className="font-medium mt-0.5">
+                  ĐTB Tháng = Tổng điểm các tuần ({selectedClassForMonthDetail.totalScore}đ) ÷ {selectedClassForMonthDetail.weekCount} tuần = <strong className="text-blue-900 text-sm font-black">{selectedClassForMonthDetail.averageScore} đ</strong>
+                </p>
+              </div>
+              <div className="text-right">
+                <span className={`px-3 py-1 rounded-full text-xs font-black inline-block ${
+                  selectedClassForMonthDetail.classification === 'Tốt' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                  selectedClassForMonthDetail.classification === 'Khá' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+                  selectedClassForMonthDetail.classification === 'Đạt' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                  'bg-rose-100 text-rose-800 border border-rose-300'
+                }`}>
+                  Xếp loại: {selectedClassForMonthDetail.classification}
+                </span>
+              </div>
+            </div>
+
+            {/* Table of weeks for this class */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-center border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 font-bold text-slate-800 border-b border-slate-200">
+                    <th className="py-2 px-2 border-r border-slate-200">Tuần</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-emerald-700">Giờ Tốt</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-amber-700">Giờ Khá (-1đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-orange-700">Giờ Tb (-3đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-rose-700">Giờ Yếu (-5đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-indigo-700">Ngày tốt (+10đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-blue-700">Tuần tốt (+20đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-emerald-700">Điểm 8-10 (+2đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-rose-700">Điểm &lt;5 (-2đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-emerald-700 bg-emerald-50/50">Điểm cộng</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-rose-700 bg-rose-50/50">Điểm trừ</th>
+                    <th className="py-2 px-2.5 border-r border-slate-200 bg-amber-50 font-black text-blue-950">Tổng điểm</th>
+                    <th className="py-2 px-2 border-r border-slate-200">Xếp loại</th>
+                    <th className="py-2 px-2">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {selectedClassForMonthDetail.targetWeeks.map(w => {
+                    const rec = selectedClassForMonthDetail.weekRecords[w];
+                    if (!rec) {
+                      return (
+                        <tr key={w} className="bg-slate-50/60 text-slate-400 italic">
+                          <td className="py-2 px-2 font-bold text-slate-600 border-r border-slate-200">Tuần {w}</td>
+                          <td colSpan={11} className="py-2 px-2 border-r border-slate-200 text-center">Chưa có bản ghi thi đua cho tuần này</td>
+                          <td className="py-2 px-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedWeek(w);
+                                setSelectedClassForMonthDetail(null);
+                                setActiveTab('emulation_table');
+                              }}
+                              className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                            >
+                              Nhập ngay
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <tr key={w} className="hover:bg-blue-50/30">
+                        <td className="py-2.5 px-2 font-bold text-slate-700 border-r border-slate-200">Tuần {w}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold">{rec.goodLessons}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-amber-700">{rec.fairLessons}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-orange-700">{rec.avgLessons}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-rose-700">{rec.weakLessons}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-indigo-700">{rec.goodDays || 0}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-blue-700">{rec.goodWeeks || 0}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-emerald-700">{rec.goodMarks || 0}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-rose-700">{rec.badMarks || 0}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-black text-emerald-700 bg-emerald-50/30">+{rec.bonusPoints || 0}đ</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-black text-rose-700 bg-rose-50/30">-{rec.deductionPoints || 0}đ</td>
+                        <td className="py-2.5 px-2.5 border-r border-slate-200 font-black text-blue-900 bg-amber-50/60 text-sm">{rec.totalScore} đ</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                            rec.classification === 'Tốt' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                            rec.classification === 'Khá' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                            rec.classification === 'Đạt' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                            'bg-rose-100 text-rose-800 border border-rose-200'
+                          }`}>
+                            {rec.classification}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedWeek(w);
+                              setSelectedClassForMonthDetail(null);
+                              setActiveTab('emulation_table');
+                            }}
+                            className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer transition-colors"
+                          >
+                            Chỉnh sửa
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                    <td className="py-2.5 px-2 border-r border-slate-300">TỔNG THÁNG</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300">{selectedClassForMonthDetail.totalGoodLessons}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-amber-700">{selectedClassForMonthDetail.totalFairLessons}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-orange-700">{selectedClassForMonthDetail.totalAvgLessons}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-rose-700">{selectedClassForMonthDetail.totalWeakLessons}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-indigo-700">{selectedClassForMonthDetail.totalGoodDays}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-blue-700">{selectedClassForMonthDetail.totalGoodWeeks}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-emerald-700">{selectedClassForMonthDetail.totalGoodMarks}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-rose-700">{selectedClassForMonthDetail.totalBadMarks}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-emerald-700">+{selectedClassForMonthDetail.totalBonusPoints}đ</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-rose-700">-{selectedClassForMonthDetail.totalDeductionPoints}đ</td>
+                    <td className="py-2.5 px-2.5 border-r border-slate-300 text-blue-900 text-base">{selectedClassForMonthDetail.totalScore} đ</td>
+                    <td colSpan={2} className="py-2.5 px-2 text-blue-950 font-black">
+                      ĐTB: {selectedClassForMonthDetail.averageScore} đ
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSelectedClassForMonthDetail(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Đóng chi tiết
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CÔNG THỨC THỐNG KÊ THI ĐUA THEO THÁNG */}
+      {isMonthlyFormulaModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-[24px] max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-blue-900">
+                <Calculator className="text-amber-500" size={22} />
+                <h3 className="font-black text-slate-900 text-base">Công Thức Thống Kê Thi Đua Theo Tháng</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMonthlyFormulaModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-xl font-bold px-2 py-1 cursor-pointer rounded-lg hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-700 leading-relaxed">
+              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5">
+                <p className="font-black text-blue-950 uppercase text-[11px]">1. Nguyên tắc tính điểm bình quân tháng:</p>
+                <div className="bg-white p-2.5 rounded-lg border border-blue-100 text-center font-bold text-blue-900 text-sm">
+                  Điểm TB Tháng = (Tổng điểm các tuần đạt được) ÷ (Số tuần tính điểm)
+                </div>
+                <p className="text-[11px] text-blue-800">
+                  • Mỗi tuần được tính theo công thức thi đua tuần (chuẩn 100 điểm, trừ giờ khá -1đ, TB -3đ, yếu -5đ, kiểm tra &lt;5 -2đ; cộng điểm 8-10 +2đ, ngày tốt +10đ, tuần tốt +20đ).
+                </p>
+                <p className="text-[11px] text-blue-800">
+                  • Điểm tháng là trung bình cộng chuẩn xác của các tuần trong tháng để phản ánh nền nếp đều đặn của tập thể lớp.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5">
+                <p className="font-black text-amber-950 uppercase text-[11px]">2. Ví dụ minh họa thực tế (Lớp 10A):</p>
+                <p>• Tuần 1: <strong>124 điểm</strong> (Đạt tuần tốt, ngày tốt)</p>
+                <p>• Tuần 2: <strong>108 điểm</strong></p>
+                <p>• Tuần 3: <strong>100 điểm</strong></p>
+                <p>• Tuần 4: <strong>98 điểm</strong></p>
+                <p className="font-bold text-slate-900 pt-1 border-t border-amber-200/80">
+                  &rArr; Tổng điểm 4 tuần = 124 + 108 + 100 + 98 = <strong>430 điểm</strong>
+                </p>
+                <p className="font-black text-amber-900">
+                  &rArr; Điểm bình quân tháng = 430 ÷ 4 = <strong>107.5 điểm</strong> &rarr; Xếp loại <strong>Khá</strong>
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                <p className="font-black text-emerald-950 uppercase text-[11px]">3. Ngưỡng xếp loại thi đua tháng:</p>
+                <p>• <strong>Loại Tốt</strong>: Điểm bình quân tháng &ge; {emulationConfig.thresholdExcellent} điểm</p>
+                <p>• <strong>Loại Khá</strong>: Điểm bình quân tháng &ge; {emulationConfig.thresholdGood} điểm</p>
+                <p>• <strong>Loại Đạt</strong>: Điểm bình quân tháng &ge; {emulationConfig.thresholdPass} điểm</p>
+                <p>• <strong>Chưa đạt</strong>: Điểm bình quân tháng &lt; {emulationConfig.thresholdPass} điểm</p>
+                <p>• <strong>Thứ hạng</strong>: Xếp theo Điểm bình quân tháng từ cao nhất (Hạng 1) xuống thấp nhất.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsMonthlyFormulaModalOpen(false)}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md cursor-pointer text-xs"
+              >
+                Đã hiểu
+              </button>
             </div>
           </div>
         </div>

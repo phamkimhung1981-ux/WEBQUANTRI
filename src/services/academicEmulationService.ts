@@ -7,8 +7,9 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATION_CONFIG } from '../types/academicEmulation';
+import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATION_CONFIG, MonthlyEmulationSummary } from '../types/academicEmulation';
 import { ClassInfo } from '../types/homeroom';
+import { getWeeksForMonth } from '../utils/schoolWeekUtils';
 
 const COLLECTIONS = {
   RECORDS: 'academic_emulation_records',
@@ -191,5 +192,112 @@ export const academicEmulationService = {
     }
 
     return results;
+  },
+
+  calculateMonthlySummary(
+    classes: ClassInfo[],
+    allRecords: ClassAcademicEmulationRecord[],
+    monthNumber: number,
+    schoolYear: string,
+    config: AcademicEmulationConfig,
+    activeWeeks?: number[]
+  ): MonthlyEmulationSummary[] {
+    const targetWeeks = (activeWeeks && activeWeeks.length > 0)
+      ? activeWeeks
+      : getWeeksForMonth(monthNumber, schoolYear);
+
+    const summaries: MonthlyEmulationSummary[] = classes.map(cls => {
+      const clsRecords = allRecords.filter(r => r.classId === cls.id && r.schoolYear === schoolYear);
+      const weekRecords: Record<number, ClassAcademicEmulationRecord | undefined> = {};
+      
+      let sumScores = 0;
+      let recordedCount = 0;
+      const weekScores: { weekNumber: number; score: number; hasRecord: boolean }[] = [];
+
+      let totalGoodLessons = 0;
+      let totalFairLessons = 0;
+      let totalAvgLessons = 0;
+      let totalWeakLessons = 0;
+      let totalGoodDays = 0;
+      let totalGoodWeeks = 0;
+      let totalGoodMarks = 0;
+      let totalBadMarks = 0;
+      let totalBonusPoints = 0;
+      let totalDeductionPoints = 0;
+
+      targetWeeks.forEach(w => {
+        const found = clsRecords.find(r => r.weekNumber === w);
+        if (found) {
+          weekRecords[w] = found;
+          const score = typeof found.totalScore === 'number' ? found.totalScore : (config.baseScore ?? 100);
+          weekScores.push({ weekNumber: w, score, hasRecord: true });
+          sumScores += score;
+          recordedCount++;
+
+          totalGoodLessons += found.goodLessons || 0;
+          totalFairLessons += found.fairLessons || 0;
+          totalAvgLessons += found.avgLessons || 0;
+          totalWeakLessons += found.weakLessons || 0;
+          totalGoodDays += found.goodDays || 0;
+          totalGoodWeeks += found.goodWeeks || 0;
+          totalGoodMarks += found.goodMarks || 0;
+          totalBadMarks += found.badMarks || 0;
+          totalBonusPoints += found.bonusPoints || 0;
+          totalDeductionPoints += found.deductionPoints || 0;
+        } else {
+          weekRecords[w] = undefined;
+          weekScores.push({ weekNumber: w, score: config.baseScore ?? 100, hasRecord: false });
+        }
+      });
+
+      // Số tuần chia bình quân: nếu có tuần đã ghi nhận dữ liệu thì chia cho số tuần đó, nếu chưa thì chia cho targetWeeks.length
+      const divisor = recordedCount > 0 ? recordedCount : (targetWeeks.length > 0 ? targetWeeks.length : 1);
+      const effectiveTotal = recordedCount > 0 ? sumScores : (config.baseScore ?? 100);
+      const averageScore = Math.round((effectiveTotal / divisor) * 10) / 10;
+
+      let classification = 'Đạt';
+      if (averageScore >= config.thresholdExcellent) classification = 'Tốt';
+      else if (averageScore >= config.thresholdGood) classification = 'Khá';
+      else if (averageScore >= config.thresholdPass) classification = 'Đạt';
+      else classification = 'Chưa đạt';
+
+      return {
+        classId: cls.id,
+        className: cls.name,
+        monthNumber,
+        schoolYear,
+        targetWeeks,
+        weekRecords,
+        weekScores,
+        totalScore: effectiveTotal,
+        weekCount: divisor,
+        averageScore,
+        classification,
+        rank: 1,
+        totalGoodLessons,
+        totalFairLessons,
+        totalAvgLessons,
+        totalWeakLessons,
+        totalGoodDays,
+        totalGoodWeeks,
+        totalGoodMarks,
+        totalBadMarks,
+        totalBonusPoints,
+        totalDeductionPoints
+      };
+    });
+
+    // Xếp hạng các lớp theo điểm bình quân tháng từ cao xuống thấp
+    summaries.sort((a, b) => {
+      if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
+      if (b.totalGoodLessons !== a.totalGoodLessons) return b.totalGoodLessons - a.totalGoodLessons;
+      return a.className.localeCompare(b.className);
+    });
+
+    summaries.forEach((s, idx) => {
+      s.rank = idx + 1;
+    });
+
+    return summaries;
   }
 };
