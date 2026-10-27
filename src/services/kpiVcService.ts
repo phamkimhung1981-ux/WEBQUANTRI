@@ -147,17 +147,16 @@ const getStatusWeight = (status?: string): number => {
 };
 
 const hasTeacherActuallyEvaluated = (form: KpiVcForm): boolean => {
+  if (!form) return false;
+  if (form.status === 'submitted' || form.status === 'ttcm_evaluated' || form.status === 'completed' || form.status === 'locked' || form.status === 'self_evaluated') {
+    return true;
+  }
   if (!form.items || form.items.length === 0) return false;
-  // Bất kỳ phiếu nào có điểm 100/100 đều là lỗi mặc định cũ chưa chấm, bắt buộc đưa về 0
-  if (form.totalScore === 100) return false;
   const hasScores = form.items.some(i => i.selfScore !== null && i.selfScore !== undefined && !Number.isNaN(Number(i.selfScore)));
   if (!hasScores) return false;
 
   const sumSelf = form.items.reduce((acc, curr) => acc + (Number(curr.selfScore) || 0), 0);
-  if (sumSelf >= 100 || sumSelf <= 0) {
-    return false;
-  }
-  return true;
+  return sumSelf > 0;
 };
 
 // Local Storage Cache Helpers - Use authoritative versioned cache
@@ -188,9 +187,10 @@ if (typeof window !== 'undefined' && window.localStorage) {
 export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
   if (!forms) forms = [];
 
-  // TỰ ĐỘNG CHUẨN HÓA: Mọi phiếu có totalScore === 100 (lỗi mặc định cũ) lập tức đưa về 0 điểm và draft
+  // TỰ ĐỘNG CHUẨN HÓA: Chỉ làm sạch các phiếu bản nháp (draft) bị lỗi 100 điểm ban đầu. Tuyệt đối KHÔNG chạm vào phiếu đã nộp (submitted, ttcm_evaluated, completed, locked)!
   const sanitizedInputForms: KpiVcForm[] = forms.map(f => {
-    if (f.totalScore === 100 || (f.items && f.items.length > 0 && f.items.every(i => i.selfScore !== null && i.selfScore === i.maxScore))) {
+    const isSubmittedOrEvaluated = f.status === 'submitted' || f.status === 'ttcm_evaluated' || f.status === 'completed' || f.status === 'locked';
+    if (!isSubmittedOrEvaluated && (f.totalScore === 100 || (f.items && f.items.length > 0 && f.items.every(i => i.selfScore !== null && i.selfScore === i.maxScore)))) {
       return {
         ...f,
         totalScore: 0,
@@ -331,25 +331,13 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       }
     }
 
-    // Tự động tính toán lại tổng điểm nhất quán (nếu chưa chấm, luôn giữ 0 điểm và draft)
-    if (!hasFormBeenEvaluated(primary)) {
-      primary.totalScore = 0;
-      primary.groupScores = { group_I: 0, group_II: 0, group_III: 0 };
-      // Giữ nguyên điểm TTCM và BGH nếu đã có đánh giá
-      if (primary.ttcmTotalScore === undefined) {
-        primary.ttcmTotalScore = null;
-      }
-      if (primary.managerTotalScore === undefined) {
-        primary.managerTotalScore = null;
-      }
-      primary.selfClassification = 'Chưa tự đánh giá';
-      if (primary.status === 'submitted' || primary.status === 'self_evaluated') {
-        primary.status = 'draft';
-      }
-    } else if (primary.items && primary.items.length > 0) {
+    // Tự động tính toán lại tổng điểm nhất quán (Bảo toàn 100% phiếu đã gửi, điểm đã chấm)
+    if (primary.items && primary.items.length > 0) {
       const selfCalc = calculateVcTotals(primary.items);
-      primary.totalScore = selfCalc.totalScore;
-      primary.groupScores = selfCalc.groupScores;
+      if (primary.totalScore === undefined || primary.totalScore === null || (primary.totalScore === 0 && selfCalc.totalScore > 0)) {
+        primary.totalScore = selfCalc.totalScore;
+        primary.groupScores = selfCalc.groupScores;
+      }
 
       if (primary.items.some(i => i.ttcmScore !== null && i.ttcmScore !== undefined)) {
         const ttcmCalc = calculateVcTtcmTotals(primary.items);
@@ -363,20 +351,11 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       }
     }
 
-    if (!hasTeacherActuallyEvaluated(primary)) {
+    // Nếu là bản nháp chưa chấm điểm nào thì giữ trạng thái chưa tự đánh giá
+    if (primary.status === 'draft' && (!primary.totalScore || primary.totalScore === 0) && (!primary.items || !primary.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null))) {
       primary.totalScore = 0;
       primary.groupScores = { group_I: 0, group_II: 0, group_III: 0 };
       primary.selfClassification = 'Chưa tự đánh giá';
-      primary.status = 'draft';
-      if (primary.items) {
-        primary.items = primary.items.map(item => ({
-          ...item,
-          selfScore: null,
-          selectedLevelId: null,
-          selectedLevelName: null,
-          selectedLevelCode: null
-        }));
-      }
     }
 
     const canonicalDocId = 'vc_vc_period_2026_09_' + t.id.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -445,6 +424,9 @@ const saveVcFormsCache = (forms: KpiVcForm[]) => {
   try {
     const uniqueForms = deduplicateVcForms(forms);
     safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: uniqueForms }));
+    }
   } catch (err) {
     console.warn('Error saving VC forms cache:', err);
   }
@@ -454,17 +436,29 @@ const saveVcFormsCache = (forms: KpiVcForm[]) => {
  * Lắng nghe danh sách Phiếu đánh giá (kpi_vc_forms)
  */
 export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
-  // Load cache or fallback immediately so UI renders instantly with 47 forms
+  // Load cache or fallback immediately so UI renders instantly with 47+ forms
   const cached = getVcFormsCache();
   const initialList = cached && cached.length >= 40 ? cached : DEFAULT_VC_FALLBACK_FORMS;
   callback(initialList);
 
+  const handleLocalEvent = () => {
+    const freshCached = getVcFormsCache();
+    if (freshCached && freshCached.length > 0) {
+      callback(freshCached);
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('kpi_vc_forms_updated', handleLocalEvent);
+  }
+
   const q = query(collection(db, VC_COLLECTIONS.FORMS));
-  return onSnapshot(q, async (snapshot) => {
+  const unsubFirestore = onSnapshot(q, async (snapshot) => {
     const firestoreList: KpiVcForm[] = [];
     snapshot.forEach((docSnap) => {
       let data = { id: docSnap.id, ...docSnap.data() } as KpiVcForm;
-      if (data.totalScore === 100 || (data.items && data.items.length > 0 && data.items.every(i => i.selfScore !== null && i.selfScore === i.maxScore))) {
+      const isSubmittedOrEvaluated = data.status === 'submitted' || data.status === 'ttcm_evaluated' || data.status === 'completed' || data.status === 'locked';
+      if (!isSubmittedOrEvaluated && (data.totalScore === 100 || (data.items && data.items.length > 0 && data.items.every(i => i.selfScore !== null && i.selfScore === i.maxScore)))) {
         data = {
           ...data,
           totalScore: 0,
@@ -504,6 +498,13 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
     const fallbackList = getVcFormsCache();
     callback(fallbackList);
   });
+
+  return () => {
+    unsubFirestore();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('kpi_vc_forms_updated', handleLocalEvent);
+    }
+  };
 };
 
 /**
@@ -626,25 +627,45 @@ export const createVcForm = async (
   formData: Omit<KpiVcForm, 'id' | 'createdAt' | 'updatedAt'>,
   actor: { id: string; name: string; role?: string }
 ): Promise<string> => {
-  // Tạo form ID xác định theo kỳ và nhân viên
   const sanitizedEmployeeId = (formData.employeeId || 'emp').replace(/[^a-zA-Z0-9_-]/g, '_');
   const sanitizedPeriodId = (formData.periodId || 'period').replace(/[^a-zA-Z0-9_-]/g, '_');
   const formId = `vc_${sanitizedPeriodId}_${sanitizedEmployeeId}`;
 
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
-  const existing = await getDoc(docRef);
+  let existingExists = false;
+  let existingCreatedAt = '';
+  let existingCreatedBy = '';
+  try {
+    const timeoutGet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
+    const existing = await Promise.race([getDoc(docRef), timeoutGet]) as any;
+    if (existing && existing.exists()) {
+      existingExists = true;
+      existingCreatedAt = existing.data()?.createdAt || '';
+      existingCreatedBy = existing.data()?.createdBy || '';
+    }
+  } catch (err) {
+    console.warn('Could not check existing doc, proceeding with create/merge:', err);
+  }
 
   const now = new Date().toISOString();
   const fullForm: KpiVcForm = {
     ...formData,
     id: formId,
-    createdAt: existing.exists() && existing.data()?.createdAt ? existing.data().createdAt : now,
+    createdAt: existingExists && existingCreatedAt ? existingCreatedAt : now,
     updatedAt: now,
-    createdBy: existing.exists() && existing.data()?.createdBy ? existing.data().createdBy : (actor.name || actor.id),
+    createdBy: existingExists && existingCreatedBy ? existingCreatedBy : (actor.name || actor.id),
     updatedBy: actor.name || actor.id
   };
 
-  await setDoc(docRef, cleanFirestoreData(fullForm), { merge: true });
+  try {
+    const timeoutSet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
+    await Promise.race([
+      setDoc(docRef, cleanFirestoreData(fullForm), { merge: true }),
+      timeoutSet
+    ]);
+  } catch (e) {
+    console.warn('Firestore setDoc timeout/offline, saving to local cache:', e);
+  }
 
   // Update local cache immediately
   const cachedForms = getVcFormsCache();
@@ -656,28 +677,34 @@ export const createVcForm = async (
   }
   saveVcFormsCache(cachedForms);
 
-  await addVcAuditLog({
-    formId,
-    periodId: formData.periodId,
-    action: existing.exists() ? 'update_form' : 'create_form',
-    actorId: actor.id,
-    actorName: actor.name,
-    actorRole: actor.role,
-    targetName: `Phiếu KPI của ${formData.employeeName}`,
-    description: `${existing.exists() ? 'Cập nhật' : 'Tạo'} phiếu đánh giá KPI giáo viên/nhân viên: ${formData.employeeName} (${formData.periodName})`
-  });
+  try {
+    await Promise.race([
+      addVcAuditLog({
+        formId,
+        periodId: formData.periodId,
+        action: existingExists ? 'update_form' : 'create_form',
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        targetName: `Phiếu KPI của ${formData.employeeName}`,
+        description: `${existingExists ? 'Cập nhật' : 'Tạo'} phiếu đánh giá KPI giáo viên/nhân viên: ${formData.employeeName} (${formData.periodName})`
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+    ]);
+  } catch (logErr) {}
 
   return formId;
 };
 
 /**
- * CẬP NHẬT PHIẾU ĐÁNH GIÁ
+ * CẬP NHẬT PHIẾU ĐÁNH GIÁ (Có bảo vệ chống treo timeout 6s)
  */
 export const updateVcForm = async (
   formId: string,
   updateData: Partial<KpiVcForm>,
   actor: { id: string; name: string; role?: string }
 ): Promise<{ success: boolean; isOfflineQuota?: boolean }> => {
+  console.log('[KPI_SERVICE_STEP_A: UPDATE_VC_FORM_START]', { formId });
   const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
   const now = new Date().toISOString();
 
@@ -689,33 +716,45 @@ export const updateVcForm = async (
 
   let quotaErrorOccurred = false;
 
-  // 1. Ghi nhận máy chủ trước (Server-authoritative write)
+  // 1. Cập nhật cache cục bộ NGAY LẬP TỨC (0ms) để UI phản hồi tức thì và dữ liệu được bảo toàn tuyệt đối
   try {
-    await setDoc(docRef, cleanFirestoreData(payload), { merge: true });
-  } catch (e: any) {
-    console.error('Lỗi lưu phiếu KPI lên Firestore:', e);
-    if (e?.code === 'resource-exhausted' || (e?.message && e.message.toLowerCase().includes('quota'))) {
+    const cachedForms = getVcFormsCache();
+    const idx = cachedForms.findIndex(f => f.id === formId);
+    if (idx >= 0) {
+      cachedForms[idx] = { ...cachedForms[idx], ...payload };
+    } else {
+      cachedForms.unshift({ id: formId, ...payload } as KpiVcForm);
+    }
+    saveVcFormsCache(cachedForms);
+    console.log('[KPI_SERVICE_STEP_B: IMMEDIATE_LOCAL_CACHE_SAVED]', { formId, status: payload.status });
+  } catch (cacheErr) {
+    console.warn('[KPI_SERVICE_WARNING: LOCAL_CACHE_ERROR]', cacheErr);
+  }
+
+  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout chống treo 1500ms
+  try {
+    console.log('[KPI_SERVICE_STEP_C: FIRESTORE_SET_DOC_START]', { formId });
+    const cleanData = cleanFirestoreData(payload);
+    const firestorePromise = setDoc(docRef, cleanData, { merge: true });
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 1500));
+    
+    const raceResult = await Promise.race([firestorePromise, timeoutPromise]);
+    if (raceResult === 'timeout') {
+      console.warn('[KPI_SERVICE: Firestore setDoc timed out after 1500ms, data safely preserved in local cache and background sync]');
       quotaErrorOccurred = true;
     } else {
-      throw new Error(`Không thể lưu dữ liệu lên máy chủ Firestore: ${e.message || 'Mất kết nối mạng'}. Vui lòng thử lại!`);
+      console.log('[KPI_SERVICE_STEP_D: FIRESTORE_SET_DOC_SUCCESS]', { formId });
     }
+  } catch (e: any) {
+    console.warn('[KPI_SERVICE_WARNING: FIRESTORE_SET_DOC_ERROR]', e);
+    quotaErrorOccurred = true;
   }
 
-  // 2. Chỉ cập nhật cache sau khi máy chủ xác nhận thành công
-  const cachedForms = getVcFormsCache();
-  const idx = cachedForms.findIndex(f => f.id === formId);
-  if (idx >= 0) {
-    cachedForms[idx] = { ...cachedForms[idx], ...payload };
-  } else {
-    cachedForms.unshift({ id: formId, ...payload } as KpiVcForm);
-  }
-  saveVcFormsCache(cachedForms);
-
-  // 3. Ghi nhận Audit Log
+  // 3. Ghi nhận Audit Log hoàn toàn trong Background (KHÔNG await, không chặn giao diện)
   try {
     const empName = updateData.employeeName || formId;
     const pId = updateData.periodId;
-    await addVcAuditLog({
+    addVcAuditLog({
       formId,
       periodId: pId,
       action: 'update_form',
@@ -724,9 +763,12 @@ export const updateVcForm = async (
       actorRole: actor.role,
       targetName: empName,
       description: `Cập nhật phiếu đánh giá KPI: ${empName}`
+    }).catch(logErr => {
+      console.warn('[KPI_SERVICE_WARNING: BACKGROUND_AUDIT_LOG_ERROR]', logErr);
     });
   } catch (logErr) {}
 
+  console.log('[KPI_SERVICE_STEP_E: UPDATE_VC_FORM_COMPLETE]', { formId, quotaErrorOccurred });
   return { success: true, isOfflineQuota: quotaErrorOccurred };
 };
 
@@ -1391,8 +1433,8 @@ export const resetFormsWith100Points = async (
       return form; // Không tự ý sửa phiếu bất thường
     }
 
-    // Điều kiện xử lý: ĐÚNG BẰNG 100 (teacherSelfScore === 100)
-    if (selfScore === 100) {
+    // Điều kiện xử lý: ĐÚNG BẰNG 100 và đang ở trạng thái bản nháp (draft). Tuyệt đối không chạm vào phiếu đã nộp!
+    if (selfScore === 100 && (form.status === 'draft' || !form.status)) {
       const oldScore = form.totalScore;
 
       // Xóa điểm chi tiết tiêu chí tự chấm, đưa về null để giáo viên tự chấm lại

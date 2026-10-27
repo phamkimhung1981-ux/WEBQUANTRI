@@ -2285,7 +2285,7 @@ export default function YouthDisciplinePage() {
                         <div className="font-semibold">{vio.recordedByName}</div>
                         {vio.recordedByRole && <span className="text-[10px] text-slate-400">{vio.recordedByRole}</span>}
                       </td>
-                      <td className="py-3 px-3.5 text-center">
+                      <td className="py-3 px-3.5 text-center space-y-1">
                         {vio.status === 'DA_XAC_NHAN' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
                             ✓ Đã xác nhận
@@ -2299,6 +2299,17 @@ export default function YouthDisciplinePage() {
                             {vio.status}
                           </span>
                         )}
+                        <div>
+                          {vio.isLocked !== false ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300" title="Bản ghi đã khóa tự động sau khi Đoàn TN ghi nhận">
+                              <Lock size={10} /> Đã khóa
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300" title="Bản ghi đã được mở khóa bởi Quản trị viên / BGH">
+                              <Unlock size={10} /> Đã mở khóa
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-3.5 text-center">
                         <div className="flex items-center justify-center gap-1">
@@ -2317,12 +2328,34 @@ export default function YouthDisciplinePage() {
                             </button>
                           )}
 
+                          {/* UNLOCK BUTTON FOR ADMIN/BGH/BI_THU_DOAN IF LOCKED */}
+                          {vio.isLocked !== false && (effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN') && (
+                            <button
+                              type="button"
+                              onClick={() => handleUnlockViolation(vio)}
+                              className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg border border-amber-300 transition-colors cursor-pointer"
+                              title="Mở khóa bản ghi vi phạm (Quản trị / BGH / Bí thư Đoàn)"
+                            >
+                              <Unlock size={13} />
+                            </button>
+                          )}
+
                           {canEditOrDelete() && canEditViolations && (
                             <button
                               type="button"
-                              onClick={() => openEditViolationModal(vio)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors cursor-pointer"
-                              title="Sửa bản ghi vi phạm"
+                              onClick={() => {
+                                if (vio.isLocked !== false && effectiveRole === 'GVCN') {
+                                  alert('Bản ghi vi phạm đã bị khóa bởi Đoàn Thanh niên. Giáo viên chủ nhiệm không được phép chỉnh sửa dữ liệu đã khóa.');
+                                  return;
+                                }
+                                openEditViolationModal(vio);
+                              }}
+                              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                vio.isLocked !== false && effectiveRole === 'GVCN'
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 opacity-60'
+                                  : 'text-blue-600 hover:bg-blue-50 border-blue-200'
+                              }`}
+                              title={vio.isLocked !== false && effectiveRole === 'GVCN' ? 'Bản ghi đã khóa (Giáo viên không được sửa)' : 'Sửa bản ghi vi phạm'}
                             >
                               <Edit2 size={13} />
                             </button>
@@ -2331,9 +2364,19 @@ export default function YouthDisciplinePage() {
                           {canDeleteViolations && (
                             <button
                               type="button"
-                              onClick={() => handleDeleteViolation(vio.id)}
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                              title="Xóa vi phạm"
+                              onClick={() => {
+                                if (vio.isLocked !== false && effectiveRole === 'GVCN') {
+                                  alert('Bản ghi vi phạm đã bị khóa bởi Đoàn Thanh niên. Giáo viên không được phép xóa dữ liệu đã khóa.');
+                                  return;
+                                }
+                                handleDeleteViolation(vio.id);
+                              }}
+                              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                vio.isLocked !== false && effectiveRole === 'GVCN'
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 opacity-60'
+                                  : 'text-rose-600 hover:bg-rose-50 border-rose-200'
+                              }`}
+                              title={vio.isLocked !== false && effectiveRole === 'GVCN' ? 'Bản ghi đã khóa (Giáo viên không được xóa)' : 'Xóa vi phạm'}
                             >
                               <Trash2 size={13} />
                             </button>

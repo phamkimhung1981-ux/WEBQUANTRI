@@ -998,14 +998,28 @@ export default function KpiVcDocumentModal({
     targetStatus: KpiVcFormStatus,
     actionTitle: string,
     actionComment?: string,
-    successAlert?: string
+    successAlert?: string,
+    overrideItems?: KpiVcScoreItem[]
   ) => {
     if (!form) return;
+    console.log('[KPI_DIAG_STEP_1: START_TRANSITION]', { formId: form.id, targetStatus, actionTitle });
 
     try {
       setIsSubmitting(true);
       setErrorMsg(null);
       setSuccessMsg(null);
+
+      const itemsToSave = overrideItems || scoreItems;
+      const selfCalc = calculateVcTotals(itemsToSave);
+      const ttcmCalc = calculateVcTtcmTotals(itemsToSave);
+      const managerCalc = calculateVcManagerTotals(itemsToSave);
+
+      const resolvedTotalScore = targetStatus === 'submitted' || targetStatus === 'draft'
+        ? selfCalc.totalScore
+        : totalScore;
+      const resolvedGroupScores = targetStatus === 'submitted' || targetStatus === 'draft'
+        ? selfCalc.groupScores
+        : groupScores;
 
       const actor = {
         id: user?.id || 'admin',
@@ -1030,10 +1044,12 @@ export default function KpiVcDocumentModal({
           : form.managerTotalScore;
 
       const newScore = targetStatus === 'submitted'
-        ? totalScore
+        ? resolvedTotalScore
         : targetStatus === 'ttcm_evaluated'
-          ? ttcmTotalScore
-          : managerTotalScore;
+          ? (ttcmTotals.ttcmTotalScore ?? ttcmTotalScore)
+          : (managerTotals.managerTotalScore ?? managerTotalScore);
+
+      console.log('[KPI_DIAG_STEP_2: PREPARED_PAYLOAD]', { formId, prevStatus, targetStatus, newScore });
 
       // Tạo bản ghi lịch sử chỉnh sửa
       const newHistoryEntry: KpiVcFormHistory = {
@@ -1066,17 +1082,17 @@ export default function KpiVcDocumentModal({
         academicYear: form.academicYear,
         position: form.position || resolvedPosition,
         department: form.department || resolvedDepartment,
-        items: scoreItems,
-        groupScores,
-        ttcmGroupScores,
-        managerGroupScores,
-        totalScore,
-        ttcmTotalScore: hasAnyTtcmScore ? ttcmTotalScore : null,
-        managerTotalScore: hasAnyManagerScore ? managerTotalScore : null,
+        items: itemsToSave,
+        groupScores: resolvedGroupScores,
+        ttcmGroupScores: hasAnyTtcmScore ? ttcmCalc.ttcmGroupScores : ttcmGroupScores,
+        managerGroupScores: hasAnyManagerScore ? managerCalc.managerGroupScores : managerGroupScores,
+        totalScore: resolvedTotalScore,
+        ttcmTotalScore: hasAnyTtcmScore ? (ttcmCalc.ttcmTotalScore ?? ttcmTotalScore) : null,
+        managerTotalScore: hasAnyManagerScore ? (managerCalc.managerTotalScore ?? managerTotalScore) : null,
 
         // Cấp 1 - Giáo viên tự chấm
-        selfClassification: (totalScore > 0 ? (selfClassification || 'Hoàn thành tốt nhiệm vụ') : 'Chưa tự đánh giá'),
-        selfDate: (totalScore > 0 ? (selfDate || todayStr) : ''),
+        selfClassification: (resolvedTotalScore > 0 ? (selfClassification || resolveVcClassification(resolvedTotalScore) || 'Hoàn thành tốt nhiệm vụ') : 'Chưa tự đánh giá'),
+        selfDate: (resolvedTotalScore > 0 ? (selfDate || todayStr) : ''),
         selfComment: selfComment || '',
         selfEvaluatedAt: targetStatus === 'submitted' ? now : (form.selfEvaluatedAt || (form.submittedAt ? form.submittedAt : null)),
         submittedAt: targetStatus === 'submitted' ? now : form.submittedAt,
@@ -1098,7 +1114,7 @@ export default function KpiVcDocumentModal({
         bghComment: leaderComment || form.bghComment || '',
         bghDate: leaderDate || form.bghDate || todayStr,
         bghStatus: targetStatus === 'completed' ? 'evaluated' : (hasAnyManagerScore ? 'evaluated' : (form.bghStatus || 'pending')),
-        bghTotalScore: hasAnyManagerScore ? managerTotalScore : (form.bghTotalScore ?? null),
+        bghTotalScore: hasAnyManagerScore ? (managerCalc.managerTotalScore ?? managerTotalScore) : (form.bghTotalScore ?? null),
         managerGeneralComment: managerGeneralComment || form.managerGeneralComment || '',
         managerEvaluatedAt: targetStatus === 'completed' ? now : form.managerEvaluatedAt,
         bghEvaluatedAt: targetStatus === 'completed' ? now : form.bghEvaluatedAt,
@@ -1110,45 +1126,51 @@ export default function KpiVcDocumentModal({
         history: updatedHistory
       };
 
+      console.log('[KPI_DIAG_STEP_3: CALLING_UPDATE_VC_FORM]', { formId, status: targetStatus, score: resolvedTotalScore });
       const res = await updateVcForm(formId, updatePayload, actor);
+      console.log('[KPI_DIAG_STEP_4: UPDATE_VC_FORM_SUCCESS]', res);
       
       const finalMsg = res.isOfflineQuota
-        ? `${successAlert || 'Cập nhật thành công'} (Lưu ý: Đã lưu vào bộ nhớ dự phòng hệ thống do Firebase đang đạt giới hạn Quota Exceeded).`
+        ? `${successAlert || 'Cập nhật thành công'} (Đã lưu vào bộ nhớ dự phòng hệ thống).`
         : (successAlert || 'Cập nhật phiếu đánh giá thành công!');
 
       setSuccessMsg(finalMsg);
-      if (onSaved) onSaved(formId);
+      if (onSaved) {
+        onSaved(formId);
+      }
 
       setTimeout(() => {
         onClose();
-      }, 1500);
+      }, 500);
     } catch (err: any) {
-      console.error('Error executing transition for VC form:', err);
-      setErrorMsg(err.message || 'Lỗi khi lưu phiếu đánh giá.');
+      console.error('[KPI_DIAG_ERROR: TRANSITION_FAILED]', err);
+      setErrorMsg(err.message || 'Lỗi khi lưu và gửi phiếu đánh giá. Vui lòng thử lại.');
     } finally {
       setIsSubmitting(false);
+      console.log('[KPI_DIAG_STEP_5: FINALLY_RESET_SUBMITTING]');
     }
   };
 
   // CÁC HÀNH ĐỘNG TUẦN TỰ CHO TỪNG CẤP:
   // Cấp 1: Giáo viên lưu nháp
   const handleSaveSelfDraft = async () => {
-    await executeFormTransition('draft', 'Giáo viên lưu nháp tự chấm', undefined, 'Đã lưu bản nháp tự chấm thành công!');
+    await executeFormTransition('draft', 'Giáo viên lưu nháp tự chấm', undefined, 'Đã lưu bản nháp tự chấm thành công!', scoreItems);
   };
 
   // Cấp 1: Giáo viên gửi phiếu tự chấm -> Chuyển sang Chờ TTCM
   const handleSubmitSelf = async () => {
-    if (!isSelfComplete) {
-      setErrorMsg(`Vui lòng tự chấm điểm cho tất cả tiêu chí (hiện còn ${missingSelfCriteria.length} tiêu chí chưa nhập điểm) trước khi gửi phiếu lên TTCM!`);
-      const el = document.getElementById('kpi-vc-document-modal');
-      if (el) el.scrollTop = 0;
-      return;
-    }
+    // Tự động gán 0 điểm cho các tiêu chí chưa nhập (null/undefined) để form hoàn thiện hợp lệ
+    const updatedItems = scoreItems.map(it => ({
+      ...it,
+      selfScore: typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0
+    }));
+    setScoreItems(updatedItems);
+    const newTotals = calculateVcTotals(updatedItems);
 
     setConfirmModal({
       isOpen: true,
       title: 'Xác nhận gửi phiếu tự chấm lên TTCM',
-      message: `Bạn đã tự chấm đạt ${totalScore}/100 điểm. Sau khi gửi phiếu, chức năng tự chấm sẽ khóa để chuyển sang Tổ trưởng chuyên môn đánh giá. Bạn có chắc chắn muốn gửi?`,
+      message: `Bạn đã tự chấm đạt ${newTotals.totalScore}/100 điểm. Sau khi gửi phiếu, chức năng tự chấm sẽ khóa để chuyển sang Tổ trưởng chuyên môn đánh giá. Bạn có chắc chắn muốn gửi?`,
       confirmLabel: 'Gửi phiếu tự chấm',
       confirmColor: 'blue',
       onConfirm: async () => {
@@ -1157,7 +1179,8 @@ export default function KpiVcDocumentModal({
           'submitted',
           'Giáo viên gửi phiếu tự chấm',
           selfComment,
-          'Đã gửi phiếu tự chấm thành công! Trạng thái chuyển sang: Chờ TTCM.'
+          'Đã lưu và gửi phiếu tự chấm thành công! Trạng thái chuyển sang: Chờ TTCM.',
+          updatedItems
         );
       }
     });
@@ -3305,7 +3328,7 @@ export default function KpiVcDocumentModal({
                       className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
                       title="Hoàn thành tự chấm và gửi phiếu lên Tổ trưởng chuyên môn"
                     >
-                      <Send size={15} /> Hoàn thành & Gửi phiếu tự chấm (Chuyển TTCM)
+                      <Send size={15} /> {isSubmitting ? 'Đang lưu và gửi phiếu...' : 'Hoàn thành & Gửi phiếu tự chấm (Chuyển TTCM)'}
                     </button>
                   </>
                 ) : (

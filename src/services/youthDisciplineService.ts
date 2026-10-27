@@ -30,6 +30,11 @@ import { parseViolationDateInfo } from './studentViolationService';
 import { getWeekInfoByNumber, getMonthDateRange } from '../utils/schoolWeekUtils';
 
 
+export function isAuthorizedToUnlock(role: string): boolean {
+  const r = (role || '').toUpperCase();
+  return r === 'ADMIN' || r === 'BAN_GIAM_HIEU' || r === 'BI_THU_DOAN';
+}
+
 export function getEffectiveMinusPoints(v: YouthViolationRecord, criteria: YouthDisciplineCriterion[] = []): number {
   let pts = Number(v.minusPoints) || Number((v as any).pointsDeducted) || Number((v as any).point) || Number((v as any).diemTru) || 0;
   if (pts === 0 && (v.criterionId || v.criterionName) && criteria.length > 0) {
@@ -705,6 +710,15 @@ export const youthDisciplineService = {
     const resolvedStatus = violation.status || 'CHO_XAC_NHAN';
     const isWholeClass = Boolean(violation.isWholeClass || (violation as any).is_whole_class || resolvedStudentId === 'ALL_CLASS');
 
+    // Check if updating existing locked record
+    if (!isNew) {
+      const existingList = await this.getViolations();
+      const existingTarget = existingList.find(v => v.id === id);
+      if (existingTarget && existingTarget.isLocked && !isAuthorizedToUnlock(performedByRole)) {
+        throw new Error('Bản ghi vi phạm đã bị khóa. Giáo viên không được phép chỉnh sửa dữ liệu đã khóa. Vui lòng liên hệ Đoàn Thanh niên hoặc BGH để mở khóa.');
+      }
+    }
+
     const record: YouthViolationRecord = {
       ...violation,
       id,
@@ -735,6 +749,7 @@ export const youthDisciplineService = {
       recordedByRole: resolvedRecordedByRole,
       status: resolvedStatus,
       notes: violation.notes?.trim() || '',
+      isLocked: true, // Tự động khóa ngay sau khi ghi nhận thành công
       createdAt: resolvedCreatedAt,
       updatedAt: resolvedUpdatedAt
     };
@@ -790,6 +805,8 @@ export const youthDisciplineService = {
       recorded_by_role: resolvedRecordedByRole,
       status: resolvedStatus,
       notes: record.notes,
+      isLocked: true,
+      is_locked: true,
       createdAt: resolvedCreatedAt,
       created_at: resolvedCreatedAt,
       updatedAt: resolvedUpdatedAt,
@@ -798,7 +815,7 @@ export const youthDisciplineService = {
 
     // Check weekly lock status before modifying
     const lock = await this.getWeeklyLock(record.schoolYear, record.weekNumber);
-    if (lock.isLocked && performedByRole !== 'ADMIN' && performedByRole !== 'BAN_GIAM_HIEU' && performedByRole !== 'BI_THU_DOAN') {
+    if (lock.isLocked && !isAuthorizedToUnlock(performedByRole)) {
       throw new Error(`Tuần ${record.weekNumber} đã được chốt kết quả. Vui lòng liên hệ Bí thư Đoàn hoặc BGH để mở khóa.`);
     }
 
@@ -830,7 +847,7 @@ export const youthDisciplineService = {
         performedByName: record.recordedByName || 'Cán bộ ghi nhận',
         performedByRole,
         timestamp: new Date().toISOString(),
-        summary: `${isNew ? 'Ghi nhận' : 'Cập nhật'} vi phạm nền nếp lớp ${record.className}: ${record.studentName} - ${record.criterionName} (-${record.minusPoints}đ)`,
+        summary: `${isNew ? 'Ghi nhận' : 'Cập nhật'} vi phạm nền nếp lớp ${record.className}: ${record.studentName} - ${record.criterionName} (-${record.minusPoints}đ) [ĐÃ KHÓA]`,
         newData: record
       });
     } catch (auditErr) {
@@ -840,12 +857,73 @@ export const youthDisciplineService = {
     return record;
   },
 
+  async unlockViolation(
+    id: string,
+    unlockedBy: string,
+    unlockedByName: string,
+    reason: string,
+    performedByRole: string = 'ADMIN'
+  ): Promise<YouthViolationRecord> {
+    if (!isAuthorizedToUnlock(performedByRole)) {
+      throw new Error('Bạn không có quyền mở khóa bản ghi vi phạm này. Chỉ Quản trị viên, BGH hoặc Bí thư Đoàn mới được phép mở khóa.');
+    }
+    const current = await this.getViolations();
+    const target = current.find(v => v.id === id);
+    if (!target) throw new Error('Không tìm thấy bản ghi vi phạm');
+
+    target.isLocked = false;
+    target.unlockedBy = unlockedBy;
+    target.unlockedByName = unlockedByName;
+    target.unlockReason = reason;
+    target.unlockedAt = new Date().toISOString();
+    target.updatedAt = new Date().toISOString();
+
+    safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.VIOLATIONS, id), {
+        isLocked: false,
+        is_locked: false,
+        unlockedBy,
+        unlocked_by: unlockedBy,
+        unlockedByName,
+        unlocked_by_name: unlockedByName,
+        unlockReason: reason,
+        unlock_reason: reason,
+        unlockedAt: target.unlockedAt,
+        unlocked_at: target.unlockedAt,
+        updatedAt: target.updatedAt,
+        updated_at: target.updatedAt
+      });
+    } catch (e) {
+      console.warn('Firestore unlockViolation error:', e);
+    }
+
+    await this.addAuditLog({
+      action: 'UPDATE',
+      entityType: 'VIOLATION',
+      entityId: id,
+      performedBy: unlockedBy,
+      performedByName: unlockedByName,
+      performedByRole,
+      timestamp: new Date().toISOString(),
+      summary: `Mở khóa bản ghi vi phạm lớp ${target.className} (${target.studentName} - ${target.criterionName}). Lý do: ${reason}`,
+      previousData: { isLocked: true },
+      newData: { isLocked: false, unlockReason: reason }
+    });
+
+    return target;
+  },
+
   async deleteViolation(id: string, performedByName: string = 'Người dùng', performedByRole: string = 'BI_THU_DOAN'): Promise<void> {
     const current = await this.getViolations();
     const target = current.find(v => v.id === id);
     if (target) {
+      if (target.isLocked && !isAuthorizedToUnlock(performedByRole)) {
+        throw new Error('Bản ghi vi phạm đã bị khóa. Giáo viên không thể xóa dữ liệu đã khóa. Vui lòng liên hệ quản trị viên hoặc Bí thư Đoàn.');
+      }
       const lock = await this.getWeeklyLock(target.schoolYear, target.weekNumber);
-      if (lock.isLocked && performedByRole !== 'ADMIN' && performedByRole !== 'BAN_GIAM_HIEU' && performedByRole !== 'BI_THU_DOAN') {
+      if (lock.isLocked && !isAuthorizedToUnlock(performedByRole)) {
         throw new Error(`Tuần ${target.weekNumber} đã được chốt kết quả. Không thể xóa dữ liệu đã chốt.`);
       }
     }
@@ -888,6 +966,12 @@ export const youthDisciplineService = {
     if (!ids || ids.length === 0) return 0;
     const current = await this.getViolations();
     const idSet = new Set(ids);
+    
+    const lockedItems = current.filter(v => idSet.has(v.id) && v.isLocked);
+    if (lockedItems.length > 0 && !isAuthorizedToUnlock(performedByRole)) {
+      throw new Error(`Có ${lockedItems.length} bản ghi đã bị khóa. Giáo viên không thể xóa dữ liệu đã khóa.`);
+    }
+
     const deletedItems = current.filter(v => idSet.has(v.id));
     const remaining = current.filter(v => !idSet.has(v.id));
 

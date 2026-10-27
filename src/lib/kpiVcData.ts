@@ -913,35 +913,18 @@ export const calculateVcSelfTotals = calculateVcTotals;
  */
 export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolean => {
   if (!form) return false;
-  // Bất kỳ phiếu nào có điểm tự chấm bằng 100/100 đều là lỗi mặc định cũ chưa chấm, luôn coi là chưa tự chấm
-  if (form.totalScore === 100) {
-    return false;
-  }
-  // Nếu điểm tự chấm bằng 0 và không có tiêu chí nào có điểm -> chưa tự chấm
-  if (form.totalScore === 0 && (!form.items || !form.items.some(i => i.selfScore !== null && i.selfScore !== undefined))) {
-    return false;
-  }
   const s = form.status;
-  if (s === 'draft') {
-    return false;
-  }
   // Các trạng thái đã thực sự gửi chấm hoặc cấp trên đánh giá
-  if (s === 'submitted' || s === 'ttcm_evaluated' || s === 'completed' || s === 'locked') {
-    // Nếu tổng điểm tự chấm bằng 0 và tất cả tiêu chí tự chấm đều null -> chưa hoàn thành tự chấm
-    if (form.totalScore === 0 && (!form.items || !form.items.some(i => i.selfScore !== null && i.selfScore !== undefined))) {
-      return false;
-    }
+  if (s === 'submitted' || s === 'ttcm_evaluated' || s === 'completed' || s === 'locked' || s === 'self_evaluated') {
     return true;
   }
-  // Nếu trạng thái self_evaluated và có ngày tự chấm hoặc người ký tự chấm
-  if (s === 'self_evaluated') {
-    if (typeof form.totalScore === 'number' && form.totalScore > 0 && form.totalScore < 100) return true;
-    if (form.selfDate || form.selfSignName) {
-      if (form.items && form.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) {
-        const sumSelf = form.items.reduce((acc, curr) => acc + (Number(curr.selfScore) || 0), 0);
-        if (sumSelf > 0 && sumSelf < 100) return true;
-      }
-    }
+  // Nếu có điểm tự chấm > 0 và khác 100 mặc định
+  if (typeof form.totalScore === 'number' && form.totalScore > 0 && form.totalScore < 100) {
+    return true;
+  }
+  // Nếu có ít nhất 1 tiêu chí có điểm tự chấm
+  if (form.items && form.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null)) {
+    return true;
   }
   return false;
 };

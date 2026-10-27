@@ -1528,6 +1528,8 @@ export default function KpiTeacherStaff() {
           setClassificationFilter('all');
           setSelectedDeptId('all');
           setSearchQuery('');
+          setNotificationMessage('Đã lưu và gửi phiếu tự chấm thành công! Trạng thái phiếu đã chuyển sang: Chờ TTCM.');
+          setTimeout(() => setNotificationMessage(null), 6000);
         }}
         onPrintRequest={(f) => {
           setIsDocModalOpen(false);

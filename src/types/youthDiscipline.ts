@@ -72,6 +72,11 @@ export interface YouthViolationRecord {
   notes?: string;
   teacherComment?: string; // Nhận xét của GVCN
   youthComment?: string; // Nhận xét của Đoàn TN
+  isLocked?: boolean; // Trạng thái khóa bản ghi vi phạm (Mặc định true sau khi Đoàn TN ghi nhận)
+  unlockReason?: string;
+  unlockedBy?: string;
+  unlockedByName?: string;
+  unlockedAt?: string;
   createdAt: string;
   updatedAt?: string;
 }
