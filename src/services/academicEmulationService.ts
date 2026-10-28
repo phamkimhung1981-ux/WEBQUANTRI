@@ -35,22 +35,29 @@ const safeStorage = {
 
 export const academicEmulationService = {
   async getConfig(schoolYear: string = '2026–2027'): Promise<AcademicEmulationConfig> {
+    let localCfg: AcademicEmulationConfig = { ...DEFAULT_EMULATION_CONFIG, schoolYear };
+    const cached = safeStorage.getItem(`${CACHE_KEY_CONFIG}_${schoolYear}`);
+    if (cached) {
+      try { localCfg = JSON.parse(cached); } catch (err) {}
+    }
+
     try {
       const snap = await getDoc(doc(db, COLLECTIONS.CONFIG, schoolYear.replace(/[^a-zA-Z0-9]/g, '_')));
       if (snap.exists()) {
-        const cfg = snap.data() as AcademicEmulationConfig;
-        safeStorage.setItem(`${CACHE_KEY_CONFIG}_${schoolYear}`, JSON.stringify(cfg));
-        return cfg;
+        const remoteCfg = snap.data() as AcademicEmulationConfig;
+        const merged: AcademicEmulationConfig = {
+          ...localCfg,
+          ...remoteCfg,
+          lockedWeeks: Array.from(new Set([...(remoteCfg.lockedWeeks || []), ...(localCfg.lockedWeeks || [])]))
+        };
+        safeStorage.setItem(`${CACHE_KEY_CONFIG}_${schoolYear}`, JSON.stringify(merged));
+        return merged;
       }
     } catch (e) {
       console.warn('Firestore getConfig warning:', e);
     }
 
-    const cached = safeStorage.getItem(`${CACHE_KEY_CONFIG}_${schoolYear}`);
-    if (cached) {
-      try { return JSON.parse(cached); } catch (err) {}
-    }
-    return { ...DEFAULT_EMULATION_CONFIG, schoolYear };
+    return localCfg;
   },
 
   async saveConfig(config: AcademicEmulationConfig): Promise<void> {
@@ -67,14 +74,31 @@ export const academicEmulationService = {
     try {
       const snap = await getDocs(collection(db, COLLECTIONS.RECORDS));
       if (!snap.empty) {
-        list = snap.docs.map(d => d.data() as ClassAcademicEmulationRecord);
+        list = snap.docs.map(d => {
+          const r = d.data() as ClassAcademicEmulationRecord;
+          const bp = r.bonusPoints ?? 0;
+          const dp = r.deductionPoints ?? 0;
+          if (r.totalScore === 100 && bp === 0 && dp === 0) {
+            r.totalScore = 0;
+          }
+          return r;
+        });
         safeStorage.setItem(CACHE_KEY_RECORDS, JSON.stringify(list));
       }
     } catch (e) {
       console.warn('Firestore getRecords error, using cache:', e);
       const cached = safeStorage.getItem(CACHE_KEY_RECORDS);
       if (cached) {
-        try { list = JSON.parse(cached); } catch (err) {}
+        try {
+          list = JSON.parse(cached).map((r: ClassAcademicEmulationRecord) => {
+            const bp = r.bonusPoints ?? 0;
+            const dp = r.deductionPoints ?? 0;
+            if (r.totalScore === 100 && bp === 0 && dp === 0) {
+              r.totalScore = 0;
+            }
+            return r;
+          });
+        } catch (err) {}
       }
     }
 
@@ -115,8 +139,8 @@ export const academicEmulationService = {
     const deductBadMarks = badMarks * Math.abs(config.pointPerBadMark ?? 2);
     const deductionPoints = deductLessonTotal + deductBadMarks;
 
-    // Tổng điểm thi đua = 100 (baseScore) + bonusPoints - deductionPoints
-    const totalScore = (config.baseScore ?? 100) + bonusPoints - deductionPoints;
+    // Tổng điểm thi đua = bonusPoints - deductionPoints (không cộng baseScore)
+    const totalScore = bonusPoints - deductionPoints;
 
     let classification = 'Đạt';
     if (totalScore >= config.thresholdExcellent) classification = 'Tốt';
@@ -167,7 +191,9 @@ export const academicEmulationService = {
     for (const cls of classes) {
       const found = existing.find(r => r.classId === cls.id);
       if (found) {
-        results.push(found);
+        // Re-save to ensure legacy 100 base score is removed and totalScore is correctly re-calculated
+        const updated = await this.saveRecord(found, config);
+        results.push(updated);
       } else {
         const newRec: ClassAcademicEmulationRecord = {
           id: `${schoolYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${weekNumber}_${cls.id}`,
@@ -229,7 +255,7 @@ export const academicEmulationService = {
         const found = clsRecords.find(r => r.weekNumber === w);
         if (found) {
           weekRecords[w] = found;
-          const score = typeof found.totalScore === 'number' ? found.totalScore : (config.baseScore ?? 100);
+          const score = typeof found.totalScore === 'number' ? found.totalScore : ((found.bonusPoints || 0) - (found.deductionPoints || 0));
           weekScores.push({ weekNumber: w, score, hasRecord: true });
           sumScores += score;
           recordedCount++;
@@ -246,13 +272,13 @@ export const academicEmulationService = {
           totalDeductionPoints += found.deductionPoints || 0;
         } else {
           weekRecords[w] = undefined;
-          weekScores.push({ weekNumber: w, score: config.baseScore ?? 100, hasRecord: false });
+          weekScores.push({ weekNumber: w, score: 0, hasRecord: false });
         }
       });
 
       // Số tuần chia bình quân: nếu có tuần đã ghi nhận dữ liệu thì chia cho số tuần đó, nếu chưa thì chia cho targetWeeks.length
       const divisor = recordedCount > 0 ? recordedCount : (targetWeeks.length > 0 ? targetWeeks.length : 1);
-      const effectiveTotal = recordedCount > 0 ? sumScores : (config.baseScore ?? 100);
+      const effectiveTotal = recordedCount > 0 ? sumScores : 0;
       const averageScore = Math.round((effectiveTotal / divisor) * 10) / 10;
 
       let classification = 'Đạt';
@@ -287,15 +313,20 @@ export const academicEmulationService = {
       };
     });
 
-    // Xếp hạng các lớp theo điểm bình quân tháng từ cao xuống thấp
+    // Xếp hạng các lớp theo điểm bình quân tháng từ cao xuống thấp (với đồng hạng)
     summaries.sort((a, b) => {
       if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
+      if (b.totalBonusPoints !== a.totalBonusPoints) return b.totalBonusPoints - a.totalBonusPoints;
       if (b.totalGoodLessons !== a.totalGoodLessons) return b.totalGoodLessons - a.totalGoodLessons;
       return a.className.localeCompare(b.className);
     });
 
-    summaries.forEach((s, idx) => {
-      s.rank = idx + 1;
+    summaries.forEach((s, idx, arr) => {
+      if (idx > 0 && s.averageScore === arr[idx - 1].averageScore) {
+        s.rank = arr[idx - 1].rank;
+      } else {
+        s.rank = idx + 1;
+      }
     });
 
     return summaries;

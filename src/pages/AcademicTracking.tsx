@@ -182,7 +182,57 @@ export default function AcademicTrackingPage() {
     };
   }, [students, records, classes]);
 
+  const sortedEmulationRecords = useMemo(() => {
+    const list = [...emulationRecords];
+    list.sort((a, b) => {
+      const scoreA = a.totalScore ?? 0;
+      const scoreB = b.totalScore ?? 0;
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      const bonusA = a.bonusPoints ?? 0;
+      const bonusB = b.bonusPoints ?? 0;
+      if (bonusB !== bonusA) return bonusB - bonusA;
+      return a.className.localeCompare(b.className);
+    });
+    return list;
+  }, [emulationRecords]);
+
+  const isWeekLocked = useMemo(() => {
+    return emulationConfig.lockedWeeks?.includes(selectedWeek) ?? false;
+  }, [emulationConfig, selectedWeek]);
+
+  const handleSaveAndLockWeek = async () => {
+    const currentLocked = emulationConfig.lockedWeeks || [];
+    if (currentLocked.includes(selectedWeek)) {
+      showToast(`Tuần ${selectedWeek} đã được khóa.`);
+      return;
+    }
+    const updatedConfig: AcademicEmulationConfig = {
+      ...emulationConfig,
+      lockedWeeks: [...currentLocked, selectedWeek]
+    };
+    await academicEmulationService.saveConfig(updatedConfig);
+    setEmulationConfig(updatedConfig);
+    setFormConfig(updatedConfig);
+    showToast(`Đã lưu và khóa thành công dữ liệu Tuần ${selectedWeek}!`);
+  };
+
+  const handleUnlockWeek = async () => {
+    const currentLocked = emulationConfig.lockedWeeks || [];
+    const updatedConfig: AcademicEmulationConfig = {
+      ...emulationConfig,
+      lockedWeeks: currentLocked.filter(w => w !== selectedWeek)
+    };
+    await academicEmulationService.saveConfig(updatedConfig);
+    setEmulationConfig(updatedConfig);
+    setFormConfig(updatedConfig);
+    showToast(`Đã mở khóa Tuần ${selectedWeek}. Giáo viên có thể tiếp tục chỉnh sửa.`);
+  };
+
   const handleUpdateEmulationField = async (classId: string, field: keyof ClassAcademicEmulationRecord, value: number) => {
+    if (emulationConfig.lockedWeeks?.includes(selectedWeek)) {
+      showToast(`Tuần ${selectedWeek} đã bị khóa. Không thể chỉnh sửa điểm.`);
+      return;
+    }
     const target = emulationRecords.find(r => r.classId === classId);
     if (!target) return;
 
@@ -290,8 +340,8 @@ export default function AcademicTrackingPage() {
 
   const handleExportEmulationExcel = () => {
     let csv = "\uFEFFSTT,Lớp,Giờ Tốt,Giờ Khá (-1đ),Giờ Tb (-3đ),Giờ Yếu (-5đ),Ngày học tốt (+10đ),Tuần học tốt (+20đ),Điểm tốt 8-10 (+2đ),Điểm kém <5 (-2đ),Điểm cộng tổng,Điểm trừ tổng,Tổng điểm thi đua,Xếp loại\n";
-    emulationRecords.forEach((r, idx) => {
-      csv += `"${idx + 1}","${r.className}","${r.goodLessons}","${r.fairLessons}","${r.avgLessons}","${r.weakLessons}","${r.goodDays || 0}","${r.goodWeeks || 0}","${r.goodMarks || 0}","${r.badMarks || 0}","+${r.bonusPoints || 0}","-${r.deductionPoints || 0}","${r.totalScore || 100}","${r.classification || 'Đạt'}"\n`;
+    sortedEmulationRecords.forEach((r, idx) => {
+      csv += `"${idx + 1}","${r.className}","${r.goodLessons}","${r.fairLessons}","${r.avgLessons}","${r.weakLessons}","${r.goodDays || 0}","${r.goodWeeks || 0}","${r.goodMarks || 0}","${r.badMarks || 0}","+${r.bonusPoints || 0}","-${r.deductionPoints || 0}","${r.totalScore ?? 0}","${r.classification || 'Đạt'}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -303,7 +353,7 @@ export default function AcademicTrackingPage() {
   };
 
   const handleExportEmulationWord = () => {
-    const tableRows = emulationRecords.map((r, idx) => `
+    const tableRows = sortedEmulationRecords.map((r, idx) => `
       <tr>
         <td style="text-align:center;">${idx + 1}</td>
         <td style="text-align:center; font-weight:bold;">${r.className}</td>
@@ -317,7 +367,7 @@ export default function AcademicTrackingPage() {
         <td style="text-align:center; font-weight:bold; color:#b91c1c;">${r.badMarks || 0}</td>
         <td style="text-align:center; font-weight:bold; color:#047857;">+${r.bonusPoints || 0}</td>
         <td style="text-align:center; font-weight:bold; color:#b91c1c;">-${r.deductionPoints || 0}</td>
-        <td style="text-align:center; font-weight:bold; font-size:14px; color:#1e3a8a;">${r.totalScore || 100}</td>
+        <td style="text-align:center; font-weight:bold; font-size:14px; color:#1e3a8a;">${r.totalScore ?? 0}</td>
         <td style="text-align:center; font-weight:bold;">${r.classification || 'Đạt'}</td>
       </tr>
     `).join('');
@@ -339,7 +389,7 @@ export default function AcademicTrackingPage() {
       </head>
       <body>
         <h2>THEO DÕI THI ĐUA HỌC TẬP - TUẦN ${selectedWeek}</h2>
-        <p class="sub">Trường THPT Sơn Lương • Năm học: ${selectedYear} • Điểm chuẩn ban đầu: ${emulationConfig.baseScore}đ</p>
+        <p class="sub">Trường THPT Sơn Lương • Năm học: ${selectedYear} • Công thức: Điểm cộng - Điểm trừ (Không có điểm nền)</p>
         <table>
           <thead>
             <tr>
@@ -368,11 +418,11 @@ export default function AcademicTrackingPage() {
         </table>
         <div class="formula">
           <p><strong>* Quy định tính điểm:</strong></p>
-          <p>- Điểm chuẩn ban đầu: 100 điểm.</p>
+          <p>- Điểm chuẩn ban đầu: 0 điểm (tính từ thực tế điểm cộng và điểm trừ).</p>
           <p>- Giờ tốt: 0đ (không cộng, không trừ; điều kiện ngày/tuần tốt).</p>
           <p>- Giờ khá: -1đ/giờ | Giờ TB: -3đ/giờ | Giờ yếu: -5đ/giờ | Học sinh điểm dưới 5: -2đ/lượt.</p>
           <p>- Điểm 8, 9, 10: +2đ/lượt | Ngày học tốt (100% giờ tốt): +10đ/ngày | Tuần học tốt (100% giờ tốt, không có giờ khá/tb/yếu): +20đ/tuần.</p>
-          <p>- Tổng điểm = 100 + Điểm cộng - Điểm trừ.</p>
+          <p>- Tổng điểm đạt được = Điểm cộng - Điểm trừ.</p>
         </div>
       </body>
       </html>
@@ -684,7 +734,7 @@ export default function AcademicTrackingPage() {
                 THEO DÕI THI ĐUA HỌC TẬP — TUẦN {selectedWeek} ({selectedYear})
               </h2>
               <p className="text-xs text-slate-500 text-center sm:text-left mt-0.5">
-                Bảng tổng hợp thi đua học tập các lớp (Điểm chuẩn: {emulationConfig.baseScore}đ)
+                Bảng tổng hợp thi đua học tập các lớp (Điểm chuẩn: 0đ • Tính từ điểm cộng trừ thực tế)
               </p>
             </div>
 
@@ -743,44 +793,89 @@ export default function AcademicTrackingPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-300">
+          {/* Lock/Unlock status banner */}
+          <div className="no-print">
+            {isWeekLocked ? (
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between text-xs text-amber-950">
+                <div className="flex items-center gap-2.5 font-bold">
+                  <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-900 flex items-center justify-center">
+                    <Lock size={16} />
+                  </div>
+                  <div>
+                    <span className="text-amber-950 font-black text-sm">Tuần {selectedWeek} đã được lưu và khóa!</span>
+                    <p className="text-[11px] font-normal text-amber-900">Dữ liệu thi đua của tuần này đang được cố định và bảo vệ an toàn. Các ô nhập liệu bị khóa.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUnlockWeek}
+                  className="px-4 py-2 bg-white hover:bg-amber-100 text-amber-900 font-bold rounded-xl border border-amber-400 shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
+                >
+                  <Unlock size={14} />
+                  <span>Mở khóa tuần</span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-3.5 bg-emerald-50/80 border border-emerald-300 rounded-2xl flex items-center justify-between text-xs text-emerald-950">
+                <div className="flex items-center gap-2.5 font-medium">
+                  <div className="w-8 h-8 rounded-full bg-emerald-200 text-emerald-800 flex items-center justify-center">
+                    <CheckCircle2 size={18} />
+                  </div>
+                  <div>
+                    <span className="font-bold text-emerald-950">Nhập điểm thi đua đang mở</span>
+                    <p className="text-[11px] text-emerald-900">Sau khi hoàn tất nhập điểm các lớp cho tuần này, hãy bấm nút bên phải để lưu và khóa dữ liệu.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveAndLockWeek}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 transition-all"
+                >
+                  <Lock size={15} />
+                  <span>Lưu và Khóa Tuần {selectedWeek}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="overflow-x-auto overflow-y-auto max-h-[650px] rounded-xl border border-slate-300 relative shadow-inner">
             <table className="w-full border-collapse text-center text-xs font-sans">
               <thead>
                 <tr className="bg-slate-100 text-slate-900 font-black text-xs uppercase border-b-2 border-slate-300">
-                  <th rowSpan={2} className="py-3 px-2 border-r border-slate-300 w-12">STT</th>
-                  <th rowSpan={2} className="py-3 px-4 border-r border-slate-300 min-w-[110px]">Lớp</th>
-                  <th colSpan={4} className="py-2 px-2 border-r border-slate-300 bg-blue-50/80 text-blue-900">Giờ học</th>
-                  <th rowSpan={2} className="py-3 px-2 border-r border-slate-300 w-16">Ngày học tốt</th>
-                  <th rowSpan={2} className="py-3 px-2 border-r border-slate-300 w-16">Tuần học tốt</th>
-                  <th rowSpan={2} className="py-3 px-2 border-r border-slate-300 w-16">Điểm tốt</th>
-                  <th rowSpan={2} className="py-3 px-2 border-r border-slate-300 w-16">Điểm kém</th>
-                  <th rowSpan={2} className="py-3 px-3 border-r border-slate-300 min-w-[150px] bg-emerald-50/80 text-emerald-950">
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-12">STT</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-4 border-r border-slate-300 min-w-[110px]">Lớp</th>
+                  <th colSpan={4} className="sticky top-0 z-30 bg-blue-100 py-2 px-2 border-r border-slate-300 text-blue-900">Giờ học</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Ngày học tốt</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Tuần học tốt</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Điểm tốt</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Điểm kém</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-emerald-100 py-3 px-3 border-r border-slate-300 min-w-[150px] text-emerald-950">
                     <div>Điểm cộng</div>
                     <div className="text-[10px] font-medium text-emerald-800 normal-case">(Điểm 8-10, Ngày tốt, Tuần tốt)</div>
                   </th>
-                  <th rowSpan={2} className="py-3 px-3 border-r border-slate-300 min-w-[160px] bg-rose-50/80 text-rose-950">
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-rose-100 py-3 px-3 border-r border-slate-300 min-w-[160px] text-rose-950">
                     <div>Điểm trừ</div>
                     <div className="text-[10px] font-medium text-rose-800 normal-case">(Giờ Khá, TB, Yếu; Điểm &lt; 5)</div>
                   </th>
-                  <th rowSpan={2} className="py-3 px-3 border-r border-slate-300 min-w-[100px] bg-amber-50/80 text-amber-950">Tổng điểm đạt được</th>
-                  <th rowSpan={2} className="py-3 px-3 min-w-[90px]">Xếp loại</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-amber-100 py-3 px-3 border-r border-slate-300 min-w-[100px] text-amber-950">Tổng điểm đạt được</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-3 min-w-[90px]">Xếp loại</th>
                 </tr>
                 <tr className="bg-blue-50/50 text-blue-950 font-bold text-[11px] border-b-2 border-slate-300">
-                  <th className="py-2 px-1 border-r border-slate-300 w-12">Tốt</th>
-                  <th className="py-2 px-1 border-r border-slate-300 w-12">Khá</th>
-                  <th className="py-2 px-1 border-r border-slate-300 w-12">Tb</th>
-                  <th className="py-2 px-1 border-r border-slate-300 w-12">Yếu</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Tốt</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Khá</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Tb</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Yếu</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300 bg-white">
-                {emulationRecords.length === 0 ? (
+                {sortedEmulationRecords.length === 0 ? (
                   <tr>
                     <td colSpan={14} className="py-12 text-center text-slate-400 italic">
                       Chưa có dữ liệu thi đua cho tuần này.
                     </td>
                   </tr>
                 ) : (
-                  emulationRecords.map((r, idx) => (
+                  sortedEmulationRecords.map((r, idx) => (
                     <tr key={r.classId} className="hover:bg-blue-50/30 transition-colors">
                       <td className="py-2.5 px-2 border-r border-slate-300 font-bold text-slate-600">{idx + 1}</td>
                       <td className="py-2.5 px-3 border-r border-slate-300 font-black text-blue-900 text-left">{r.className}</td>
@@ -791,8 +886,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.goodLessons}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'goodLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Giờ học - Khá */}
@@ -801,8 +897,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.fairLessons}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'fairLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Giờ học - Tb */}
@@ -811,8 +908,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.avgLessons}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'avgLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-amber-700"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-amber-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Giờ học - Yếu */}
@@ -821,8 +919,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.weakLessons}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'weakLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-rose-600"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
 
@@ -832,8 +931,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.goodDays || 0}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'goodDays', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-indigo-700"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-indigo-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Tuần học tốt */}
@@ -842,8 +942,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.goodWeeks ?? 0}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'goodWeeks', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-blue-700"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-blue-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Điểm tốt */}
@@ -852,8 +953,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.goodMarks}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'goodMarks', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-emerald-700"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-emerald-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Điểm kém */}
@@ -862,8 +964,9 @@ export default function AcademicTrackingPage() {
                           type="number"
                           min="0"
                           value={r.badMarks}
+                          disabled={isWeekLocked}
                           onChange={e => handleUpdateEmulationField(r.classId, 'badMarks', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-rose-600"
+                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
 
@@ -908,7 +1011,7 @@ export default function AcademicTrackingPage() {
                       </td>
                       {/* Tổng điểm đạt được */}
                       <td className="py-2.5 px-3 border-r border-slate-300 font-black text-blue-900 bg-amber-50/40 text-base">
-                        {r.totalScore || emulationConfig.baseScore} đ
+                        {r.totalScore ?? 0} đ
                       </td>
                       {/* Xếp loại */}
                       <td className="py-2.5 px-3 font-bold">

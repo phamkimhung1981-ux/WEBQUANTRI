@@ -39,7 +39,7 @@ export interface ClassAcademicEmulationRecord {
 export interface AcademicEmulationConfig {
   id: string;
   schoolYear: string;
-  baseScore: number; // Điểm chuẩn ban đầu (mặc định 100)
+  baseScore: number; // Điểm chuẩn ban đầu (mặc định 0)
   pointPerGoodLesson: number; // Giờ tốt (mặc định 0)
   pointPerFairLesson: number; // Trừ giờ khá (mặc định 1)
   pointPerAvgLesson: number; // Trừ giờ TB (mặc định 3)
@@ -48,15 +48,16 @@ export interface AcademicEmulationConfig {
   pointPerGoodWeek: number; // Cộng tuần học tốt (mặc định 20)
   pointPerGoodMark: number; // Cộng điểm 8, 9, 10 (mặc định 2)
   pointPerBadMark: number; // Trừ điểm < 5 (mặc định 2)
-  thresholdExcellent: number; // Ngưỡng Tốt (>= 110)
-  thresholdGood: number; // Ngưỡng Khá (>= 95)
-  thresholdPass: number; // Ngưỡng Đạt (>= 80)
+  thresholdExcellent: number; // Ngưỡng Tốt (>= 20)
+  thresholdGood: number; // Ngưỡng Khá (>= 10)
+  thresholdPass: number; // Ngưỡng Đạt (>= 0)
+  lockedWeeks?: number[]; // Danh sách các tuần đã khóa
 }
 
 export const DEFAULT_EMULATION_CONFIG: AcademicEmulationConfig = {
   id: "default_emulation_config",
   schoolYear: "2026–2027",
-  baseScore: 100,
+  baseScore: 0,
   pointPerGoodLesson: 0,
   pointPerFairLesson: 1,
   pointPerAvgLesson: 3,
@@ -65,9 +66,9 @@ export const DEFAULT_EMULATION_CONFIG: AcademicEmulationConfig = {
   pointPerGoodWeek: 20,
   pointPerGoodMark: 2,
   pointPerBadMark: 2,
-  thresholdExcellent: 110,
-  thresholdGood: 95,
-  thresholdPass: 80
+  thresholdExcellent: 20,
+  thresholdGood: 10,
+  thresholdPass: 0
 };
 
 export interface MonthlyEmulationSummary {
