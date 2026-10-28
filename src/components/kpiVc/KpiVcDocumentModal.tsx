@@ -1006,10 +1006,26 @@ export default function KpiVcDocumentModal({
       setErrorMsg(null);
       setSuccessMsg(null);
 
-      const itemsToSave = overrideItems || scoreItems;
+      const rawItemsToSave = overrideItems || scoreItems;
+      const itemsToSave = rawItemsToSave.map((item, idx) => {
+        const existingItem = form?.items?.find(i => i.criterionId === item.criterionId || i.criterionCode === item.criterionCode) || form?.items?.[idx];
+        return {
+          ...item,
+          selfScore: typeof item.selfScore === 'number' ? item.selfScore : (existingItem && typeof existingItem.selfScore === 'number' ? existingItem.selfScore : null),
+          ttcmScore: typeof item.ttcmScore === 'number' ? item.ttcmScore : (existingItem && typeof existingItem.ttcmScore === 'number' ? existingItem.ttcmScore : null),
+          managerScore: typeof item.managerScore === 'number' ? item.managerScore : (existingItem && typeof existingItem.managerScore === 'number' ? existingItem.managerScore : null),
+          note: item.note !== undefined && item.note !== '' ? item.note : (existingItem?.note || ''),
+          ttcmComment: item.ttcmComment !== undefined && item.ttcmComment !== '' ? item.ttcmComment : (existingItem?.ttcmComment || ''),
+          managerComment: item.managerComment !== undefined && item.managerComment !== '' ? item.managerComment : (existingItem?.managerComment || ''),
+        };
+      });
+
       const selfCalc = calculateVcTotals(itemsToSave);
       const ttcmCalc = calculateVcTtcmTotals(itemsToSave);
       const managerCalc = calculateVcManagerTotals(itemsToSave);
+
+      const hasAnyTtcmInSaved = itemsToSave.some(it => typeof it.ttcmScore === 'number' && it.ttcmScore !== null);
+      const hasAnyManagerInSaved = itemsToSave.some(it => typeof it.managerScore === 'number' && it.managerScore !== null);
 
       const resolvedTotalScore = targetStatus === 'submitted' || targetStatus === 'draft'
         ? selfCalc.totalScore
@@ -1071,6 +1087,9 @@ export default function KpiVcDocumentModal({
       const existingHistory = form.history || [];
       const updatedHistory = [newHistoryEntry, ...existingHistory];
 
+      const resolvedTtcmScore = hasAnyTtcmInSaved ? ttcmCalc.ttcmTotalScore : (form.ttcmTotalScore ?? null);
+      const resolvedManagerScore = hasAnyManagerInSaved ? managerCalc.managerTotalScore : (form.managerTotalScore ?? form.bghTotalScore ?? null);
+
       const updatePayload: Partial<KpiVcForm> = {
         employeeId: form.employeeId,
         employeeName: form.employeeName,
@@ -1081,11 +1100,11 @@ export default function KpiVcDocumentModal({
         department: form.department || resolvedDepartment,
         items: itemsToSave,
         groupScores: resolvedGroupScores,
-        ttcmGroupScores: hasAnyTtcmScore ? ttcmCalc.ttcmGroupScores : ttcmGroupScores,
-        managerGroupScores: hasAnyManagerScore ? managerCalc.managerGroupScores : managerGroupScores,
+        ttcmGroupScores: hasAnyTtcmInSaved ? ttcmCalc.ttcmGroupScores : (form.ttcmGroupScores || ttcmGroupScores),
+        managerGroupScores: hasAnyManagerInSaved ? managerCalc.managerGroupScores : (form.managerGroupScores || managerGroupScores),
         totalScore: resolvedTotalScore,
-        ttcmTotalScore: hasAnyTtcmScore ? (ttcmCalc.ttcmTotalScore ?? ttcmTotalScore) : null,
-        managerTotalScore: hasAnyManagerScore ? (managerCalc.managerTotalScore ?? managerTotalScore) : null,
+        ttcmTotalScore: resolvedTtcmScore,
+        managerTotalScore: resolvedManagerScore,
 
         // Cấp 1 - Giáo viên tự chấm
         selfClassification: (resolvedTotalScore > 0 ? (selfClassification || resolveVcClassification(resolvedTotalScore) || 'Hoàn thành tốt nhiệm vụ') : 'Chưa tự đánh giá'),
@@ -1099,7 +1118,7 @@ export default function KpiVcDocumentModal({
         ttcmComment: ttcmComment || form.ttcmComment || '',
         ttcmDate: ttcmDate || form.ttcmDate || todayStr,
         ttcmEvaluatorName: form.ttcmEvaluatorName || ttcmEvaluatorName || user?.name || 'Tổ trưởng chuyên môn',
-        ttcmStatus: targetStatus === 'ttcm_evaluated' ? 'evaluated' : (hasAnyTtcmScore ? 'evaluated' : (form.ttcmStatus || 'pending')),
+        ttcmStatus: targetStatus === 'ttcm_evaluated' ? 'evaluated' : (hasAnyTtcmInSaved || form.ttcmStatus === 'evaluated' ? 'evaluated' : (form.ttcmStatus || 'pending')),
         ttcmEvaluatedAt: targetStatus === 'ttcm_evaluated' ? now : form.ttcmEvaluatedAt,
 
         // Cấp 3 - BGH đánh giá & phê duyệt
@@ -1110,8 +1129,8 @@ export default function KpiVcDocumentModal({
         bghClassification: leaderClassification || form.bghClassification || 'Hoàn thành tốt nhiệm vụ',
         bghComment: leaderComment || form.bghComment || '',
         bghDate: leaderDate || form.bghDate || todayStr,
-        bghStatus: targetStatus === 'completed' ? 'evaluated' : (hasAnyManagerScore ? 'evaluated' : (form.bghStatus || 'pending')),
-        bghTotalScore: hasAnyManagerScore ? (managerCalc.managerTotalScore ?? managerTotalScore) : (form.bghTotalScore ?? null),
+        bghStatus: targetStatus === 'completed' ? 'evaluated' : (hasAnyManagerInSaved || form.bghStatus === 'evaluated' ? 'evaluated' : (form.bghStatus || 'pending')),
+        bghTotalScore: resolvedManagerScore,
         managerGeneralComment: managerGeneralComment || form.managerGeneralComment || '',
         managerEvaluatedAt: targetStatus === 'completed' ? now : form.managerEvaluatedAt,
         bghEvaluatedAt: targetStatus === 'completed' ? now : form.bghEvaluatedAt,
