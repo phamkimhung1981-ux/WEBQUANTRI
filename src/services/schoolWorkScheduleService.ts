@@ -2,6 +2,7 @@ import { collection, doc, getDocs, setDoc, getDoc, deleteDoc } from 'firebase/fi
 import { db } from '../lib/firebase';
 import { SchoolWorkSchedule, SchoolWorkDay, SchoolWorkItem } from '../types/schoolWorkSchedule';
 import { getWeekInfoByNumber } from '../utils/schoolWeekUtils';
+import { safeLocalStorageSet } from '../utils/envUtils';
 
 const COLLECTION_NAME = 'schoolWorkSchedules';
 const STORAGE_KEY_PREFIX = 'thpt_son_luong_school_work_schedule_';
@@ -282,16 +283,8 @@ export const schoolWorkScheduleService = {
       const cachedTasks = cachedSchedule.days?.reduce((acc, d) => acc + (d.morning_tasks?.length || 0) + (d.afternoon_tasks?.length || 0), 0) || 0;
       const firestoreTasks = firestoreSchedule.days?.reduce((acc, d) => acc + (d.morning_tasks?.length || 0) + (d.afternoon_tasks?.length || 0), 0) || 0;
 
-      if (cachedTime > firestoreTime || (cachedTasks > 0 && firestoreTasks === 0)) {
-        return cachedSchedule;
-      }
-
       if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(firestoreSchedule));
-        } catch (err) {
-          console.warn('localStorage setItem error:', err);
-        }
+        safeLocalStorageSet(STORAGE_KEY_PREFIX + docId, JSON.stringify(firestoreSchedule));
       }
       return firestoreSchedule;
     }
@@ -302,11 +295,7 @@ export const schoolWorkScheduleService = {
 
     if (firestoreSchedule) {
       if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(firestoreSchedule));
-        } catch (err) {
-          console.warn('localStorage setItem error:', err);
-        }
+        safeLocalStorageSet(STORAGE_KEY_PREFIX + docId, JSON.stringify(firestoreSchedule));
       }
       return firestoreSchedule;
     }
@@ -328,11 +317,7 @@ export const schoolWorkScheduleService = {
 
     // 1. Save to localStorage immediately and synchronously
     if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(STORAGE_KEY_PREFIX + docId, JSON.stringify(schedule));
-      } catch (err) {
-        console.warn('localStorage setItem quota or error:', err);
-      }
+      safeLocalStorageSet(STORAGE_KEY_PREFIX + docId, JSON.stringify(schedule));
     }
 
     // 2. Save to Firestore with timeout guard (2000ms max) to prevent freezing when quota is exceeded

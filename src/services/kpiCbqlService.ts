@@ -178,9 +178,11 @@ const getCbqlFormsCache = (): KpiCbqlForm[] => {
   }
 };
 
+import { safeLocalStorageSet } from '../utils/envUtils';
+
 const saveCbqlFormsCache = (forms: KpiCbqlForm[]) => {
   try {
-    localStorage.setItem(CBQL_FORMS_CACHE_KEY, JSON.stringify(forms));
+    safeLocalStorageSet(CBQL_FORMS_CACHE_KEY, JSON.stringify(forms));
   } catch (err) {
     console.warn('Error saving CBQL forms cache:', err);
   }

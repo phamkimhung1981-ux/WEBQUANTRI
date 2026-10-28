@@ -68,20 +68,27 @@ export function canEditOrDelete(): boolean {
 }
 
 export function safeLocalStorageSet(key: string, value: string): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem(key, value);
   } catch (e) {
-    console.warn('localStorage setItem quota exceeded or failed:', e);
+    console.warn('localStorage setItem quota exceeded, clearing old non-essential cache items:', e);
     try {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && (k.startsWith('app_cache_') || k.startsWith('app_cached_') || k.startsWith('sws_'))) {
+        if (k && k !== key && (
+          k.startsWith('app_cache_') || 
+          k.startsWith('app_cached_') || 
+          k.startsWith('sws_') || 
+          k.startsWith('kpi_vc_forms_cache') ||
+          k.startsWith('kpi_cbql_forms_cache')
+        )) {
           localStorage.removeItem(k);
         }
       }
       localStorage.setItem(key, value);
     } catch (err) {
-      console.error('Failed to save to localStorage even after clearing cache:', err);
+      console.warn('LocalStorage full, skipped local cache write safely:', err);
     }
   }
 }
