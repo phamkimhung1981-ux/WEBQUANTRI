@@ -885,8 +885,8 @@ export default function KpiVcDocumentModal({
   // =========================================================================
   const formStatus: KpiVcFormStatus = form?.status || 'draft';
   const isDraftOrReturned = formStatus === 'draft' || formStatus === 'returned';
-  const isSubmittedToTtcm = formStatus === 'submitted' || formStatus === 'self_evaluated';
-  const isEvaluatedByTtcm = formStatus === 'ttcm_evaluated';
+  const isSubmittedToTtcm = ['submitted', 'self_evaluated', 'pending_evaluator', 'evaluating', 'ttcm_draft'].includes(formStatus);
+  const isEvaluatedByTtcm = ['ttcm_evaluated', 'pending_bgh', 'bgh_evaluating', 'manager_draft'].includes(formStatus);
   const isCompleted = formStatus === 'completed';
   const isLocked = formStatus === 'locked';
   const isReadOnly = mode === 'view' || isLocked;
@@ -947,23 +947,20 @@ export default function KpiVcDocumentModal({
   }, [scoreItems]);
   const isTtcmComplete = missingTtcmCriteria.length === 0;
 
-  // RÀNG BUỘC CHẶT CHẼ THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ:
-  // (1) Giáo viên tự chấm điểm và gửi phiếu:
-  //     Chỉ mở khi đang ở Cấp 1 (Chưa tự chấm / Yêu cầu tự chấm lại), đúng quyền Giáo viên / Admin / Chủ sở hữu
+  // RÀNG BUỘC THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ:
+  // (1) Giáo viên tự chấm điểm và gửi phiếu
   const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && 
     (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN' || mode === 'self_eval' || isOwnerOfThisForm) && 
     mode !== 'view';
 
-  // (2) TTCM chỉ được xem, đánh giá và chấm điểm sau khi giáo viên đã hoàn thành và gửi phiếu tự chấm:
-  //     Chỉ mở khi đang ở Cấp 2 (Chờ TTCM), đúng quyền TTCM / Admin
-  const canEditTtcm = !isLocked && !isCompleted && isSubmittedToTtcm && 
-    (effectiveRole === 'TTCM' || effectiveRole === 'ADMIN') && 
+  // (2) TTCM đánh giá sau khi giáo viên gửi phiếu tự chấm
+  const canEditTtcm = !isLocked && !isCompleted && (isSubmittedToTtcm || isEvaluatedByTtcm) && 
+    (effectiveRole === 'TTCM' || effectiveRole === 'ADMIN' || isTtcmForThisForm || isAdmin || mode === 'ttcm_eval') && 
     mode !== 'view';
 
-  // (3) BGH chỉ được chấm sau khi TTCM đã hoàn thành, xác nhận và gửi kết quả:
-  //     Chỉ mở khi đang ở Cấp 3 (Chờ BGH), đúng quyền BGH / Admin
-  const canEditManager = !isLocked && !isCompleted && isEvaluatedByTtcm && 
-    (effectiveRole === 'BGH' || effectiveRole === 'ADMIN') && 
+  // (3) BGH chấm và phê duyệt sau khi phiếu được gửi lên BGH (hoặc sau khi GV tự chấm nếu BGH đánh giá trực tiếp)
+  const canEditManager = !isLocked && !isCompleted && (isSubmittedToTtcm || isEvaluatedByTtcm) && 
+    (effectiveRole === 'BGH' || effectiveRole === 'ADMIN' || isBghForThisForm || isAdmin || mode === 'leader_eval') && 
     mode !== 'view';
 
   // Lý do khóa cấp TTCM
