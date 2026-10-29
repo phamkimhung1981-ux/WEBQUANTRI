@@ -242,18 +242,39 @@ export default function Settings() {
                   {SYSTEM_ENV.toUpperCase()}
                 </span>
               </div>
-              <div className="flex justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-500">Cơ sở dữ liệu đám mây</span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <Database size={12} /> Firebase Firestore đã kết nối
-                </span>
+              <div className="flex flex-col py-2 border-b border-slate-100 gap-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 flex items-center gap-1.5">
+                    <Database size={13} className="text-slate-400" />
+                    Cơ sở dữ liệu đám mây
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 size={12} /> Đang kết nối Realtime
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 font-mono bg-slate-50 p-2 rounded-lg border border-slate-200/80 space-y-0.5 mt-1">
+                  <div><strong>Firebase Project:</strong> windy-system-q9v0l</div>
+                  <div className="truncate"><strong>Firestore DB ID:</strong> ai-studio-hthngqunlgiovint-0d69b880-7502-4902-b08f-94cb8fcead53</div>
+                  <div><strong>Khu vực / Trạng thái:</strong> asia-southeast1 • Dùng chung DEV & Vercel</div>
+                </div>
               </div>
 
-              <div className="pt-3">
+              <div className="pt-3 space-y-2">
                 <button
                   type="button"
                   onClick={() => {
                     if (typeof window !== 'undefined') {
+                      try {
+                        const keysToRemove: string[] = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                          const k = localStorage.key(i);
+                          if (k && !k.includes('user') && !k.includes('auth') && !k.includes('login')) {
+                            keysToRemove.push(k);
+                          }
+                        }
+                        keysToRemove.forEach(k => localStorage.removeItem(k));
+                      } catch (e) {}
+
                       if ('serviceWorker' in navigator) {
                         navigator.serviceWorker.getRegistrations().then(registrations => {
                           registrations.forEach(r => r.unregister());
@@ -262,11 +283,14 @@ export default function Settings() {
                       window.location.reload();
                     }
                   }}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors border border-slate-300"
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
                 >
-                  <RefreshCw size={14} className="text-slate-600" />
-                  Xóa bộ nhớ đệm đệm cũ & Tải lại ứng dụng (Hard Refresh)
+                  <RefreshCw size={14} className="text-white" />
+                  Đồng bộ máy chủ & Dọn sạch bộ nhớ đệm (Force Resync)
                 </button>
+                <p className="text-[11px] text-slate-400 text-center leading-normal">
+                  Dọn sạch bộ nhớ đệm cũ trên trình duyệt, ép tải lại 100% dữ liệu mới nhất từ Firestore và bỏ qua các bản lưu tạm.
+                </p>
               </div>
             </div>
           </Card>

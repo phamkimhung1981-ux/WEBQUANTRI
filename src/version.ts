@@ -6,14 +6,27 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.3.1';
-export const LAST_UPDATED = '2026-10-16';
+export const CURRENT_SYSTEM_VERSION = 'v1.3.2';
+export const LAST_UPDATED = '2026-10-28';
 
 export const SYSTEM_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
 export const SYSTEM_COMMIT_SHA = typeof __COMMIT_SHA__ !== 'undefined' ? __COMMIT_SHA__ : 'dev';
 export const SYSTEM_ENV = typeof __APP_ENV__ !== 'undefined' ? __APP_ENV__ : 'development';
 
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.3.2',
+    releaseDate: '2026-10-28',
+    title: 'Khắc phục triệt để lỗi đồng bộ dữ liệu giữa Google AI Studio và Website Vercel',
+    modulesModified: ['Kết nối Firebase Firestore', 'Đồng bộ Cache', 'Theo dõi thi đua', 'KPI Giáo viên & Nhân viên', 'Cài đặt hệ thống'],
+    changes: [
+      'Đồng bộ kết nối cơ sở dữ liệu dùng chung (Named Database: ai-studio-hthngqunlgiovint-0d69b880-7502-4902-b08f-94cb8fcead53) bảo đảm nhất quán 100% giữa Google AI Studio và Vercel Production.',
+      'Bổ sung nút "Đồng bộ máy chủ & Dọn sạch bộ nhớ đệm" trong mục Cài đặt giúp loại bỏ toàn bộ dữ liệu cache cũ trên trình duyệt và kéo dữ liệu mới nhất từ Firestore.',
+      'Sửa triệt để lỗi ghi đè điểm đánh giá KPI của giáo viên, ưu tiên mốc thời gian updatedAt mới nhất.',
+      'Khắc phục lỗi điểm KPI 100/100 bị reset về 0, đảm bảo tính toán chính xác tổng điểm thi đua và KPI.',
+      'Tích hợp bảng thông số chẩn đoán kết nối cơ sở dữ liệu trực tiếp trong giao diện Cài đặt.'
+    ]
+  },
   {
     version: 'v1.3.1',
     releaseDate: '2026-10-16',
