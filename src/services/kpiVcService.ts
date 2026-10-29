@@ -251,31 +251,51 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       return;
     }
 
-    // Ưu tiên chọn phiếu được cập nhật mới nhất (updatedAt / createdAt) làm phiếu chính
+    // ĐẶC BIỆT QUAN TRỌNG: Ưu tiên chọn phiếu CÓ ĐIỂM CHẤM THỰC TẾ, có điểm TTCM/BGH, trạng thái tiến độ cao hơn làm phiếu chính
     const sorted = [...matched].sort((a, b) => {
-      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-      if (timeA !== timeB) return timeB - timeA;
+      // 1. Phiếu đã có điểm tự chấm / đánh giá thực tế luôn xếp trước bản nháp trống
+      const aEval = (hasTeacherActuallyEvaluated(a) || (a.totalScore || 0) > 0) ? 1 : 0;
+      const bEval = (hasTeacherActuallyEvaluated(b) || (b.totalScore || 0) > 0) ? 1 : 0;
+      if (bEval !== aEval) return bEval - aEval;
 
-      const aTtcm = (a.ttcmTotalScore !== null && a.ttcmTotalScore !== undefined) ? 1 : 0;
-      const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
-      if (bTtcm !== aTtcm) return bTtcm - aTtcm;
-
-      const aManager = (a.managerTotalScore !== null && a.managerTotalScore !== undefined) ? 1 : 0;
-      const bManager = (b.managerTotalScore !== null && b.managerTotalScore !== undefined) ? 1 : 0;
-      if (bManager !== aManager) return bManager - aManager;
-
+      // 2. Trọng số trạng thái quy trình (locked > completed > ttcm_evaluated > submitted/self_evaluated > draft)
       const wA = getStatusWeight(a.status);
       const wB = getStatusWeight(b.status);
       if (wB !== wA) return wB - wA;
 
-      return (b.totalScore || 0) - (a.totalScore || 0);
+      // 3. Có điểm cấp BGH chấm
+      const aManager = (a.managerTotalScore !== null && a.managerTotalScore !== undefined) ? 1 : 0;
+      const bManager = (b.managerTotalScore !== null && b.managerTotalScore !== undefined) ? 1 : 0;
+      if (bManager !== aManager) return bManager - aManager;
+
+      // 4. Có điểm cấp TTCM chấm
+      const aTtcm = (a.ttcmTotalScore !== null && a.ttcmTotalScore !== undefined) ? 1 : 0;
+      const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
+      if (bTtcm !== aTtcm) return bTtcm - aTtcm;
+
+      // 5. Số tiêu chí đã được cho điểm
+      const aScored = a.items?.filter(i => i.selfScore !== null && i.selfScore !== undefined && !Number.isNaN(Number(i.selfScore)))?.length || 0;
+      const bScored = b.items?.filter(i => i.selfScore !== null && i.selfScore !== undefined && !Number.isNaN(Number(i.selfScore)))?.length || 0;
+      if (bScored !== aScored) return bScored - aScored;
+
+      // 6. Tổng điểm tự chấm
+      const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      // 7. Tie-breaker: thời gian cập nhật mới nhất
+      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
     });
 
     const primary: KpiVcForm = { ...sorted[0] };
 
-    // Hợp nhất dữ liệu từ các phiếu phụ của cùng giáo viên (bổ sung điểm nếu phiếu chính thiếu)
+    // Hợp nhất dữ liệu từ các phiếu phụ của cùng giáo viên và dữ liệu chuẩn đối chiếu
     const sourcesToMerge = [...sorted.slice(1)];
+    if (fallback && fallback.id !== primary.id) {
+      sourcesToMerge.push(fallback);
+    }
+
     for (const sec of sourcesToMerge) {
       if (sec.items && primary.items) {
         primary.items = primary.items.map((pItem, idx) => {
@@ -296,10 +316,17 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       if ((primary.ttcmTotalScore === null || primary.ttcmTotalScore === undefined) && sec.ttcmTotalScore !== null && sec.ttcmTotalScore !== undefined) {
         primary.ttcmTotalScore = sec.ttcmTotalScore;
         primary.ttcmGroupScores = sec.ttcmGroupScores;
+        primary.ttcmEvaluatorName = sec.ttcmEvaluatorName || primary.ttcmEvaluatorName;
+        primary.ttcmEvaluatorId = sec.ttcmEvaluatorId || primary.ttcmEvaluatorId;
+        primary.ttcmDate = sec.ttcmDate || primary.ttcmDate;
+        primary.ttcmClassification = sec.ttcmClassification || primary.ttcmClassification;
       }
       if ((primary.managerTotalScore === null || primary.managerTotalScore === undefined) && sec.managerTotalScore !== null && sec.managerTotalScore !== undefined) {
         primary.managerTotalScore = sec.managerTotalScore;
         primary.managerGroupScores = sec.managerGroupScores;
+        primary.bghEvaluatorName = sec.bghEvaluatorName || primary.bghEvaluatorName;
+        primary.bghDate = sec.bghDate || primary.bghDate;
+        primary.leaderClassification = sec.leaderClassification || primary.leaderClassification;
       }
       if (getStatusWeight(sec.status) > getStatusWeight(primary.status)) {
         primary.status = sec.status;
@@ -442,9 +469,23 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
     finalList.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
 
     saveVcFormsCache(finalList);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kpi_firestore_status', { 
+        detail: { isOnline: true } 
+      }));
+    }
     callback(finalList);
   }, (err) => {
     console.warn('Firestore subscription notice for VC Forms (reading from persistent cache / backup):', err);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kpi_firestore_status', { 
+        detail: { 
+          isOnline: false, 
+          error: err?.message || 'Firestore connection notice', 
+          quotaExceeded: String(err?.message || '').toLowerCase().includes('quota')
+        } 
+      }));
+    }
     const fallbackList = getVcFormsCache();
     callback(fallbackList);
   });

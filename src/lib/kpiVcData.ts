@@ -1218,29 +1218,29 @@ export const getVcStatusMeta = (status?: string): VcStatusMeta => {
     case 'self_evaluated':
       return {
         key: 'submitted',
-        label: 'Chờ TTCM',
+        label: 'Đã tự chấm',
         badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
         dotClass: 'bg-blue-500',
         stepNumber: 2,
-        description: 'Giáo viên đã gửi phiếu tự chấm, đang chờ TTCM đánh giá'
+        description: 'Giáo viên đã tự chấm điểm và gửi phiếu, chờ TTCM đánh giá'
       };
     case 'ttcm_evaluated':
       return {
         key: 'ttcm_evaluated',
-        label: 'Chờ BGH',
+        label: 'TTCM đã chấm',
         badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
         dotClass: 'bg-purple-500',
         stepNumber: 3,
-        description: 'TTCM đã hoàn tất & gửi kết quả, đang chờ BGH phê duyệt'
+        description: 'Tổ trưởng chuyên môn đã hoàn tất đánh giá, chờ BGH phê duyệt'
       };
     case 'completed':
       return {
         key: 'completed',
-        label: 'Hoàn thành',
+        label: 'BGH đã chấm',
         badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         dotClass: 'bg-emerald-500',
         stepNumber: 4,
-        description: 'BGH đã phê duyệt và chốt kết quả đánh giá KPI'
+        description: 'Ban Giám hiệu đã đánh giá và chốt kết quả KPI'
       };
     case 'locked':
       return {
@@ -1264,11 +1264,11 @@ export const getVcStatusMeta = (status?: string): VcStatusMeta => {
     default:
       return {
         key: 'draft',
-        label: 'Chưa tự chấm',
+        label: 'Chưa chấm',
         badgeClass: 'bg-slate-100 text-slate-700 border-slate-200',
         dotClass: 'bg-slate-400',
         stepNumber: 1,
-        description: 'Giáo viên chưa gửi phiếu tự chấm điểm'
+        description: 'Giáo viên chưa hoàn thành tự chấm điểm'
       };
   }
 };

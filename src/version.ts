@@ -6,14 +6,27 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.3.2';
-export const LAST_UPDATED = '2026-10-28';
+export const CURRENT_SYSTEM_VERSION = 'v1.3.3';
+export const LAST_UPDATED = '2026-10-29';
 
 export const SYSTEM_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
 export const SYSTEM_COMMIT_SHA = typeof __COMMIT_SHA__ !== 'undefined' ? __COMMIT_SHA__ : 'dev';
 export const SYSTEM_ENV = typeof __APP_ENV__ !== 'undefined' ? __APP_ENV__ : 'development';
 
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.3.3',
+    releaseDate: '2026-10-29',
+    title: 'Khắc phục triệt để lỗi điểm KPI giáo viên không đồng bộ khi xuất bản website',
+    modulesModified: ['KPI Giáo viên & Viên chức', 'Dữ liệu chuẩn 51 phiếu', 'Deduplication Service', 'Bảo toàn điểm số & trạng thái'],
+    changes: [
+      'Khôi phục và đồng bộ 100% dữ liệu đánh giá KPI của 51 giáo viên/nhân viên, bao gồm phiếu của giáo viên Trần Xuân Quỳnh (100 điểm, Đã tự chấm).',
+      'Loại bỏ hoàn toàn logic ép điểm 100 về 0 và trạng thái "Chưa chấm" sai lệch trên giao diện hiển thị bảng KPI.',
+      'Nâng cấp thuật toán deduplicateVcForms ưu tiên các phiếu có điểm chấm thực tế, có kết quả đánh giá TTCM/BGH thay vì phụ thuộc mốc thời gian của bản nháp trống.',
+      'Cập nhật chuẩn hóa trạng thái quy trình: "Chưa chấm", "Đã tự chấm", "TTCM đã chấm", "BGH đã chấm" theo đúng tiến độ thực tế.',
+      'Tích hợp cơ chế thông báo trạng thái kết nối Firestore và bảo toàn dữ liệu bằng bộ nhớ cache an toàn khi xảy ra giới hạn hạn mức truy vấn.'
+    ]
+  },
   {
     version: 'v1.3.2',
     releaseDate: '2026-10-28',

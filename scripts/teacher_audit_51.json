@@ -1,0 +1,1959 @@
+[
+  {
+    "stt": 1,
+    "code": "GV15",
+    "name": "Hoàng Thị Diệu Hương",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_grg2hmw8t",
+        "empId": "grg2hmw8t",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_0ua1gu",
+        "empId": "t1792151918417_0ua1gu",
+        "score": 90.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_0ua1gu",
+        "empId": "t1792151918417_0ua1gu",
+        "score": 90.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 2,
+    "code": "GV08",
+    "name": "Nguyễn Thị Hải Hậu",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_a001n9lni",
+        "empId": "a001n9lni",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_1wvns3",
+        "empId": "t1792151918417_1wvns3",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_1wvns3",
+        "empId": "t1792151918417_1wvns3",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 3,
+    "code": "GV27",
+    "name": "Bùi Thị Nguyệt",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_l040epngm",
+        "empId": "l040epngm",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2degwd",
+        "empId": "t1792151918417_2degwd",
+        "score": 85.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2degwd",
+        "empId": "t1792151918417_2degwd",
+        "score": 85.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 4,
+    "code": "GV13",
+    "name": "Đinh Thị Ngọc Huệ",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_4kn28s1qz",
+        "empId": "4kn28s1qz",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2e2viz",
+        "empId": "t1792151918417_2e2viz",
+        "score": 86,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2e2viz",
+        "empId": "t1792151918417_2e2viz",
+        "score": 86,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 5,
+    "code": "GV42",
+    "name": "Cao Thị Thùy",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_humf4cuds",
+        "empId": "humf4cuds",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2f5eex",
+        "empId": "t1792151918417_2f5eex",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2f5eex",
+        "empId": "t1792151918417_2f5eex",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 6,
+    "code": "GV18",
+    "name": "Phạm Thị Bích Liên",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "empId": "6o3i7cxrn",
+        "score": 100,
+        "ttcm": 94.5,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2qkjg3",
+        "empId": "t1792151918417_2qkjg3",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_2qkjg3",
+        "empId": "t1792151918417_2qkjg3",
+        "score": 0,
+        "ttcm": 94.5,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 7,
+    "code": "GV26",
+    "name": "Vũ Linh Ngọc",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_3szx1g",
+        "empId": "t1792151918417_3szx1g",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_urt1nyy1a",
+        "empId": "urt1nyy1a",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_3szx1g",
+        "empId": "t1792151918417_3szx1g",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 8,
+    "code": "GV40",
+    "name": "Hà Thị Dáng Thương",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_3kjz5gqu2",
+        "empId": "3kjz5gqu2",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_4be30z",
+        "empId": "t1792151918417_4be30z",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_4be30z",
+        "empId": "t1792151918417_4be30z",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 9,
+    "code": "GV28",
+    "name": "Đỗ Thị Hồng Nhung",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_5pago1",
+        "empId": "t1792151918417_5pago1",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      },
+      {
+        "id": "vc_vc_period_2026_09_ze09arky5",
+        "empId": "ze09arky5",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_5pago1",
+        "empId": "t1792151918417_5pago1",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 10,
+    "code": "GV39",
+    "name": "Dương Thị Thương",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_63own4",
+        "empId": "t1792151918417_63own4",
+        "score": 95,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_wrw8r6q3d",
+        "empId": "wrw8r6q3d",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_63own4",
+        "empId": "t1792151918417_63own4",
+        "score": 95,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 11,
+    "code": "NV02",
+    "name": "Nguyễn Thị Thu Hương",
+    "dept": "Tổ Văn phòng",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "empId": "t1792151918417_6fdpqz",
+        "score": 71,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_yozfhlxhb",
+        "empId": "yozfhlxhb",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_6fdpqz",
+        "empId": "t1792151918417_6fdpqz",
+        "score": 71,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 12,
+    "code": "GV10",
+    "name": "Trần Thị Thu Hiền",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_d8sotdwua",
+        "empId": "d8sotdwua",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_7q3md4",
+        "empId": "t1792151918417_7q3md4",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_7q3md4",
+        "empId": "t1792151918417_7q3md4",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 13,
+    "code": "GV16",
+    "name": "Hà Thị Thu Hường",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_soa84y28h",
+        "empId": "soa84y28h",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_82zmxp",
+        "empId": "t1792151918417_82zmxp",
+        "score": 81.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_82zmxp",
+        "empId": "t1792151918417_82zmxp",
+        "score": 81.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 14,
+    "code": "GV17",
+    "name": "Nguyễn Trung Kiên",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_8odnav",
+        "empId": "t1792151918417_8odnav",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      },
+      {
+        "id": "vc_vc_period_2026_09_xcnp8xx83",
+        "empId": "xcnp8xx83",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_8odnav",
+        "empId": "t1792151918417_8odnav",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 15,
+    "code": "GV48",
+    "name": "Trần Minh Yên",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_peig9asnq",
+        "empId": "peig9asnq",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_8ohgt4",
+        "empId": "t1792151918417_8ohgt4",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_8ohgt4",
+        "empId": "t1792151918417_8ohgt4",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 16,
+    "code": "GV24",
+    "name": "Kiều Viết Nam",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_oxuxvyjbk",
+        "empId": "oxuxvyjbk",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_99f5ko",
+        "empId": "t1792151918417_99f5ko",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_99f5ko",
+        "empId": "t1792151918417_99f5ko",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 17,
+    "code": "GV36",
+    "name": "Phạm Phương Thảo",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_cqebt7pru",
+        "empId": "cqebt7pru",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_9o121q",
+        "empId": "t1792151918417_9o121q",
+        "score": 89,
+        "ttcm": 89.5,
+        "bgh": null,
+        "status": "completed",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_9o121q",
+        "empId": "t1792151918417_9o121q",
+        "score": 89,
+        "ttcm": 89.5,
+        "bgh": null,
+        "status": "completed",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 18,
+    "code": "GV19",
+    "name": "Đỗ Hoàng Mai Linh",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_2yd5twcvv",
+        "empId": "2yd5twcvv",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_9rczon",
+        "empId": "t1792151918417_9rczon",
+        "score": 88,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_9rczon",
+        "empId": "t1792151918417_9rczon",
+        "score": 88,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 19,
+    "code": "GV25",
+    "name": "Nguyễn Thế Nam",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_chmssl17d",
+        "empId": "chmssl17d",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_c2gpfm",
+        "empId": "t1792151918417_c2gpfm",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_c2gpfm",
+        "empId": "t1792151918417_c2gpfm",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 20,
+    "code": "GV47",
+    "name": "Trần Hoàng Ngọc Tú",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_di9i4x",
+        "empId": "t1792151918417_di9i4x",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      },
+      {
+        "id": "vc_vc_period_2026_09_yzfhzvsdl",
+        "empId": "yzfhzvsdl",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_di9i4x",
+        "empId": "t1792151918417_di9i4x",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 21,
+    "code": "GV20",
+    "name": "Hà Thùy Linh",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_1ebtc58vm",
+        "empId": "1ebtc58vm",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_e1pj63",
+        "empId": "t1792151918417_e1pj63",
+        "score": 89.5,
+        "ttcm": 90.5,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_e1pj63",
+        "empId": "t1792151918417_e1pj63",
+        "score": 89.5,
+        "ttcm": 90.5,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 22,
+    "code": "NV04",
+    "name": "Hoàng Trọng Hưởng",
+    "dept": "Tổ Văn phòng",
+    "backupFormsCount": 1,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_xhejfla08",
+        "empId": "xhejfla08",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ek1t68",
+        "empId": "t1792151918417_ek1t68",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 23,
+    "code": "GV04",
+    "name": "Phùng Trung Dũng",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_ijxvee6t7",
+        "empId": "ijxvee6t7",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_et7ld6",
+        "empId": "t1792151918417_et7ld6",
+        "score": 97,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_et7ld6",
+        "empId": "t1792151918417_et7ld6",
+        "score": 97,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 24,
+    "code": "GV06",
+    "name": "Nguyễn Thị Hằng",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_lsghq5u75",
+        "empId": "lsghq5u75",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_fr40q4",
+        "empId": "t1792151918417_fr40q4",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_fr40q4",
+        "empId": "t1792151918417_fr40q4",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 25,
+    "code": "GV22",
+    "name": "Vũ Việt Linh",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_h8qoeywpp",
+        "empId": "h8qoeywpp",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_fzkoqk",
+        "empId": "t1792151918417_fzkoqk",
+        "score": 94.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_fzkoqk",
+        "empId": "t1792151918417_fzkoqk",
+        "score": 94.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 26,
+    "code": "GV33",
+    "name": "Dương Thị Hương Sen",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_nsbtu0zxd",
+        "empId": "nsbtu0zxd",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ir9st8",
+        "empId": "t1792151918417_ir9st8",
+        "score": 89.5,
+        "ttcm": 89.5,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ir9st8",
+        "empId": "t1792151918417_ir9st8",
+        "score": 89.5,
+        "ttcm": 89.5,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 27,
+    "code": "GV34",
+    "name": "Đặng Xuân Thành",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_h98q39o9m",
+        "empId": "h98q39o9m",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_jhnv8l",
+        "empId": "t1792151918417_jhnv8l",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_jhnv8l",
+        "empId": "t1792151918417_jhnv8l",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 28,
+    "code": "GV14",
+    "name": "Hà Thị Thu Hương",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_peftj3gu0",
+        "empId": "peftj3gu0",
+        "score": 96,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_l39r3d",
+        "empId": "t1792151918417_l39r3d",
+        "score": 92,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_l39r3d",
+        "empId": "t1792151918417_l39r3d",
+        "score": 96,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 29,
+    "code": "NV01",
+    "name": "Hà Đăng Quy",
+    "dept": "Tổ Văn phòng",
+    "backupFormsCount": 1,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_2uf4o3wcn",
+        "empId": "2uf4o3wcn",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_melmyz",
+        "empId": "t1792151918417_melmyz",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 30,
+    "code": "GV21",
+    "name": "Trần Diệu Linh",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_m58wlljdm",
+        "empId": "m58wlljdm",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_mrmxps",
+        "empId": "t1792151918417_mrmxps",
+        "score": 92.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "locked",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_mrmxps",
+        "empId": "t1792151918417_mrmxps",
+        "score": 92.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "locked",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 31,
+    "code": "GV41",
+    "name": "Hà Thị Thúy",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_b9c9fyuaq",
+        "empId": "b9c9fyuaq",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_n04p6l",
+        "empId": "t1792151918417_n04p6l",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_n04p6l",
+        "empId": "t1792151918417_n04p6l",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 32,
+    "code": "GV07",
+    "name": "Vũ Thị Hồng Hạnh",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_mjql7rnzn",
+        "empId": "mjql7rnzn",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_od2ok5",
+        "empId": "t1792151918417_od2ok5",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_od2ok5",
+        "empId": "t1792151918417_od2ok5",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 33,
+    "code": "GV23",
+    "name": "Lê Trà My",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_oi9yst",
+        "empId": "t1792151918417_oi9yst",
+        "score": 82.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_w7nlpqdc3",
+        "empId": "w7nlpqdc3",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_oi9yst",
+        "empId": "t1792151918417_oi9yst",
+        "score": 82.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 34,
+    "code": "GV30",
+    "name": "Phan Thị Lan Phương",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ot609r",
+        "empId": "t1792151918417_ot609r",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_w6ndh0llc",
+        "empId": "w6ndh0llc",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ot609r",
+        "empId": "t1792151918417_ot609r",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 35,
+    "code": "GV03",
+    "name": "Dương Đức Cường",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_pma41g",
+        "empId": "t1792151918417_pma41g",
+        "score": 89.5,
+        "ttcm": 89,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_zi4t8yqsl",
+        "empId": "zi4t8yqsl",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_pma41g",
+        "empId": "t1792151918417_pma41g",
+        "score": 89.5,
+        "ttcm": 89,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 36,
+    "code": "NV03",
+    "name": "Dương Thị Thanh Hương",
+    "dept": "Tổ Văn phòng",
+    "backupFormsCount": 1,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_bzlj3xbb6",
+        "empId": "bzlj3xbb6",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_r0q0m1",
+        "empId": "t1792151918417_r0q0m1",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 37,
+    "code": "GV35",
+    "name": "Nguyễn Thị Thảo",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "empId": "kkneod5z1",
+        "score": 88,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_sfil8m",
+        "empId": "t1792151918417_sfil8m",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_sfil8m",
+        "empId": "t1792151918417_sfil8m",
+        "score": 88,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 38,
+    "code": "GV09",
+    "name": "Hoàng Thị Thu Hiền",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "empId": "q3p1a5gwp",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_slg36z",
+        "empId": "t1792151918417_slg36z",
+        "score": 89,
+        "ttcm": 89.5,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_slg36z",
+        "empId": "t1792151918417_slg36z",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 39,
+    "code": "GV11",
+    "name": "Nguyễn Hữu Hiệp",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "empId": "hn55ii9bm",
+        "score": 94.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ssdm38",
+        "empId": "t1792151918417_ssdm38",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ssdm38",
+        "empId": "t1792151918417_ssdm38",
+        "score": 94.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 40,
+    "code": "GV37",
+    "name": "Trần Thị Bích Thảo",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_hgjgi0cyz",
+        "empId": "hgjgi0cyz",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_sujt2b",
+        "empId": "t1792151918417_sujt2b",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_sujt2b",
+        "empId": "t1792151918417_sujt2b",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 41,
+    "code": "GV46",
+    "name": "Nguyễn Văn Tú",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_v01oet",
+        "empId": "t1792151918417_v01oet",
+        "score": 86,
+        "ttcm": 89,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_vsu0q9d5y",
+        "empId": "vsu0q9d5y",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_v01oet",
+        "empId": "t1792151918417_v01oet",
+        "score": 86,
+        "ttcm": 89,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 42,
+    "code": "GV31",
+    "name": "Trần Minh Quang",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_v9dlaf",
+        "empId": "t1792151918417_v9dlaf",
+        "score": 88.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_u4cabra7o",
+        "empId": "u4cabra7o",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_v9dlaf",
+        "empId": "t1792151918417_v9dlaf",
+        "score": 88.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 43,
+    "code": "GV05",
+    "name": "Ngọc Hải Đường",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_cxhd4f4vl",
+        "empId": "cxhd4f4vl",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_vrh066",
+        "empId": "t1792151918417_vrh066",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_vrh066",
+        "empId": "t1792151918417_vrh066",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 44,
+    "code": "GV43",
+    "name": "Cù Thị Trang",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_2o7vntwvk",
+        "empId": "2o7vntwvk",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_wi6jqz",
+        "empId": "t1792151918417_wi6jqz",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_wi6jqz",
+        "empId": "t1792151918417_wi6jqz",
+        "score": 89.5,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 45,
+    "code": "GV32",
+    "name": "Trần Xuân Quỳnh",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_ckjz0mnam",
+        "empId": "ckjz0mnam",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_wytptu",
+        "empId": "t1792151918417_wytptu",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_wytptu",
+        "empId": "t1792151918417_wytptu",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 46,
+    "code": "GV38",
+    "name": "Nguyễn Hà Thu",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_2dajxzv53",
+        "empId": "2dajxzv53",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_x11elz",
+        "empId": "t1792151918417_x11elz",
+        "score": 92,
+        "ttcm": 56.5,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_x11elz",
+        "empId": "t1792151918417_x11elz",
+        "score": 89,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 47,
+    "code": "GV01",
+    "name": "Phạm Ngọc Châu",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_fofccaptm",
+        "empId": "fofccaptm",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_xdmyqf",
+        "empId": "t1792151918417_xdmyqf",
+        "score": 91,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_xdmyqf",
+        "empId": "t1792151918417_xdmyqf",
+        "score": 91,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 48,
+    "code": "GV12",
+    "name": "Nguyễn Đức Hòa",
+    "dept": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_3siwqct1a",
+        "empId": "3siwqct1a",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_xjd1iq",
+        "empId": "t1792151918417_xjd1iq",
+        "score": 95,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_xjd1iq",
+        "empId": "t1792151918417_xjd1iq",
+        "score": 95,
+        "ttcm": null,
+        "bgh": null,
+        "status": "submitted",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 49,
+    "code": "GV29",
+    "name": "Đỗ Thị Thùy Nhung",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_8ovkfsn6m",
+        "empId": "8ovkfsn6m",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_yl1wjt",
+        "empId": "t1792151918417_yl1wjt",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_yl1wjt",
+        "empId": "t1792151918417_yl1wjt",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  },
+  {
+    "stt": 50,
+    "code": "GV44",
+    "name": "Hoàng Thị Trang",
+    "dept": "Tổ Toán-Lý-Tin-CN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_j2wn9yvfq",
+        "empId": "j2wn9yvfq",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ylvkfr",
+        "empId": "t1792151918417_ylvkfr",
+        "score": 98.5,
+        "ttcm": 93,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_ylvkfr",
+        "empId": "t1792151918417_ylvkfr",
+        "score": 98.5,
+        "ttcm": 93,
+        "bgh": null,
+        "status": "ttcm_evaluated",
+        "scoredCount": 30
+      }
+    ]
+  },
+  {
+    "stt": 51,
+    "code": "GV02",
+    "name": "Trịnh Kim Cương",
+    "dept": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "backupFormsCount": 2,
+    "canonicalFormsCount": 1,
+    "backupDetails": [
+      {
+        "id": "vc_vc_period_2026_09_k0zui51v3",
+        "empId": "k0zui51v3",
+        "score": 100,
+        "ttcm": null,
+        "bgh": null,
+        "status": "self_evaluated",
+        "scoredCount": 30
+      },
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_zm55ol",
+        "empId": "t1792151918417_zm55ol",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ],
+    "canonicalDetails": [
+      {
+        "id": "vc_vc_period_2026_09_t1792151918417_zm55ol",
+        "empId": "t1792151918417_zm55ol",
+        "score": 0,
+        "ttcm": null,
+        "bgh": null,
+        "status": "draft",
+        "scoredCount": 0
+      }
+    ]
+  }
+]

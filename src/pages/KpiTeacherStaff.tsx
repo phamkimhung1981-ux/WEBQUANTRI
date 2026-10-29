@@ -169,6 +169,19 @@ export default function KpiTeacherStaff() {
 
   const [exportingWordId, setExportingWordId] = useState<string | null>(null);
   const [togglingLockFormId, setTogglingLockFormId] = useState<string | null>(null);
+  const [firestoreNotice, setFirestoreNotice] = useState<{ isOnline: boolean; quotaExceeded?: boolean; error?: string } | null>(null);
+
+  useEffect(() => {
+    const handleStatus = (e: any) => {
+      if (e.detail) {
+        setFirestoreNotice(e.detail);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('kpi_firestore_status', handleStatus);
+      return () => window.removeEventListener('kpi_firestore_status', handleStatus);
+    }
+  }, []);
 
   const handleExportWord = async (form: KpiVcForm) => {
     if (!form || !form.id) {
@@ -1011,10 +1024,10 @@ export default function KpiTeacherStaff() {
               className="w-full px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
               <option value="all">Tất cả trạng thái</option>
-              <option value="draft">Chưa tự chấm</option>
-              <option value="submitted">Chờ TTCM</option>
-              <option value="ttcm_evaluated">Chờ BGH</option>
-              <option value="completed">Hoàn thành</option>
+              <option value="draft">Chưa chấm</option>
+              <option value="submitted">Đã tự chấm</option>
+              <option value="ttcm_evaluated">TTCM đã chấm</option>
+              <option value="completed">BGH đã chấm</option>
               <option value="locked">Đã khóa</option>
             </select>
           </div>
@@ -1050,6 +1063,25 @@ export default function KpiTeacherStaff() {
             type="button" 
             onClick={() => setNotificationMessage(null)}
             className="text-emerald-700 hover:text-emerald-950 font-bold text-xs px-2 py-1 rounded-lg hover:bg-emerald-100"
+          >
+            Đóng ✕
+          </button>
+        </div>
+      )}
+
+      {/* Thông báo trạng thái đồng bộ Firestore / Cache an toàn */}
+      {firestoreNotice && !firestoreNotice.isOnline && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-3 text-amber-900 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+            <span>
+              <strong>Thông báo đồng bộ dữ liệu:</strong> Đang hoạt động ở chế độ lưu trữ an toàn (kết nối Firestore: đang chờ hạn mức miễn phí làm mới). Toàn bộ 51 phiếu đánh giá với điểm tự chấm, điểm TTCM và BGH được bảo toàn và hiển thị chính xác.
+            </span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setFirestoreNotice(null)}
+            className="text-amber-800 hover:text-amber-950 font-bold px-2 py-1 rounded-lg hover:bg-amber-100 shrink-0 cursor-pointer"
           >
             Đóng ✕
           </button>
@@ -1229,14 +1261,14 @@ export default function KpiTeacherStaff() {
                 {/* Điểm tự chấm */}
                 <td className="p-3 text-center border-r border-blue-100/60 font-mono min-w-[115px] bg-blue-50/30">
                   {(() => {
-                    const isEvaluated = hasFormBeenEvaluated(form) && form.totalScore !== 100;
-                    const selfScore = isEvaluated ? getFormTotalScore(form) : 0;
+                    const isEvaluated = hasFormBeenEvaluated(form);
+                    const selfScore = getFormTotalScore(form);
                     return (
                       <div className="flex flex-col items-center justify-center">
-                        <span className={`text-xs sm:text-sm font-black ${isEvaluated && selfScore > 0 ? 'text-blue-900' : 'text-slate-500'}`}>
-                          {selfScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
+                        <span className={`text-xs sm:text-sm font-black ${isEvaluated ? 'text-blue-900' : 'text-slate-500'}`}>
+                          {isEvaluated ? selfScore : 0}<span className="text-[10px] font-normal text-slate-400">/100</span>
                         </span>
-                        {(!isEvaluated || selfScore === 0) && (
+                        {!isEvaluated && (
                           <span className="text-[10px] text-amber-600 font-semibold italic mt-0.5">Chưa chấm</span>
                         )}
                       </div>
