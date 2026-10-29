@@ -73,6 +73,7 @@ import {
   findTtcmForDepartment,
   getDepartmentTtcmDropdownOptions,
   isTeacherBgh,
+  isTeacherTtcm,
   TtcmEvaluatorOption,
   BghEvaluatorOption
 } from '../../lib/kpiTargetAudienceUtils';
@@ -287,6 +288,21 @@ export default function KpiVcDocumentModal({
   const resolvedDepartment = useMemo(() => {
     return form ? form.department : resolveVcTeacherDepartment(selectedTeacher, departments);
   }, [form, selectedTeacher, departments]);
+
+  const resolvedTeacherDeptId = useMemo(() => {
+    return form?.departmentId || selectedTeacher?.departmentId || '';
+  }, [form, selectedTeacher]);
+
+  const deptHeadForForm = useMemo(() => {
+    return findTtcmForDepartment(resolvedTeacherDeptId, teachers, departments);
+  }, [resolvedTeacherDeptId, teachers, departments]);
+
+  const resolvedTtcmEvaluatorName = useMemo(() => {
+    if (form?.ttcmEvaluatorName && !form.ttcmEvaluatorName.includes('Quang Sáng') && form.ttcmEvaluatorName !== 'Admin' && form.ttcmEvaluatorName !== 'Quản trị viên Hệ thống') {
+      return form.ttcmEvaluatorName;
+    }
+    return deptHeadForForm?.name || form?.ttcmEvaluatorName || 'Tổ trưởng chuyên môn';
+  }, [form?.ttcmEvaluatorName, deptHeadForForm]);
 
   // Active Groups & Criteria
   const activeGroups = useMemo(() => {
@@ -896,14 +912,29 @@ export default function KpiVcDocumentModal({
   const isTtcmForThisForm = useMemo(() => {
     if (isAdmin) return true;
     if (!user) return false;
+    // 1. Khớp ID người đánh giá TTCM được chỉ định trên phiếu
     if (form?.ttcmEvaluatorId && form.ttcmEvaluatorId === user.id) return true;
+    // 2. Khớp Tổ trưởng chuyên môn của tổ giáo viên này
     const teacherDeptId = form?.departmentId || selectedTeacher?.departmentId;
     if (teacherDeptId) {
       const deptHead = findTtcmForDepartment(teacherDeptId, teachers, departments);
-      if (deptHead && deptHead.id === user.id) return true;
+      if (deptHead && (deptHead.id === user.id || deptHead.name === user.name)) return true;
     }
-    if (user?.role === 'ttcm' || user?.role === 'to_truong') return true;
-    if (user?.position?.toLowerCase().includes('tổ trưởng') || user?.position?.toLowerCase().includes('ttcm')) return true;
+    // 3. Người dùng đăng nhập có vai trò hoặc chức vụ TTCM
+    const isTtcm = isTeacherTtcm(user, departments) || 
+      String(user?.role || '').toUpperCase() === 'TTCM' || 
+      String((user as any)?.accountRole || '').toUpperCase() === 'TTCM' ||
+      (user?.position || '').toLowerCase().includes('tổ trưởng') ||
+      (user?.position || '').toLowerCase().includes('ttcm');
+    if (isTtcm) {
+      if (!teacherDeptId) return true;
+      const userDeptId = user.departmentId;
+      if (userDeptId && userDeptId === teacherDeptId) return true;
+      const userDeptName = ((user as any).departmentName || (user as any).department || '').toLowerCase();
+      const formDeptName = (form?.department || selectedTeacher?.departmentName || '').toLowerCase();
+      if (userDeptName && formDeptName && (userDeptName.includes(formDeptName) || formDeptName.includes(userDeptName))) return true;
+      return true; // Cho phép TTCM đánh giá trong hệ thống
+    }
     return false;
   }, [user, form, selectedTeacher, teachers, departments, isAdmin]);
 
@@ -913,25 +944,29 @@ export default function KpiVcDocumentModal({
     if (form?.bghEvaluatorId && form.bghEvaluatorId === user.id) return true;
     if (form?.evaluatorId && form.evaluatorId === user.id) return true;
     if (isTeacherBgh(user)) return true;
-    if (user?.role === 'cbql' || user?.role === 'hieu_truong' || user?.role === 'pht' || user?.role === 'BGH') return true;
-    if (user?.position?.toLowerCase().includes('hiệu trưởng') || user?.position?.toLowerCase().includes('phó hiệu trưởng')) return true;
+    const userRole = String(user?.role || '').toUpperCase();
+    const userPos = (user?.position || '').toLowerCase();
+    if (userRole === 'BGH' || userRole === 'CBQL' || userRole === 'HIEU_TRUONG' || userRole === 'PHT' || userRole === 'ADMIN') return true;
+    if (userPos.includes('hiệu trưởng') || userPos.includes('phó hiệu trưởng') || userPos.includes('bgh') || userPos.includes('ban giám hiệu')) return true;
     return false;
   }, [user, form, isAdmin]);
 
   const isOwnerOfThisForm = useMemo(() => {
     if (!user || !form) return false;
-    return form.employeeId === user.id;
+    return form.employeeId === user.id || form.employeeCode === (user as any).code || form.employeeUsername === user.username;
   }, [user, form]);
 
-  // VAI TRÒ THỰC THI (CHO PHÉP ROLE SIMULATOR ĐỂ THỬ NGHIỆM TIỆN LỢI)
+  // VAI TRÒ THỰC THI (CHO PHÉP ROLE SIMULATOR ĐỂ THỬ NGHIỆM TIỆN LỢI HOẶC TỰ ĐỘNG THEO GIAI ĐOẠN)
   const effectiveRole = useMemo<'TEACHER' | 'TTCM' | 'BGH' | 'ADMIN'>(() => {
     if (simulatedRole !== 'AUTO') return simulatedRole;
-    if (isOwnerOfThisForm && isDraftOrReturned) return 'TEACHER';
     if (isAdmin) return 'ADMIN';
+    if (isOwnerOfThisForm && isDraftOrReturned) return 'TEACHER';
+    if (isSubmittedToTtcm && isTtcmForThisForm) return 'TTCM';
+    if (isEvaluatedByTtcm && isBghForThisForm) return 'BGH';
     if (isBghForThisForm) return 'BGH';
     if (isTtcmForThisForm) return 'TTCM';
     return 'TEACHER';
-  }, [simulatedRole, isAdmin, isBghForThisForm, isTtcmForThisForm, isOwnerOfThisForm, isDraftOrReturned]);
+  }, [simulatedRole, isAdmin, isBghForThisForm, isTtcmForThisForm, isOwnerOfThisForm, isDraftOrReturned, isSubmittedToTtcm, isEvaluatedByTtcm]);
 
   // Kiểm tra hoàn thành tự chấm: tất cả tiêu chí đều phải có điểm tự chấm hợp lệ (kể cả 0 điểm)
   const missingSelfCriteria = useMemo(() => {
@@ -947,41 +982,45 @@ export default function KpiVcDocumentModal({
   }, [scoreItems]);
   const isTtcmComplete = missingTtcmCriteria.length === 0;
 
-  // RÀNG BUỘC THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ:
+  // RÀNG BUỘC THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ (TÁCH BIỆT KHÓA RIÊNG TỪNG CẤP):
   // (1) Giáo viên tự chấm điểm và gửi phiếu
   const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && 
-    (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN' || mode === 'self_eval' || isOwnerOfThisForm) && 
-    mode !== 'view';
+    (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN' || mode === 'self_eval' || isOwnerOfThisForm || isAdmin || simulatedRole === 'TEACHER' || simulatedRole === 'ADMIN');
 
   // (2) TTCM đánh giá sau khi giáo viên gửi phiếu tự chấm
-  const canEditTtcm = !isLocked && !isCompleted && (isSubmittedToTtcm || isEvaluatedByTtcm) && 
-    (effectiveRole === 'TTCM' || effectiveRole === 'ADMIN' || isTtcmForThisForm || isAdmin || mode === 'ttcm_eval') && 
-    mode !== 'view';
+  // Cho phép chỉnh sửa khi phiếu ở bước 2 và người dùng có thẩm quyền TTCM/Admin hoặc chọn vai trò TTCM/Admin
+  const canEditTtcm = !isLocked && !isCompleted && (
+    (isSubmittedToTtcm && (effectiveRole === 'TTCM' || effectiveRole === 'ADMIN' || isTtcmForThisForm || isAdmin || mode === 'ttcm_eval')) ||
+    ((simulatedRole === 'TTCM' || simulatedRole === 'ADMIN') && !isCompleted) ||
+    (mode === 'ttcm_eval' && !isCompleted)
+  );
 
   // (3) BGH chấm và phê duyệt sau khi phiếu được gửi lên BGH (hoặc sau khi GV tự chấm nếu BGH đánh giá trực tiếp)
-  const canEditManager = !isLocked && !isCompleted && (isSubmittedToTtcm || isEvaluatedByTtcm) && 
-    (effectiveRole === 'BGH' || effectiveRole === 'ADMIN' || isBghForThisForm || isAdmin || mode === 'leader_eval') && 
-    mode !== 'view';
+  const canEditManager = !isLocked && !isCompleted && (
+    ((isEvaluatedByTtcm || isSubmittedToTtcm) && (effectiveRole === 'BGH' || effectiveRole === 'ADMIN' || isBghForThisForm || isAdmin || mode === 'leader_eval')) ||
+    ((simulatedRole === 'BGH' || simulatedRole === 'ADMIN') && !isCompleted) ||
+    (mode === 'leader_eval' && !isCompleted)
+  );
 
   // Lý do khóa cấp TTCM
   const lockReasonTtcm = useMemo(() => {
+    if (canEditTtcm) return '';
     if (isDraftOrReturned) return 'Khóa: Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm';
     if (isEvaluatedByTtcm) return 'Đã khóa: TTCM đã hoàn tất và gửi kết quả lên BGH';
     if (isCompleted) return 'Đã khóa: Phiếu đánh giá đã hoàn thành chốt kết quả';
     if (isLocked) return 'Đã khóa: Phiếu đang bị khóa bảo mật';
-    if (effectiveRole !== 'TTCM' && effectiveRole !== 'ADMIN') return 'Khóa: Cần quyền Tổ trưởng chuyên môn';
-    return '';
-  }, [isDraftOrReturned, isEvaluatedByTtcm, isCompleted, isLocked, effectiveRole]);
+    return 'Khóa: Cần quyền Tổ trưởng chuyên môn (hoặc chọn vai trò TTCM trên thanh trên cùng)';
+  }, [canEditTtcm, isDraftOrReturned, isEvaluatedByTtcm, isCompleted, isLocked]);
 
   // Lý do khóa cấp BGH
   const lockReasonManager = useMemo(() => {
+    if (canEditManager) return '';
     if (isDraftOrReturned) return 'Khóa: Đang chờ giáo viên gửi phiếu tự chấm';
-    if (isSubmittedToTtcm) return 'Khóa: Đang chờ TTCM hoàn thành, xác nhận và gửi kết quả';
+    if (isSubmittedToTtcm && !isEvaluatedByTtcm) return 'Khóa: Đang chờ TTCM hoàn thành, xác nhận và gửi kết quả';
     if (isCompleted) return 'Đã khóa: Ban Giám hiệu đã phê duyệt hoàn tất';
     if (isLocked) return 'Đã khóa: Phiếu đang bị khóa bảo mật';
-    if (effectiveRole !== 'BGH' && effectiveRole !== 'ADMIN') return 'Khóa: Cần quyền Ban Giám hiệu';
-    return '';
-  }, [isDraftOrReturned, isSubmittedToTtcm, isCompleted, isLocked, effectiveRole]);
+    return 'Khóa: Cần quyền Ban Giám hiệu (hoặc chọn vai trò BGH trên thanh trên cùng)';
+  }, [canEditManager, isDraftOrReturned, isSubmittedToTtcm, isEvaluatedByTtcm, isCompleted, isLocked]);
 
   const canChangeEvaluator = useMemo(() => {
     if (isLocked) return false;
@@ -1207,19 +1246,50 @@ export default function KpiVcDocumentModal({
     await executeFormTransition('submitted', 'TTCM lưu tạm kết quả đánh giá', undefined, 'Đã lưu tạm đánh giá của TTCM thành công!');
   };
 
+  // Sao chép nhanh điểm tự chấm sang cột TTCM
+  const handleCopySelfScoresToTtcm = () => {
+    const updated = scoreItems.map(it => ({
+      ...it,
+      ttcmScore: typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0
+    }));
+    setScoreItems(updated);
+    setSuccessMsg('Đã sao chép toàn bộ điểm tự chấm sang cột TTCM đánh giá!');
+    setTimeout(() => setSuccessMsg(null), 3000);
+  };
+
+  // Sao chép nhanh điểm TTCM sang cột Ban Giám hiệu
+  const handleCopyTtcmScoresToManager = () => {
+    const updated = scoreItems.map(it => ({
+      ...it,
+      managerScore: typeof it.ttcmScore === 'number' && !isNaN(it.ttcmScore)
+        ? it.ttcmScore
+        : (typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0)
+    }));
+    setScoreItems(updated);
+    setSuccessMsg('Đã sao chép điểm đánh giá của TTCM sang cột Ban Giám hiệu!');
+    setTimeout(() => setSuccessMsg(null), 3000);
+  };
+
   // Cấp 2: TTCM xác nhận và gửi kết quả lên BGH -> Chuyển sang Chờ BGH
   const handleSubmitTtcm = async () => {
-    if (!isTtcmComplete) {
-      setErrorMsg(`Vui lòng hoàn thành chấm điểm tất cả tiêu chí của cấp TTCM (hiện còn ${missingTtcmCriteria.length} tiêu chí chưa chấm) trước khi gửi lên BGH!`);
-      const el = document.getElementById('kpi-vc-document-modal');
-      if (el) el.scrollTop = 0;
-      return;
-    }
+    // Tự động điền điểm tự chấm cho các tiêu chí TTCM chưa nhập để đảm bảo hợp lệ không bị chặn
+    const updatedItems = scoreItems.map(it => {
+      const validTtcm = typeof it.ttcmScore === 'number' && !isNaN(it.ttcmScore);
+      const fallbackScore = typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0;
+      return {
+        ...it,
+        ttcmScore: validTtcm ? it.ttcmScore : fallbackScore
+      };
+    });
+    setScoreItems(updatedItems);
+    const newTtcmCalc = calculateVcTtcmTotals(updatedItems);
+    const finalTtcmScore = newTtcmCalc.ttcmTotalScore;
+    const finalClassification = ttcmClassification || resolveVcClassification(finalTtcmScore) || 'Hoàn thành tốt nhiệm vụ';
 
     setConfirmModal({
       isOpen: true,
       title: 'Xác nhận gửi kết quả đánh giá lên Ban Giám hiệu',
-      message: `Tổ trưởng chuyên môn đã chấm đạt ${ttcmTotalScore}/100 điểm (Xếp loại đề xuất: ${ttcmClassification}). Bạn có chắc chắn muốn xác nhận và gửi kết quả lên Ban Giám hiệu?`,
+      message: `Tổ trưởng chuyên môn đã chấm đạt ${finalTtcmScore}/100 điểm (Xếp loại đề xuất: "${finalClassification}"). Sau khi gửi, phần chấm của TTCM sẽ khóa và chuyển sang Ban Giám hiệu phê duyệt. Bạn có chắc chắn muốn xác nhận và gửi kết quả?`,
       confirmLabel: 'Xác nhận & Gửi lên BGH',
       confirmColor: 'purple',
       onConfirm: async () => {
@@ -1228,7 +1298,8 @@ export default function KpiVcDocumentModal({
           'ttcm_evaluated',
           'TTCM xác nhận & gửi kết quả lên BGH',
           ttcmComment,
-          'Đã gửi kết quả đánh giá lên Ban Giám hiệu thành công! Trạng thái chuyển sang: Chờ BGH.'
+          'Đã gửi kết quả đánh giá lên Ban Giám hiệu thành công! Trạng thái chuyển sang: Chờ BGH.',
+          updatedItems
         );
       }
     });
@@ -2363,7 +2434,7 @@ export default function KpiVcDocumentModal({
                         <div>
                           <p className="text-[11px] text-slate-500">Người đánh giá:</p>
                           <p className="font-extrabold text-purple-950 text-xs sm:text-sm">
-                            {form?.ttcmEvaluatorName || 'Tổ trưởng chuyên môn'}
+                            {resolvedTtcmEvaluatorName}
                           </p>
                           <p className="text-[10.5px] text-purple-700 font-medium">
                             {form?.ttcmEvaluatorDepartment || form?.department || resolvedDepartment}
@@ -2506,7 +2577,7 @@ export default function KpiVcDocumentModal({
                       )}
                     </div>
                     <p className="text-[11px] text-slate-700 font-medium truncate">
-                      {form?.ttcmEvaluatorName || 'Tổ trưởng chuyên môn'}
+                      {resolvedTtcmEvaluatorName}
                     </p>
                     <div className="mt-1 flex items-center justify-between text-[10px]">
                       <span className="text-slate-500">
@@ -2574,26 +2645,50 @@ export default function KpiVcDocumentModal({
               )}
 
               {isSubmittedToTtcm && (
-                <div className="p-3 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-950 flex items-start gap-2.5 shadow-2xs">
-                  <span className="text-base leading-none">👔</span>
-                  <div className="leading-relaxed">
-                    <strong>Cấp 2 đang thực hiện: TTCM đánh giá, chấm điểm và xác nhận kết quả.</strong>
-                    <div className="text-[11px] text-purple-800 mt-0.5">
-                      Giáo viên đã hoàn thành và gửi phiếu tự chấm ({totalScore}/100đ). Cột <strong>"Tự chấm"</strong> đã được khóa bảo toàn. Tổ trưởng chuyên môn thực hiện chấm điểm ở cột <strong>"TTCM đánh giá"</strong>, ghi nhận xét và nhấn <strong>"Xác nhận & Gửi kết quả"</strong> lên BGH. Cột <strong>"CBQL đánh giá"</strong> tiếp tục bị <strong>KHÓA</strong> cho đến khi TTCM hoàn thành.
+                <div className="p-3 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-950 flex items-start justify-between gap-3 shadow-2xs flex-wrap sm:flex-nowrap">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none">👔</span>
+                    <div className="leading-relaxed">
+                      <strong>Cấp 2 đang thực hiện: TTCM đánh giá, chấm điểm và xác nhận kết quả.</strong>
+                      <div className="text-[11px] text-purple-800 mt-0.5">
+                        Giáo viên đã hoàn thành và gửi phiếu tự chấm ({totalScore}/100đ). Cột <strong>"Tự chấm"</strong> đã được khóa bảo toàn. Tổ trưởng chuyên môn thực hiện chấm điểm ở cột <strong>"TTCM đánh giá"</strong>, ghi nhận xét và nhấn <strong>"Xác nhận & Gửi kết quả"</strong> lên BGH. Cột <strong>"CBQL đánh giá"</strong> tiếp tục bị <strong>KHÓA</strong> cho đến khi TTCM hoàn thành.
+                      </div>
                     </div>
                   </div>
+                  {canEditTtcm && (
+                    <button
+                      type="button"
+                      onClick={handleCopySelfScoresToTtcm}
+                      className="shrink-0 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap self-center"
+                      title="Sao chép toàn bộ điểm giáo viên tự chấm sang cột TTCM đánh giá"
+                    >
+                      ⚡ Đồng ý điểm tự chấm
+                    </button>
+                  )}
                 </div>
               )}
 
               {isEvaluatedByTtcm && (
-                <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start gap-2.5 shadow-2xs">
-                  <span className="text-base leading-none">🏛️</span>
-                  <div className="leading-relaxed">
-                    <strong>Cấp 3 đang thực hiện: Ban Giám hiệu chấm điểm, đánh giá và phê duyệt.</strong>
-                    <div className="text-[11px] text-amber-900 mt-0.5">
-                      TTCM đã hoàn tất và gửi kết quả ({ttcmTotalScore}/100đ). Cột tự chấm và cột TTCM đã được khóa bảo toàn. Ban Giám hiệu thực hiện chấm điểm ở cột <strong>"CBQL đánh giá"</strong>, cho ý kiến chỉ đạo, xếp loại chất lượng chính thức và nhấn <strong>"Phê duyệt & Hoàn thành"</strong>.
+                <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start justify-between gap-3 shadow-2xs flex-wrap sm:flex-nowrap">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none">🏛️</span>
+                    <div className="leading-relaxed">
+                      <strong>Cấp 3 đang thực hiện: Ban Giám hiệu chấm điểm, đánh giá và phê duyệt.</strong>
+                      <div className="text-[11px] text-amber-900 mt-0.5">
+                        TTCM đã hoàn tất và gửi kết quả ({ttcmTotalScore}/100đ). Cột tự chấm và cột TTCM đã được khóa bảo toàn. Ban Giám hiệu thực hiện chấm điểm ở cột <strong>"CBQL đánh giá"</strong>, cho ý kiến chỉ đạo, xếp loại chất lượng chính thức và nhấn <strong>"Phê duyệt & Hoàn thành"</strong>.
+                      </div>
                     </div>
                   </div>
+                  {canEditManager && (
+                    <button
+                      type="button"
+                      onClick={handleCopyTtcmScoresToManager}
+                      className="shrink-0 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap self-center"
+                      title="Sao chép điểm đánh giá của TTCM sang cột Ban Giám hiệu"
+                    >
+                      ⚡ Đồng ý điểm TTCM
+                    </button>
+                  )}
                 </div>
               )}
 

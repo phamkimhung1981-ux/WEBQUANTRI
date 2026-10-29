@@ -6,7 +6,7 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.3.3';
+export const CURRENT_SYSTEM_VERSION = 'v1.3.4';
 export const LAST_UPDATED = '2026-10-29';
 
 export const SYSTEM_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -14,6 +14,27 @@ export const SYSTEM_COMMIT_SHA = typeof __COMMIT_SHA__ !== 'undefined' ? __COMMI
 export const SYSTEM_ENV = typeof __APP_ENV__ !== 'undefined' ? __APP_ENV__ : 'development';
 
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.3.4',
+    releaseDate: '2026-10-29',
+    title: 'Khắc phục hoàn toàn lỗi khóa phiếu KPI 3 cấp khi xuất bản website',
+    modulesModified: [
+      'src/components/kpiVc/KpiVcDocumentModal.tsx',
+      'src/pages/KpiTeacherStaff.tsx',
+      'src/lib/kpiTargetAudienceUtils.ts',
+      'src/store/AppContext.tsx',
+      'src/data/canonical51Forms.json',
+      'src/data/canonical51Forms.ts'
+    ],
+    changes: [
+      'Tách biệt cơ chế khóa độc lập cho 3 cấp: Cấp 1 (Giáo viên tự chấm), Cấp 2 (TTCM đánh giá), Cấp 3 (Ban Giám hiệu phê duyệt)',
+      'Sửa lỗi read-only sai: Khi mở phiếu từ danh sách (click dòng hoặc biểu tượng mắt), hệ thống tự động nhận diện quyền và giai đoạn để mở quyền chấm tương ứng thay vì khóa cưỡng bức',
+      'Thanh chuyển đổi vai trò nhanh (Role Simulator) trên đầu phiếu: Cho phép chuyển đổi tức thì giữa Tự động / Giáo viên / TTCM / BGH / Admin với quyền nhập điểm và gửi kết quả tức thì',
+      'Chuẩn hóa phân quyền TTCM theo tổ chuyên môn: Nguyễn Trung Kiên (Tổ Hóa-Sinh), Đặng Xuân Thành (Tổ Văn-Sử), Hà Thị Thu Hương (Tổ Toán-Lý), Nguyễn Quang Sáng (Tổ Văn phòng/BGH)',
+      'Bổ sung nút hành động "Chấm BGH" trên bảng danh sách và nút tiện ích "⚡ Đồng ý điểm tự chấm / TTCM" giúp chuyển cấp nhanh chóng',
+      'Bảo toàn 100% dữ liệu 51 giáo viên và điểm số đã đánh giá, không bị reset hay mất mát dữ liệu'
+    ]
+  },
   {
     version: 'v1.3.3',
     releaseDate: '2026-10-29',

@@ -198,11 +198,11 @@ const defaultEvalCriteria: EvaluationCriterion[] = [
 ];
 
 export const DEFAULT_DEPARTMENTS: Department[] = [
-  { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán-Lý-Tin-CN', headId: 't1792151918417_4be30z' },
-  { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN', headId: 't1792151918417_0ua1gu' },
-  { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't1792151918417_2f5eex' },
-  { id: 'd_hoa_ly_sinh_gdqpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't1792151918417_2qkjg3' },
-  { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't1792151918417_4l9424' }
+  { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán-Lý-Tin-CN', headId: 't1792151918417_l39r3d' }, // GV14 Hà Thị Thu Hương (Tổ trưởng)
+  { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN', headId: 't1792151918417_jhnv8l' }, // GV34 Đặng Xuân Thành (Tổ trưởng)
+  { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't1792151918417_8odnav' }, // GV17 Nguyễn Trung Kiên (Tổ trưởng)
+  { id: 'd_hoa_ly_sinh_gdqpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't1792151918417_8odnav' }, // GV17 Nguyễn Trung Kiên (Tổ trưởng)
+  { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't1792151918417_4l9424' } // BGH 01 Nguyễn Quang Sáng (Hiệu trưởng)
 ];
 
 export const getLocalCollectionCache = <T,>(collectionKey: string, defaultValue: T): T => {

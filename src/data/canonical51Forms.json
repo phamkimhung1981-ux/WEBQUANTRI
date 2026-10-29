@@ -2,7 +2,7 @@
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_0ua1gu",
     "bghStatus": "pending",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "maxTotalScore": 100,
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "criteriaSnapshot": {
@@ -400,7 +400,7 @@
       "group_II": 15,
       "group_III": 70
     },
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "periodName": "Tháng 9/2026",
     "bghTotalScore": null,
     "department": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
@@ -408,7 +408,7 @@
     "evaluatorId": "t_ht",
     "evaluatorRole": "Hiệu trưởng",
     "bghDate": "",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "items": [
       {
         "maxScore": 3,
@@ -923,7 +923,7 @@
     "id": "vc_vc_period_2026_09_t1792151918417_0ua1gu",
     "employeeName": "Hoàng Thị Diệu Hương",
     "updatedAt": "2026-10-03T07:52:24.301Z",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "bghEvaluatorId": "t_ht",
     "managerGroupScores": {},
     "employeeId": "t1792151918417_0ua1gu",
@@ -953,7 +953,7 @@
     "ttcmComment": "",
     "bghEvaluatorId": "t_ht",
     "leaderDate": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "items": [
       {
         "managerScore": null,
@@ -1861,7 +1861,7 @@
     "managerGroupScores": {},
     "bghEvaluatorName": "Nguyễn Quang Sáng",
     "managerGeneralComment": "",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "managerTotalScore": null,
     "employeeCode": "GV08",
     "updatedAt": "2026-10-03T07:52:19.096Z",
@@ -1869,11 +1869,11 @@
     "employeeUsername": "gv08",
     "employeeId": "t1792151918417_1wvns3",
     "bghTotalScore": null,
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "evaluatorRole": "Hiệu trưởng",
     "leaderClassification": "",
     "hasTtcmEval": true,
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "hasBghEval": true,
     "totalScore": 100
   },
@@ -1903,7 +1903,7 @@
     "ttcmEvaluatorDepartment": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
     "department": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
     "periodName": "Tháng 9/2026",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "employeeUsername": "gv27",
     "createdBy": "TRƯỜNG THPT SƠN LƯƠNG",
     "items": [
@@ -3349,7 +3349,7 @@
     "managerTotalScore": null,
     "hasTtcmEval": true,
     "managerGeneralComment": "",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "ttcmDate": "",
     "employeeUsername": "gv13",
     "ttcmStatus": "pending",
@@ -3357,8 +3357,8 @@
     "ttcmClassification": "",
     "selfComment": "",
     "leaderComment": "",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "evaluatorName": "Nguyễn Quang Sáng",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
     "leaderDate": "",
@@ -3755,7 +3755,7 @@
     "bghEvaluatorRole": "Hiệu trưởng",
     "ttcmEvaluatedAt": null,
     "employeeId": "t1792151918417_2e2viz",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "leaderClassification": "",
     "updatedAt": "2026-10-03T07:52:17.443Z",
     "maxTotalScore": 100,
@@ -3782,7 +3782,7 @@
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_2f5eex",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "history": [
       {
         "actorId": "admin",
@@ -5695,7 +5695,10 @@
           "isActive": true
         }
       ]
-    }
+    },
+    "ttcmEvaluatorId": "t1792151918417_l39r3d",
+    "ttcmEvaluatorRole": "Tổ trưởng",
+    "ttcmEvaluatorDepartment": "Tổ Toán-Lý-Tin-CN"
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_3szx1g",
@@ -6626,7 +6629,7 @@
         }
       ]
     },
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmDate": "21/10/2026",
     "evaluatorRole": "Hiệu trưởng",
     "history": [
@@ -6686,7 +6689,7 @@
     "departmentId": "d_hoa_ly_sinh_gdqpan_nn",
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "bghDate": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "groupScores": {
       "group_I": 15,
       "group_II": 15,
@@ -6694,7 +6697,7 @@
     },
     "leaderClassification": "",
     "ttcmEvaluatedAt": null,
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "academicYear": "2026-2027",
     "bghClassification": "",
     "id": "vc_vc_period_2026_09_t1792151918417_4be30z",
@@ -7084,7 +7087,7 @@
       ]
     },
     "managerGeneralComment": "",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "ttcmDate": "",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
     "evaluatorRole": "Hiệu trưởng",
@@ -7593,7 +7596,7 @@
     "bghStatus": "pending",
     "employeeUsername": "gv40",
     "managerTotalScore": null,
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "createdBy": "Ban Giám Hiệu",
     "ttcmComment": "",
     "employeeName": "Hà Thị Dáng Thương",
@@ -7650,7 +7653,7 @@
     "id": "vc_vc_period_2026_09_t1792151918417_5pago1",
     "ttcmStatus": "pending",
     "leaderComment": "",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_l39r3d",
     "bghClassification": "",
     "ttcmClassification": "",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
@@ -8155,7 +8158,7 @@
     "ttcmComment": "",
     "managerGroupScores": {},
     "employeeName": "Đỗ Thị Hồng Nhung",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "createdAt": "2026-10-03T07:52:42.555Z",
     "criteriaSnapshot": {
       "version": 1,
@@ -8545,7 +8548,7 @@
     "selfClassification": "Chưa tự đánh giá",
     "bghEvaluatorRole": "Hiệu trưởng",
     "id": "vc_vc_period_2026_09_t1792151918417_63own4",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "updatedBy": "Nguyễn Quang Sáng",
     "leaderDate": "22/10/2026",
     "status": "submitted",
@@ -10392,7 +10395,10 @@
           "isActive": true
         }
       ]
-    }
+    },
+    "ttcmEvaluatorId": "t1792151918417_4l9424",
+    "ttcmEvaluatorRole": "Hiệu trưởng",
+    "ttcmEvaluatorDepartment": "Ban Giám hiệu"
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_7q3md4",
@@ -10953,7 +10959,7 @@
     "ttcmStatus": "pending",
     "periodName": "Tháng 9/2026",
     "leaderClassification": "Hoàn thành tốt nhiệm vụ",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmComment": "",
     "department": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
     "createdAt": "2026-10-16T15:55:16.639Z",
@@ -11752,7 +11758,7 @@
       ]
     },
     "bghEvaluatorId": "t1792151918417_4l9424",
-    "ttcmEvaluatorName": "Nguyễn Quang Sáng",
+    "ttcmEvaluatorName": "Hà Thị Thu Hương",
     "createdAt": "2026-10-16T15:54:52.320Z",
     "selfClassification": "Chưa tự đánh giá",
     "periodName": "Tháng 9/2026",
@@ -11771,7 +11777,7 @@
     "ttcmEvaluatorDepartment": "Tổ Toán-Lý-Tin-CN",
     "bghComment": "",
     "submittedAt": "2026-10-24T02:24:05.860Z",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "bghTotalScore": null,
     "managerGroupScores": {
       "group_III": 0,
@@ -12646,14 +12652,14 @@
         }
       ]
     },
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "id": "vc_vc_period_2026_09_t1792151918417_8odnav",
     "createdAt": "2026-10-03T07:52:40.454Z",
     "ttcmComment": "",
     "employeeName": "Nguyễn Trung Kiên",
     "maxTotalScore": 100,
     "bghEvaluatorName": "Nguyễn Quang Sáng",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "bghClassification": "",
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "ttcmStatus": "pending",
@@ -12669,7 +12675,7 @@
     "bghStatus": "pending",
     "createdBy": "Ban Giám Hiệu",
     "evaluatorRole": "Hiệu trưởng",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "ttcmEvaluatedAt": null,
     "departmentId": "d_hoa_ly_sinh_gdqpan_nn",
     "employeeId": "t1792151918417_8odnav",
@@ -13190,7 +13196,7 @@
     "evaluatorName": "Nguyễn Quang Sáng",
     "hasTtcmEval": true,
     "bghComment": "",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "bghDate": "",
     "employeeCode": "GV17",
     "updatedBy": "Ban Giám Hiệu",
@@ -13206,7 +13212,7 @@
     "evaluatorName": "Nguyễn Quang Sáng",
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "status": "self_evaluated",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmStatus": "pending",
     "groupScores": {
       "group_I": 15,
@@ -13735,7 +13741,7 @@
         "criterionCode": "10"
       }
     ],
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_l39r3d",
     "id": "vc_vc_period_2026_09_t1792151918417_8ohgt4",
     "employeeCode": "GV48",
     "employeeId": "t1792151918417_8ohgt4",
@@ -14539,7 +14545,7 @@
     "ttcmTotalScore": null,
     "academicYear": "2026-2027",
     "ttcmGroupScores": {},
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "managerGeneralComment": "",
     "bghComment": "",
     "selfSignName": "Kiều Viết Nam",
@@ -14549,7 +14555,7 @@
     "createdAt": "2026-10-03T07:52:32.729Z",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
     "ttcmComment": "",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_l39r3d",
     "updatedBy": "Ban Giám Hiệu",
     "bghTotalScore": null,
     "hasTtcmEval": true,
@@ -15131,7 +15137,7 @@
       "group_I": 0,
       "group_II": 0
     },
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "totalScore": 89,
     "hasBghEval": true,
     "employeeName": "Phạm Phương Thảo",
@@ -16529,7 +16535,7 @@
         "actorId": "admin"
       }
     ],
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "managerEvaluatedAt": null,
     "items": [
       {
@@ -17040,7 +17046,7 @@
     "createdBy": "Ban Giám Hiệu",
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "bghTotalScore": null,
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "items": [
       {
         "groupName": "Kết quả thực hiện nhiệm vụ",
@@ -17558,7 +17564,7 @@
     "status": "self_evaluated",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
     "evaluatorId": "t_ht",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "ttcmEvaluatedAt": null,
     "bghEvaluatedAt": null,
     "managerEvaluatedAt": null,
@@ -17963,8 +17969,8 @@
     "periodName": "Tháng 9/2026",
     "bghDate": "",
     "bghEvaluatorId": "t_ht",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "managerGroupScores": {},
     "leaderDate": "",
     "updatedAt": "2026-10-03T07:52:21.006Z",
@@ -17979,10 +17985,10 @@
     "bghClassification": "",
     "updatedBy": "Ban Giám Hiệu",
     "managerEvaluatedAt": null,
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "maxTotalScore": 100,
     "bghComment": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmComment": "",
     "employeeCode": "GV47",
     "bghEvaluatedAt": null,
@@ -18905,11 +18911,11 @@
     "ttcmDate": "",
     "bghEvaluatorId": "t_ht",
     "position": "TTPCM",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "periodName": "Tháng 9/2026",
     "evaluatorId": "t_ht",
     "department": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
-    "ttcmEvaluatorDepartment": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "createdAt": "2026-10-03T07:52:42.003Z",
     "employeeName": "Trần Hoàng Ngọc Tú"
   },
@@ -19457,7 +19463,7 @@
     "employeeUsername": "gv20",
     "periodName": "Tháng 9/2026",
     "ttcmComment": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "department": "Tổ Toán-Lý-Tin-CN",
     "bghStatus": "evaluated",
     "id": "vc_vc_period_2026_09_t1792151918417_e1pj63",
@@ -19948,10 +19954,10 @@
     "_docId": "vc_vc_period_2026_09_t1792151918417_ek1t68",
     "bghComment": "",
     "selfDate": "29/09/2026",
-    "ttcmEvaluatorDepartment": "Tổ Văn phòng",
+    "ttcmEvaluatorDepartment": "Ban Giám hiệu",
     "updatedAt": "2026-10-03T07:52:40.964Z",
     "periodId": "vc_period_2026_09",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Quang Sáng",
     "ttcmClassification": "",
     "employeeCode": "NV04",
     "managerGeneralComment": "",
@@ -20458,7 +20464,7 @@
     ],
     "ttcmComment": "",
     "managerGroupScores": {},
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_4l9424",
     "departmentId": "d_van_phong",
     "selfSignName": "Hoàng Trọng Hưởng",
     "managerTotalScore": null,
@@ -20491,7 +20497,7 @@
     "hasTtcmEval": true,
     "bghStatus": "pending",
     "periodName": "Tháng 9/2026",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Hiệu trưởng",
     "createdBy": "Ban Giám Hiệu",
     "maxTotalScore": 100,
     "criteriaSnapshot": {
@@ -21441,7 +21447,7 @@
     "ttcmClassification": "Hoàn thành tốt nhiệm vụ",
     "evaluatorName": "Nguyễn Quang Sang",
     "employeeUsername": "gv04",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "hasBghEval": true,
     "totalScore": 97,
     "selfComment": "",
@@ -21855,11 +21861,11 @@
     "leaderDate": "",
     "leaderComment": "",
     "selfSignName": "Nguyễn Thị Hằng",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_jhnv8l",
     "departmentId": "d_van_su_dia_gdkt_pl_an",
     "ttcmTotalScore": null,
     "updatedBy": "Ban Giám Hiệu",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Đặng Xuân Thành",
     "academicYear": "2026-2027",
     "leaderSignName": "Nguyễn Quang Sáng",
     "ttcmEvaluatorDepartment": "Tổ Văn-Sử-Địa-GDKT&PL-AN",
@@ -21905,7 +21911,7 @@
       "group_III": 70
     },
     "periodId": "vc_period_2026_09",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "criteriaSnapshot": {
       "version": 1,
       "snapshotDate": "2026-10-03T07:52:30.529Z",
@@ -23737,7 +23743,7 @@
     "ttcmStatus": "pending",
     "id": "vc_vc_period_2026_09_t1792151918417_fzkoqk",
     "leaderComment": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "position": "Giáo viên",
     "evaluatorName": "Nguyễn Quang Sang",
     "ttcmComment": "",
@@ -24306,7 +24312,7 @@
     "hasTtcmEval": true,
     "bghStatus": "pending",
     "periodName": "Tháng 9/2026",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "history": [
       {
         "newScore": 89.5,
@@ -25675,7 +25681,7 @@
     "totalScore": 89.5,
     "hasBghEval": true,
     "ttcmEvaluatorId": "t1792151918417_jhnv8l",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "bghEvaluatorId": "t1792151918417_4l9424",
     "evaluatorRole": "Hiệu trưởng",
     "hasTtcmEval": true,
@@ -26237,7 +26243,7 @@
     "departmentId": "d_toan_ly_tin_cn",
     "employeeUsername": "gv14",
     "ttcmComment": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "evaluatorRole": "Hiệu trưởng",
     "ttcmEvaluatorDepartment": "Tổ Toán-Lý-Tin-CN",
     "bghClassification": "Hoàn thành tốt nhiệm vụ",
@@ -27039,7 +27045,7 @@
     },
     "department": "Tổ Văn phòng",
     "selfDate": "29/09/2026",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Hiệu trưởng",
     "employeeCode": "NV01",
     "periodName": "Tháng 9/2026",
     "periodId": "vc_period_2026_09",
@@ -27567,7 +27573,7 @@
     "hasTtcmEval": true,
     "createdBy": "Ban Giám Hiệu",
     "bghDate": "",
-    "ttcmEvaluatorDepartment": "Tổ Văn phòng",
+    "ttcmEvaluatorDepartment": "Ban Giám hiệu",
     "hasBghEval": true,
     "totalScore": 100,
     "bghStatus": "pending",
@@ -27578,9 +27584,9 @@
     "bghComment": "",
     "managerGeneralComment": "",
     "bghEvaluatorId": "t_ht",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Quang Sáng",
     "employeeName": "Hà Đăng Quy",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_4l9424",
     "groupScores": {
       "group_I": 15,
       "group_II": 15,
@@ -27635,7 +27641,7 @@
         "comment": "Đã hoàn thành tự chấm điểm và gửi phiếu."
       }
     ],
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "updatedBy": "Nguyễn Quang Sáng",
     "ttcmComment": "",
     "criteriaSnapshot": {
@@ -28028,7 +28034,7 @@
     "ttcmStatus": "pending",
     "ttcmTotalScore": null,
     "leaderComment": "",
-    "ttcmEvaluatorName": "Nguyễn Quang Sáng",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "bghEvaluatorRole": "Hiệu trưởng",
     "leaderSignName": "Nguyễn Quang Sang",
     "hasTtcmEval": true,
@@ -29027,7 +29033,7 @@
     ],
     "hasBghEval": true,
     "totalScore": 89.5,
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "bghEvaluatorRole": "Hiệu trưởng",
     "bghComment": "",
     "selfClassification": "Chưa tự đánh giá",
@@ -29471,7 +29477,7 @@
     "evaluatorRole": "Hiệu trưởng",
     "managerEvaluatedAt": null,
     "leaderClassification": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "bghEvaluatedAt": null,
     "bghTotalScore": null,
     "ttcmStatus": "pending",
@@ -29876,7 +29882,7 @@
     "academicYear": "2026-2027",
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "id": "vc_vc_period_2026_09_t1792151918417_od2ok5",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
     "managerTotalScore": null,
     "hasBghEval": true,
     "totalScore": 100,
@@ -30395,12 +30401,12 @@
       }
     ],
     "bghEvaluatorRole": "Hiệu trưởng",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "hasTtcmEval": true,
     "updatedAt": "2026-10-03T07:52:31.631Z",
     "bghComment": "",
     "evaluatorId": "t_ht",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "employeeName": "Vũ Thị Hồng Hạnh"
   },
   {
@@ -30408,7 +30414,7 @@
     "evaluatorName": "Nguyễn Quang Sang",
     "selfClassification": "Chưa tự đánh giá",
     "status": "submitted",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmStatus": "pending",
     "groupScores": {
       "group_I": 15,
@@ -31764,7 +31770,7 @@
         }
       ]
     },
-    "ttcmEvaluatorName": "Quản trị viên Hệ thống",
+    "ttcmEvaluatorName": "Đặng Xuân Thành",
     "employeeCode": "GV30",
     "evaluatorId": "t1792151918417_4l9424",
     "createdBy": "TRƯỜNG THPT SƠN LƯƠNG",
@@ -32269,7 +32275,7 @@
     "selfEvaluatedAt": "2026-10-24T02:26:59.696Z",
     "employeeName": "Phan Thị Lan Phương",
     "leaderDate": "24/10/2026",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn"
+    "ttcmEvaluatorRole": "Tổ trưởng"
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_pma41g",
@@ -32855,7 +32861,7 @@
     "ttcmClassification": "Hoàn thành tốt nhiệm vụ",
     "evaluatorName": "Nguyễn Quang Sang",
     "employeeUsername": "gv03",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "totalScore": 89.5,
     "hasBghEval": true,
     "selfComment": "",
@@ -33269,11 +33275,11 @@
     "ttcmStatus": "pending",
     "id": "vc_vc_period_2026_09_t1792151918417_r0q0m1",
     "position": "Thư viện",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Hiệu trưởng",
     "ttcmGroupScores": {},
     "createdBy": "Ban Giám Hiệu",
     "ttcmDate": "",
-    "ttcmEvaluatorDepartment": "Tổ Văn phòng",
+    "ttcmEvaluatorDepartment": "Ban Giám hiệu",
     "evaluatorName": "Nguyễn Quang Sáng",
     "leaderComment": "",
     "periodName": "Tháng 9/2026",
@@ -33803,12 +33809,12 @@
     "hasTtcmEval": true,
     "employeeId": "t1792151918417_r0q0m1",
     "updatedAt": "2026-10-03T07:52:20.555Z",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_4l9424",
     "ttcmTotalScore": null,
     "leaderSignName": "Nguyễn Quang Sáng",
     "selfComment": "",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Quang Sáng",
     "maxTotalScore": 100,
     "managerGroupScores": {},
     "bghComment": "",
@@ -35152,7 +35158,10 @@
           "isActive": true
         }
       ]
-    }
+    },
+    "ttcmEvaluatorId": "t1792151918417_jhnv8l",
+    "ttcmEvaluatorRole": "Tổ trưởng",
+    "ttcmEvaluatorDepartment": "Tổ Văn-Sử-Địa-GDKT&PL-AN"
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_slg36z",
@@ -35161,7 +35170,7 @@
       "group_II": 14.5,
       "group_III": 59.5
     },
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmStatus": "evaluated",
     "ttcmEvaluatorDepartment": "Tổ Toán-Lý-Tin-CN",
     "bghEvaluatorName": "Nguyễn Quang Sang",
@@ -37083,7 +37092,10 @@
           "isActive": true
         }
       ]
-    }
+    },
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
+    "ttcmEvaluatorRole": "Tổ trưởng",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN"
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_sujt2b",
@@ -37988,7 +38000,7 @@
     "totalScore": 89.5,
     "employeeCode": "GV37",
     "evaluatorName": "Nguyễn Quang Sang",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "bghEvaluatedAt": null,
     "maxTotalScore": 100,
     "ttcmGroupScores": {
@@ -38969,7 +38981,7 @@
     "ttcmEvaluatedAt": "2026-10-21T08:08:11.567Z",
     "maxTotalScore": 100,
     "bghEvaluatedAt": null,
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "groupScores": {
       "group_I": 14.5,
       "group_II": 13,
@@ -39989,7 +40001,7 @@
     "selfSignName": "",
     "employeeUsername": "gv31",
     "maxTotalScore": 100,
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "employeeCode": "GV31",
     "hasBghEval": true,
     "totalScore": 88.5,
@@ -40009,7 +40021,7 @@
     "id": "vc_vc_period_2026_09_t1792151918417_vrh066",
     "bghEvaluatorRole": "Hiệu trưởng",
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "leaderDate": "",
     "updatedBy": "Ban Giám Hiệu",
     "status": "self_evaluated",
@@ -40540,7 +40552,7 @@
     "employeeUsername": "gv05",
     "leaderSignName": "Nguyễn Quang Sáng",
     "position": "Giáo viên",
-    "ttcmEvaluatorDepartment": "Tổ Hóa-Lý-Sinh-GDQPAN-NN",
+    "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "employeeName": "Ngọc Hải Đường",
     "ttcmDate": "",
     "evaluatorName": "Nguyễn Quang Sáng",
@@ -40553,7 +40565,7 @@
     "totalScore": 100,
     "hasBghEval": true,
     "managerGeneralComment": "",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Nguyễn Trung Kiên",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
     "managerGroupScores": {},
     "createdAt": "2026-10-03T07:52:22.511Z",
@@ -40940,7 +40952,7 @@
     "ttcmClassification": "",
     "employeeId": "t1792151918417_vrh066",
     "bghDate": "",
-    "ttcmEvaluatorId": "peftj3gu0"
+    "ttcmEvaluatorId": "t1792151918417_8odnav"
   },
   {
     "_docId": "vc_vc_period_2026_09_t1792151918417_wi6jqz",
@@ -41455,7 +41467,7 @@
     "bghStatus": "pending",
     "bghComment": "",
     "bghEvaluatedAt": null,
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "status": "submitted",
     "selfComment": "",
     "ttcmGroupScores": {
@@ -42335,7 +42347,7 @@
     "ttcmTotalScore": null,
     "selfClassification": "Hoàn thành tốt nhiệm vụ",
     "ttcmClassification": "",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "department": "Tổ Toán-Lý-Tin-CN",
     "academicYear": "2026-2027",
     "managerGeneralComment": "",
@@ -42854,7 +42866,7 @@
     "bghDate": "",
     "bghEvaluatorRole": "Hiệu trưởng",
     "ttcmComment": "",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_l39r3d",
     "employeeAvatar": null,
     "leaderDate": ""
   },
@@ -43442,7 +43454,7 @@
     "ttcmClassification": "Hoàn thành tốt nhiệm vụ",
     "evaluatorName": "Nguyễn Quang Sang",
     "employeeUsername": "gv38",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "hasBghEval": true,
     "totalScore": 92,
     "selfComment": "",
@@ -43855,7 +43867,7 @@
     "evaluatorRole": "Hiệu trưởng",
     "managerEvaluatedAt": null,
     "leaderClassification": "Hoàn thành tốt nhiệm vụ",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "bghEvaluatedAt": null,
     "lockedAt": null,
     "bghTotalScore": null,
@@ -45423,7 +45435,7 @@
     "updatedAt": "2026-10-21T00:55:40.724Z",
     "leaderDate": "21/10/2026",
     "employeeUsername": "gv12",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmEvaluatorDepartment": "Tổ Hóa-Sinh-GDTC-QPAN-NN",
     "ttcmGroupScores": {
       "group_II": 0,
@@ -45837,7 +45849,7 @@
       "group_II": 15,
       "group_III": 70
     },
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmStatus": "pending",
     "ttcmEvaluatorDepartment": "Tổ Toán-Lý-Tin-CN",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
@@ -46248,7 +46260,7 @@
     "createdAt": "2026-10-03T07:52:18.566Z",
     "managerTotalScore": null,
     "employeeCode": "GV29",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_l39r3d",
     "status": "self_evaluated",
     "totalScore": 100,
     "hasBghEval": true,
@@ -47190,7 +47202,7 @@
     "selfComment": "",
     "selfClassification": "Chưa tự đánh giá",
     "ttcmClassification": "Hoàn thành tốt nhiệm vụ",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "department": "Tổ Toán-Lý-Tin-CN",
     "academicYear": "2026-2027",
     "managerGeneralComment": "",
@@ -47754,7 +47766,7 @@
     "ttcmStatus": "pending",
     "id": "vc_vc_period_2026_09_t1792151918417_zm55ol",
     "position": "Giáo viên",
-    "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
+    "ttcmEvaluatorRole": "Tổ trưởng",
     "ttcmGroupScores": {},
     "createdBy": "Ban Giám Hiệu",
     "ttcmDate": "",
@@ -48288,12 +48300,12 @@
     "hasTtcmEval": true,
     "employeeId": "t1792151918417_zm55ol",
     "updatedAt": "2026-10-03T07:52:28.803Z",
-    "ttcmEvaluatorId": "peftj3gu0",
+    "ttcmEvaluatorId": "t1792151918417_jhnv8l",
     "ttcmTotalScore": null,
     "leaderSignName": "Nguyễn Quang Sáng",
     "selfComment": "",
     "bghEvaluatorName": "Nguyễn Quang Sáng",
-    "ttcmEvaluatorName": "Hà Thị Thu Hương",
+    "ttcmEvaluatorName": "Đặng Xuân Thành",
     "maxTotalScore": 100,
     "managerGroupScores": {},
     "bghComment": "",

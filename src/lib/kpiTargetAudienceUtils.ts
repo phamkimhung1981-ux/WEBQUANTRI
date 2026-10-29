@@ -2108,15 +2108,15 @@ export function findTtcmForDepartment(
   // 1. Tìm department object
   const dept = departments.find(d => d.id === deptId || d.name === deptId);
 
-  // 1.1 Kiểm tra headId của department (Ưu tiên số 1 theo ID người dùng)
+  // 1.1 Kiểm tra headId của department (phải thực sự là TTCM và không phải BGH)
   if (dept && dept.headId) {
     const head = teachers.find(t => t.id === dept.headId && !isExcludedCbqlEvaluator(t));
-    if (head) return head;
+    if (head && isTeacherTtcm(head, departments) && !isTeacherBgh(head)) return head;
   }
 
   // 2. Tìm nhân sự là TTCM trong cùng departmentId (Khớp ID phòng ban và vai trò TTCM)
   const ttcmInDept = teachers.find(t => {
-    if (isExcludedCbqlEvaluator(t)) return false;
+    if (isExcludedCbqlEvaluator(t) || isTeacherBgh(t)) return false;
     const isSameDeptId = t.departmentId === deptId || (dept && t.departmentId === dept.id);
     return isSameDeptId && isTeacherTtcm(t, departments);
   });

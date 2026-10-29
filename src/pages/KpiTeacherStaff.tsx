@@ -88,6 +88,7 @@ import KpiVcRatingConfigModal from '../components/kpiVc/KpiVcRatingConfigModal';
 import KpiVcPrintModal from '../components/kpiVc/KpiVcPrintModal';
 import { exportVcSummaryToExcel } from '../utils/kpiVcExport';
 import { exportVcFormToWord } from '../utils/kpiWordExport';
+import { isTeacherTtcm, isTeacherBgh } from '../lib/kpiTargetAudienceUtils';
 
 export default function KpiTeacherStaff() {
   const navigate = useNavigate();
@@ -1174,9 +1175,31 @@ export default function KpiTeacherStaff() {
             const classStyle = ratingInfo.badgeStyle;
             const isSelected = selectedFormIds.includes(form.id);
 
-            const isMyForm = user?.id === form.employeeId;
+            const isMyForm = user?.id === form.employeeId || (user as any)?.code === form.employeeCode;
             const canSelfScore = isMyForm && (!effStatus || effStatus === 'draft' || effStatus === 'returned') && !isLocked;
-            const canTtcmScore = (user?.role === 'TTCM' || user?.role === 'admin' || isAdmin) && (effStatus === 'submitted' || effStatus === 'self_evaluated') && !isLocked;
+
+            const isTtcmUser = isAdmin || 
+              isTeacherTtcm(user, departments) || 
+              String(user?.role || '').toUpperCase() === 'TTCM' || 
+              String((user as any)?.accountRole || '').toUpperCase() === 'TTCM' || 
+              (user?.position || '').toLowerCase().includes('tổ trưởng') ||
+              form.ttcmEvaluatorId === user?.id;
+
+            const canTtcmScore = isTtcmUser && 
+              (effStatus === 'submitted' || effStatus === 'self_evaluated' || effStatus === 'pending_evaluator' || effStatus === 'evaluating') && 
+              !isLocked;
+
+            const isBghUser = isAdmin || 
+              isTeacherBgh(user) || 
+              String(user?.role || '').toUpperCase() === 'BGH' || 
+              String(user?.role || '').toUpperCase() === 'CBQL' || 
+              (user?.position || '').toLowerCase().includes('hiệu trưởng') ||
+              form.bghEvaluatorId === user?.id || 
+              form.evaluatorId === user?.id;
+
+            const canBghScore = isBghUser && 
+              (effStatus === 'ttcm_evaluated' || effStatus === 'pending_bgh' || effStatus === 'bgh_evaluating' || effStatus === 'submitted') && 
+              !isLocked;
 
             const sttStickyClass = showAdminCheckbox ? 'left-10' : 'left-0';
             const nameStickyClass = showAdminCheckbox ? 'left-[88px]' : 'left-12';
@@ -1354,6 +1377,18 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
+                    {/* Nút Chấm BGH */}
+                    {canBghScore && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoc(form, 'leader_eval')}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
+                        title="Ban Giám hiệu đánh giá & phê duyệt"
+                      >
+                        <Award size={12} /> Chấm BGH
+                      </button>
+                    )}
+
                     {/* Xem chi tiết */}
                     <button
                       type="button"
@@ -1365,7 +1400,7 @@ export default function KpiTeacherStaff() {
                     </button>
 
                     {/* Chỉnh sửa */}
-                    {(!isLocked || isAdmin) && !canSelfScore && !canTtcmScore && (
+                    {(!isLocked || isAdmin) && !canSelfScore && !canTtcmScore && !canBghScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'edit')}
