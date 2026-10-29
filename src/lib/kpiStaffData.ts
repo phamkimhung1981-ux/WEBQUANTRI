@@ -513,7 +513,7 @@ export const createInitialStaffForm = (
     category: 'A_CHUNG',
     content: c.content,
     maxScore: c.maxScore,
-    selfScore: null as any,
+    selfScore: 0,
     evidence: ''
   }));
 
@@ -523,12 +523,12 @@ export const createInitialStaffForm = (
     category: 'B_VI_TRI',
     content: c.content,
     maxScore: c.maxScore,
-    selfScore: null as any,
+    selfScore: 0,
     evidence: ''
   }));
 
-  const genSelf = generalItems.reduce((acc, curr) => acc + (curr.selfScore !== null && curr.selfScore !== undefined ? Number(curr.selfScore) || 0 : 0), 0);
-  const posSelf = positionItems.reduce((acc, curr) => acc + (curr.selfScore !== null && curr.selfScore !== undefined ? Number(curr.selfScore) || 0 : 0), 0);
+  const genSelf = 0;
+  const posSelf = 0;
 
   return {
     id: `form_staff_${staff.id}_${period.id}`,
@@ -551,7 +551,7 @@ export const createInitialStaffForm = (
     generalTotalSelf: genSelf,
     positionTotalSelf: posSelf,
     totalScore: genSelf + posSelf,
-    selfClassification: getClassificationByScore(genSelf + posSelf),
+    selfClassification: 'Chưa tự đánh giá',
     selfDate: new Date().toISOString().split('T')[0],
     status: 'draft',
     createdAt: new Date().toISOString(),
@@ -564,7 +564,8 @@ export const getClassificationByScore = (score: number): string => {
   if (score >= 90) return 'Hoàn thành xuất sắc nhiệm vụ';
   if (score >= 80) return 'Hoàn thành tốt nhiệm vụ';
   if (score >= 70) return 'Hoàn thành nhiệm vụ';
-  return 'Chưa hoàn thành nhiệm vụ';
+  if (score > 0) return 'Chưa hoàn thành nhiệm vụ';
+  return 'Chưa tự đánh giá';
 };
 
 /**

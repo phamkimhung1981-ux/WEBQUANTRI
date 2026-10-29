@@ -19,7 +19,8 @@ import {
   DEFAULT_STAFF_GROUPS, 
   DEFAULT_STAFF_CRITERIA, 
   DEFAULT_STAFF_PERIODS,
-  DEFAULT_STAFF_FALLBACK_FORMS
+  DEFAULT_STAFF_FALLBACK_FORMS,
+  getClassificationByScore
 } from '../lib/kpiStaffData';
 import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
 
@@ -72,22 +73,89 @@ export const deduplicateStaffForms = (forms: KpiStaffForm[]): KpiStaffForm[] => 
   return Array.from(map.values());
 };
 
+export const sanitizeStaffForm = (form: KpiStaffForm): KpiStaffForm => {
+  if (!form) return form;
+
+  const isLocked = form.status === 'locked' || form.status === 'completed';
+  const hasNoManagerEval = form.managerTotalScore === undefined || form.managerTotalScore === null;
+  const hasNoTtcmEval = form.ttcmTotalScore === undefined || form.ttcmTotalScore === null;
+
+  // Check if general items are all equal to maxScore (5, 5, 4, 4, 4, 4, 4)
+  const allGeneralMax = (form.generalItems || []).length > 0 &&
+    form.generalItems.every(item => item.selfScore !== null && item.selfScore !== undefined && Number(item.selfScore) === Number(item.maxScore));
+
+  // Check if position items are all equal to maxScore
+  const allPosMax = (form.positionItems || []).length > 0 &&
+    form.positionItems.every(item => item.selfScore !== null && item.selfScore !== undefined && Number(item.selfScore) === Number(item.maxScore));
+
+  const isLegacyFullDefault =
+    (allGeneralMax && allPosMax) ||
+    (form.generalTotalSelf === 30 && form.positionTotalSelf === 70) ||
+    ((allGeneralMax || form.generalTotalSelf === 30) && form.totalScore === 100);
+
+  // If this form has legacy full default max scores and was never locked/evaluated by BGH:
+  if (!isLocked && (isLegacyFullDefault || (form.totalScore === 100 && hasNoManagerEval && hasNoTtcmEval) || (allGeneralMax && hasNoManagerEval && hasNoTtcmEval))) {
+    const cleanedGeneral = (form.generalItems || []).map(item => ({
+      ...item,
+      selfScore: 0
+    }));
+    const cleanedPos = (form.positionItems || []).map(item => ({
+      ...item,
+      selfScore: 0
+    }));
+    return {
+      ...form,
+      generalItems: cleanedGeneral,
+      positionItems: cleanedPos,
+      generalTotalSelf: 0,
+      positionTotalSelf: 0,
+      totalScore: (form.managerTotalScore ?? form.ttcmTotalScore ?? 0),
+      selfClassification: 'Chưa tự đánh giá',
+      status: 'draft'
+    };
+  }
+
+  // Ensure any item with null or undefined selfScore is normalized to 0
+  const normalizedGeneral = (form.generalItems || []).map(item => ({
+    ...item,
+    selfScore: item.selfScore === null || item.selfScore === undefined ? 0 : Number(item.selfScore) || 0
+  }));
+  const normalizedPos = (form.positionItems || []).map(item => ({
+    ...item,
+    selfScore: item.selfScore === null || item.selfScore === undefined ? 0 : Number(item.selfScore) || 0
+  }));
+
+  const genSelf = normalizedGeneral.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
+  const posSelf = normalizedPos.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
+  const total = genSelf + posSelf;
+
+  return {
+    ...form,
+    generalItems: normalizedGeneral,
+    positionItems: normalizedPos,
+    generalTotalSelf: genSelf,
+    positionTotalSelf: posSelf,
+    totalScore: (form.managerTotalScore ?? form.ttcmTotalScore ?? total),
+    selfClassification: total > 0 ? getClassificationByScore(total) : 'Chưa tự đánh giá'
+  };
+};
+
 export const loadStaffFormsFromCache = (): KpiStaffForm[] => {
   try {
     const raw = localStorage.getItem(STAFF_FORMS_CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return deduplicateStaffForms(parsed);
+      return deduplicateStaffForms(parsed.map(sanitizeStaffForm));
     }
   } catch {
     // Ignore read error
   }
-  return DEFAULT_STAFF_FALLBACK_FORMS;
+  return DEFAULT_STAFF_FALLBACK_FORMS.map(sanitizeStaffForm);
 };
 
 export const saveStaffFormsToCache = (forms: KpiStaffForm[]) => {
   try {
-    const uniqueForms = deduplicateStaffForms(forms);
+    const uniqueForms = deduplicateStaffForms(forms.map(sanitizeStaffForm));
     safeLocalStorageSet(STAFF_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
   } catch (err) {
     console.error('Failed saving staff forms to localStorage cache:', err);
@@ -106,10 +174,15 @@ export const subscribeStaffForms = (callback: (forms: KpiStaffForm[]) => void) =
     return onSnapshot(colRef, (snapshot) => {
       const formsList: KpiStaffForm[] = [];
       snapshot.forEach(docSnap => {
-        formsList.push(docSnap.data() as KpiStaffForm);
+        const raw = docSnap.data() as KpiStaffForm;
+        const sanitized = sanitizeStaffForm(raw);
+        formsList.push(sanitized);
+        if (raw.totalScore === 100 && sanitized.totalScore === 0) {
+          saveStaffFormToFirestore(sanitized).catch(() => {});
+        }
       });
       const combined = formsList.length > 0 ? formsList : DEFAULT_STAFF_FALLBACK_FORMS;
-      const uniqueForms = deduplicateStaffForms(combined);
+      const uniqueForms = deduplicateStaffForms(combined.map(sanitizeStaffForm));
       saveStaffFormsToCache(uniqueForms);
       callback(uniqueForms);
     }, (err) => {

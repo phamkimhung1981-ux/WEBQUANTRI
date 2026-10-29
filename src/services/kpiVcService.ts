@@ -251,8 +251,12 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       return;
     }
 
-    // Ưu tiên chọn phiếu có dữ liệu chấm thực tế đầy đủ nhất làm phiếu chính
+    // Ưu tiên chọn phiếu được cập nhật mới nhất (updatedAt / createdAt) làm phiếu chính
     const sorted = [...matched].sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+
       const aTtcm = (a.ttcmTotalScore !== null && a.ttcmTotalScore !== undefined) ? 1 : 0;
       const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
       if (bTtcm !== aTtcm) return bTtcm - aTtcm;
@@ -261,46 +265,16 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       const bManager = (b.managerTotalScore !== null && b.managerTotalScore !== undefined) ? 1 : 0;
       if (bManager !== aManager) return bManager - aManager;
 
-      const aHasSelf = (a.items && a.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) ? 1 : 0;
-      const bHasSelf = (b.items && b.items.some(i => i.selfScore !== null && i.selfScore !== undefined)) ? 1 : 0;
-      if (bHasSelf !== aHasSelf) return bHasSelf - aHasSelf;
-
       const wA = getStatusWeight(a.status);
       const wB = getStatusWeight(b.status);
       if (wB !== wA) return wB - wA;
 
-      const aScore = getFormTotalScore(a);
-      const bScore = getFormTotalScore(b);
-      if (bScore !== aScore) return bScore - aScore;
-
-      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      return (b.totalScore || 0) - (a.totalScore || 0);
     });
 
     const primary: KpiVcForm = { ...sorted[0] };
 
-    // Khôi phục đối chiếu: Nếu phiếu chính bị rỗng (0 điểm, chưa chấm) nhưng bản chuẩn có điểm thật đã lưu trước đó
-    const primaryHasScore = primary.totalScore > 0 || (primary.items && primary.items.some(i => i.selfScore !== null && Number(i.selfScore) > 0));
-    if (!primaryHasScore && fallback && fallback.totalScore > 0) {
-      primary.items = fallback.items;
-      primary.totalScore = fallback.totalScore;
-      primary.groupScores = fallback.groupScores;
-      primary.selfClassification = fallback.selfClassification;
-      primary.selfDate = fallback.selfDate;
-      primary.selfSignName = fallback.selfSignName;
-      if (fallback.status && fallback.status !== 'draft') {
-        primary.status = fallback.status;
-      }
-      if (fallback.ttcmTotalScore) {
-        primary.ttcmTotalScore = fallback.ttcmTotalScore;
-        primary.ttcmGroupScores = fallback.ttcmGroupScores;
-      }
-      if (fallback.managerTotalScore) {
-        primary.managerTotalScore = fallback.managerTotalScore;
-        primary.managerGroupScores = fallback.managerGroupScores;
-      }
-    }
-
-    // Hợp nhất dữ liệu từ tất cả các phiếu phụ của giáo viên (không ghi đè điểm đã có)
+    // Hợp nhất dữ liệu từ các phiếu phụ của cùng giáo viên (bổ sung điểm nếu phiếu chính thiếu)
     const sourcesToMerge = [...sorted.slice(1)];
     for (const sec of sourcesToMerge) {
       if (sec.items && primary.items) {
@@ -319,17 +293,13 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
           };
         });
       }
-      if (!primary.ttcmTotalScore && sec.ttcmTotalScore) {
+      if ((primary.ttcmTotalScore === null || primary.ttcmTotalScore === undefined) && sec.ttcmTotalScore !== null && sec.ttcmTotalScore !== undefined) {
         primary.ttcmTotalScore = sec.ttcmTotalScore;
         primary.ttcmGroupScores = sec.ttcmGroupScores;
       }
-      if (!primary.managerTotalScore && sec.managerTotalScore) {
+      if ((primary.managerTotalScore === null || primary.managerTotalScore === undefined) && sec.managerTotalScore !== null && sec.managerTotalScore !== undefined) {
         primary.managerTotalScore = sec.managerTotalScore;
         primary.managerGroupScores = sec.managerGroupScores;
-      }
-      if ((!primary.totalScore || primary.totalScore === 0) && (sec.totalScore || 0) > 0) {
-        primary.totalScore = sec.totalScore;
-        primary.groupScores = sec.groupScores;
       }
       if (getStatusWeight(sec.status) > getStatusWeight(primary.status)) {
         primary.status = sec.status;
@@ -339,10 +309,8 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     // Tính toán lại tổng điểm nhất quán từ items
     if (primary.items && primary.items.length > 0) {
       const selfCalc = calculateVcTotals(primary.items);
-      if (primary.totalScore === undefined || primary.totalScore === null || (primary.totalScore === 0 && selfCalc.totalScore > 0)) {
-        primary.totalScore = selfCalc.totalScore;
-        primary.groupScores = selfCalc.groupScores;
-      }
+      primary.totalScore = selfCalc.totalScore;
+      primary.groupScores = selfCalc.groupScores;
 
       if (primary.items.some(i => i.ttcmScore !== null && i.ttcmScore !== undefined)) {
         const ttcmCalc = calculateVcTtcmTotals(primary.items);
@@ -356,7 +324,7 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       }
     }
 
-    // Giữ nguyên document ID hiện có của phiếu trong Firestore để đảm bảo updateDoc ghi đúng document
+    // Giữ nguyên document ID hiện có của phiếu
     if (!primary.id) {
       primary.id = `vc_period_2026_09_${t.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     }
@@ -379,9 +347,9 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     if (groupKey.startsWith('vc_period_2026_09__')) continue;
     if (matched.length > 0) {
       const sortedOther = [...matched].sort((a, b) => {
-        const wA = getStatusWeight(a.status);
-        const wB = getStatusWeight(b.status);
-        if (wB !== wA) return wB - wA;
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
         return (b.totalScore || 0) - (a.totalScore || 0);
       });
       result.push(sortedOther[0]);
@@ -445,15 +413,33 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
       firestoreList.push(data);
     });
 
-    // Firestore là nguồn dữ liệu chuẩn mực duy nhất (Server-Authoritative)
     let finalList: KpiVcForm[] = firestoreList;
     if (finalList.length === 0) {
       const currentCached = getVcFormsCache();
       finalList = currentCached && currentCached.length > 0 ? currentCached : CANONICAL_51_VC_FORMS;
+    } else {
+      // Kết hợp cache bộ nhớ cục bộ nếu có bản ghi vừa lưu chưa kịp đồng bộ snap
+      const currentCached = getVcFormsCache();
+      const firestoreMap = new Map(firestoreList.map(f => [f.id, f]));
+      currentCached.forEach(cForm => {
+        if (!firestoreMap.has(cForm.id)) {
+          finalList.push(cForm);
+        } else {
+          const fForm = firestoreMap.get(cForm.id)!;
+          const localTime = new Date(cForm.updatedAt || 0).getTime();
+          const firestoreTime = new Date(fForm.updatedAt || 0).getTime();
+          if (localTime > firestoreTime) {
+            const idx = finalList.findIndex(f => f.id === cForm.id);
+            if (idx >= 0) {
+              finalList[idx] = cForm;
+            }
+          }
+        }
+      });
     }
 
     finalList = deduplicateVcForms(finalList);
-    finalList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    finalList.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
 
     saveVcFormsCache(finalList);
     callback(finalList);

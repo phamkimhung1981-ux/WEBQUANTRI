@@ -512,10 +512,14 @@ export default function KpiStaff() {
 
                       <td className="p-4">
                         <span className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold border inline-block ${
-                          finalScore >= 90
+                          finalScore === 0 || finalClassification === 'Chưa tự đánh giá'
+                            ? 'bg-slate-100 text-slate-600 border-slate-300'
+                            : finalScore >= 90
                             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                             : finalScore >= 80
                             ? 'bg-teal-50 text-teal-800 border-teal-200'
+                            : finalScore >= 70
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
                             : finalScore >= 50
                             ? 'bg-amber-50 text-amber-800 border-amber-200'
                             : 'bg-rose-50 text-rose-800 border-rose-200'

@@ -913,17 +913,17 @@ export const calculateVcSelfTotals = calculateVcTotals;
  */
 export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolean => {
   if (!form) return false;
-  const s = form.status;
+  const statusStr = String(form.status || '');
   // Các trạng thái đã thực sự gửi chấm hoặc cấp trên đánh giá
-  if (s === 'submitted' || s === 'ttcm_evaluated' || s === 'completed' || s === 'locked' || s === 'self_evaluated') {
+  if (['submitted', 'ttcm_evaluated', 'completed', 'locked', 'self_evaluated', 'evaluating', 'self_assessed', 'pending_evaluator'].includes(statusStr)) {
     return true;
   }
-  // Nếu có điểm tự chấm > 0 và khác 100 mặc định
-  if (typeof form.totalScore === 'number' && form.totalScore > 0 && form.totalScore < 100) {
+  // Nếu có điểm tự chấm hợp lệ >= 0
+  if (typeof form.totalScore === 'number' && !isNaN(form.totalScore) && form.totalScore > 0) {
     return true;
   }
-  // Nếu có ít nhất 1 tiêu chí có điểm tự chấm
-  if (form.items && form.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null)) {
+  // Nếu có ít nhất 1 tiêu chí có điểm tự chấm (kể cả 0 điểm)
+  if (form.items && form.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null && !isNaN(i.selfScore))) {
     return true;
   }
   return false;
@@ -931,20 +931,11 @@ export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolea
 
 export const getFormTotalScore = (form: KpiVcForm): number => {
   if (!form) return 0;
-  // Phiếu có điểm 100 mặc định cũ luôn trả về 0 điểm
-  if (form.totalScore === 100) {
-    return 0;
-  }
-  // Nếu chưa có kết quả chấm hợp lệ, điểm hiển thị là 0
-  if (!hasFormBeenEvaluated(form)) {
-    return 0;
-  }
-  if (form.totalScore !== null && form.totalScore !== undefined && form.totalScore >= 0 && form.totalScore < 100) {
+  if (typeof form.totalScore === 'number' && !isNaN(form.totalScore)) {
     return form.totalScore;
   }
   if (form.items && form.items.length > 0) {
     const calc = calculateVcTotals(form.items);
-    if (calc.totalScore === 100) return 0;
     return calc.totalScore;
   }
   return 0;
@@ -953,13 +944,13 @@ export const getFormTotalScore = (form: KpiVcForm): number => {
 export const getFormTtcmTotalScore = (form: KpiVcForm): number | null => {
   if (!form) return null;
   // Bảo toàn nguyên vẹn điểm TTCM nếu đã có đánh giá
-  if (form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined) {
+  if (typeof form.ttcmTotalScore === 'number' && !isNaN(form.ttcmTotalScore)) {
     return form.ttcmTotalScore;
   }
   if (form.status === 'ttcm_evaluated' || form.status === 'completed' || form.status === 'locked' || form.ttcmStatus === 'evaluated') {
     if (form.items && form.items.length > 0) {
       const calc = calculateVcTtcmTotals(form.items);
-      if (calc.ttcmTotalScore > 0) return calc.ttcmTotalScore;
+      return calc.ttcmTotalScore;
     }
   }
   return null;
@@ -968,13 +959,13 @@ export const getFormTtcmTotalScore = (form: KpiVcForm): number | null => {
 export const getFormManagerTotalScore = (form: KpiVcForm): number | null => {
   if (!form) return null;
   // Bảo toàn nguyên vẹn điểm BGH nếu đã có đánh giá
-  if (form.managerTotalScore !== null && form.managerTotalScore !== undefined) {
+  if (typeof form.managerTotalScore === 'number' && !isNaN(form.managerTotalScore)) {
     return form.managerTotalScore;
   }
   if (form.status === 'completed' || form.status === 'locked' || form.bghStatus === 'evaluated') {
     if (form.items && form.items.length > 0) {
       const calc = calculateVcManagerTotals(form.items);
-      if (calc.managerTotalScore > 0) return calc.managerTotalScore;
+      return calc.managerTotalScore;
     }
   }
   return null;

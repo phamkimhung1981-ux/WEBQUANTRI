@@ -2019,7 +2019,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         kpiEvaluationForms: prev.kpiEvaluationForms.map(f => f.id === id ? { ...f, ...updateData } : f)
       }));
-      await updateDoc(doc(db, 'kpi_evaluation_forms', id), sanitize(updateData));
+      await setDoc(doc(db, 'kpi_evaluation_forms', id), sanitize(updateData), { merge: true });
     } catch (e) { handleDbError(e); throw e; }
   };
 

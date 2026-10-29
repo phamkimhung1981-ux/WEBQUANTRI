@@ -14,7 +14,12 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  // Cloud Run and container health check endpoints
+  app.get(['/health', '/healthz', '/ping'], (req, res) => {
+    res.status(200).send('OK');
+  });
 
   // Middleware for JSON body parser with increased limit for base64 images
   app.use(express.json({ limit: '50mb' }));
@@ -472,8 +477,8 @@ Chỉ trả về JSON theo schema.`
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

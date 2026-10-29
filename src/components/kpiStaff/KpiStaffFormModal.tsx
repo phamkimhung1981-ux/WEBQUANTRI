@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { KpiStaffForm, KpiStaffScoreItem, StaffPositionKey } from '../../types/kpiStaff';
 import { POSITION_CONFIGS, getClassificationByScore } from '../../lib/kpiStaffData';
+import { sanitizeStaffForm } from '../../services/kpiStaffService';
 import { 
   FileCheck, Award, Save, Send, Lock, Printer, X, MessageSquare, AlertCircle, Sparkles 
 } from 'lucide-react';
@@ -25,7 +26,8 @@ export default function KpiStaffFormModal({
 
   useEffect(() => {
     if (form) {
-      setFormData(JSON.parse(JSON.stringify(form)));
+      const sanitized = sanitizeStaffForm(form);
+      setFormData(JSON.parse(JSON.stringify(sanitized)));
       setSaveSuccessMsg('');
     }
   }, [form]);
@@ -45,7 +47,7 @@ export default function KpiStaffFormModal({
       category: 'B_VI_TRI',
       content: c.content,
       maxScore: c.maxScore,
-      selfScore: null as any,
+      selfScore: 0,
       ttcmScore: null as any,
       managerScore: null as any,
       evidence: ''
@@ -55,7 +57,7 @@ export default function KpiStaffFormModal({
     const posTtcm = newPositionItems.reduce((acc, curr) => acc + (typeof curr.ttcmScore === 'number' ? curr.ttcmScore : 0), 0);
     const posMgr = newPositionItems.reduce((acc, curr) => acc + (typeof curr.managerScore === 'number' ? curr.managerScore : 0), 0);
 
-    const newTotalScore = formData.generalTotalSelf + posSelf;
+    const newTotalScore = (formData.generalTotalSelf || 0) + posSelf;
     const newTtcmTotal = (formData.generalTotalTtcm || 0) + posTtcm;
     const newMgrTotal = (formData.generalTotalManager || 0) + posMgr;
 
@@ -70,30 +72,29 @@ export default function KpiStaffFormModal({
       totalScore: newTotalScore,
       ttcmTotalScore: newTtcmTotal,
       managerTotalScore: newMgrTotal,
-      selfClassification: getClassificationByScore(newTotalScore),
+      selfClassification: newTotalScore > 0 ? getClassificationByScore(newTotalScore) : 'Chưa tự đánh giá',
       ttcmClassification: getClassificationByScore(newTtcmTotal),
       leaderClassification: getClassificationByScore(newMgrTotal)
     });
   };
 
-  const handleGeneralScoreChange = (index: number, score: number | null) => {
+  const handleGeneralScoreChange = (index: number, score: number) => {
     if (isLocked) return;
     const items = [...formData.generalItems];
     const max = items[index].maxScore;
-    items[index].selfScore = score === null ? (null as any) : Math.min(max, Math.max(0, score));
+    items[index].selfScore = Math.min(max, Math.max(0, score || 0));
 
     const genTotal = items.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
     const newTotal = genTotal + (formData.positionTotalSelf || 0);
 
-    const hasAny = items.some(i => typeof i.selfScore === 'number') || formData.positionItems.some(i => typeof i.selfScore === 'number');
-    const allAssessed = items.every(i => typeof i.selfScore === 'number') && formData.positionItems.every(i => typeof i.selfScore === 'number');
+    const hasAny = genTotal > 0 || (formData.positionTotalSelf || 0) > 0;
 
     setFormData({
       ...formData,
       generalItems: items,
       generalTotalSelf: genTotal,
       totalScore: newTotal,
-      selfClassification: allAssessed ? getClassificationByScore(newTotal) : (hasAny ? 'Chưa hoàn thành tự đánh giá' : 'Chưa tự đánh giá')
+      selfClassification: hasAny ? getClassificationByScore(newTotal) : 'Chưa tự đánh giá'
     });
   };
 
@@ -134,24 +135,23 @@ export default function KpiStaffFormModal({
     });
   };
 
-  const handlePositionScoreChange = (index: number, score: number | null) => {
+  const handlePositionScoreChange = (index: number, score: number) => {
     if (isLocked) return;
     const items = [...formData.positionItems];
     const max = items[index].maxScore;
-    items[index].selfScore = score === null ? (null as any) : Math.min(max, Math.max(0, score));
+    items[index].selfScore = Math.min(max, Math.max(0, score || 0));
 
     const posTotal = items.reduce((acc, curr) => acc + (typeof curr.selfScore === 'number' ? curr.selfScore : 0), 0);
     const newTotal = (formData.generalTotalSelf || 0) + posTotal;
 
-    const hasAny = formData.generalItems.some(i => typeof i.selfScore === 'number') || items.some(i => typeof i.selfScore === 'number');
-    const allAssessed = formData.generalItems.every(i => typeof i.selfScore === 'number') && items.every(i => typeof i.selfScore === 'number');
+    const hasAny = (formData.generalTotalSelf || 0) > 0 || posTotal > 0;
 
     setFormData({
       ...formData,
       positionItems: items,
       positionTotalSelf: posTotal,
       totalScore: newTotal,
-      selfClassification: allAssessed ? getClassificationByScore(newTotal) : (hasAny ? 'Chưa hoàn thành tự đánh giá' : 'Chưa tự đánh giá')
+      selfClassification: hasAny ? getClassificationByScore(newTotal) : 'Chưa tự đánh giá'
     });
   };
 
@@ -339,12 +339,12 @@ export default function KpiStaffFormModal({
                         min="0"
                         max={item.maxScore}
                         disabled={isLocked}
-                        value={item.selfScore ?? ''}
+                        value={item.selfScore !== null && item.selfScore !== undefined ? item.selfScore : 0}
                         onChange={e => {
                           const v = e.target.value;
-                          handleGeneralScoreChange(idx, v === '' ? null : (parseFloat(v) || 0));
+                          handleGeneralScoreChange(idx, v === '' ? 0 : (parseFloat(v) || 0));
                         }}
-                        placeholder="---"
+                        placeholder="0"
                         className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       />
                     </td>
@@ -435,12 +435,12 @@ export default function KpiStaffFormModal({
                         min="0"
                         max={item.maxScore}
                         disabled={isLocked}
-                        value={item.selfScore ?? ''}
+                        value={item.selfScore !== null && item.selfScore !== undefined ? item.selfScore : 0}
                         onChange={e => {
                           const v = e.target.value;
-                          handlePositionScoreChange(idx, v === '' ? null : (parseFloat(v) || 0));
+                          handlePositionScoreChange(idx, v === '' ? 0 : (parseFloat(v) || 0));
                         }}
-                        placeholder="---"
+                        placeholder="0"
                         className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-teal-900 focus:ring-2 focus:ring-teal-500 focus:outline-none"
                       />
                     </td>
