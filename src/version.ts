@@ -6,7 +6,7 @@ export interface SystemRelease {
   changes: string[];
 }
 
-export const CURRENT_SYSTEM_VERSION = 'v1.3.4';
+export const CURRENT_SYSTEM_VERSION = 'v1.3.5';
 export const LAST_UPDATED = '2026-10-29';
 
 export const SYSTEM_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -14,6 +14,25 @@ export const SYSTEM_COMMIT_SHA = typeof __COMMIT_SHA__ !== 'undefined' ? __COMMI
 export const SYSTEM_ENV = typeof __APP_ENV__ !== 'undefined' ? __APP_ENV__ : 'development';
 
 export const RELEASE_HISTORY: SystemRelease[] = [
+  {
+    version: 'v1.3.5',
+    releaseDate: '2026-10-29',
+    title: 'Đồng bộ hóa toàn diện dữ liệu từ Google AI Studio sang Website Xuất bản',
+    modulesModified: [
+      'src/services/kpiVcService.ts',
+      'src/services/kpiStaffService.ts',
+      'src/store/AppContext.tsx',
+      'src/pages/KpiTeacherStaff.tsx',
+      'src/version.ts'
+    ],
+    changes: [
+      'Sửa lỗi xuất web không cập nhật dữ liệu từ Google AI Studio: Nâng cấp thuật toán deduplicateVcForms ưu tiên tuyệt đối các phiếu có điểm chấm thực tế (> 0) từ dữ liệu chuẩn AI Studio, ngăn chặn các tài liệu trống hoặc lỗi hạn ngạch (quota exceeded) từ máy chủ ghi đè thành 0 điểm.',
+      'Khắc phục triệt để lỗi xóa nhầm điểm 100 trong sanitizeStaffForm, bảo toàn 100% điểm tự chấm xuất sắc của các cán bộ giáo viên (như cô Trần Xuân Quỳnh, cô Hà Thị Dáng Thương,...).',
+      'Tích hợp cơ chế tự động đồng bộ (Auto-Sync) 51 phiếu KPI chuẩn ngay khi ứng dụng khởi chạy trên mọi môi trường (Xuất web, Vercel, Localhost, trình duyệt mới).',
+      'Bổ sung nút hành động "🔄 Đồng bộ dữ liệu từ Google Studio" tại thanh công cụ trang KPI Giáo viên giúp người dùng chủ động nạp lại toàn bộ dữ liệu chỉ với 1 click.',
+      'Bộ nhớ đệm thông minh v6 (kpi_vc_forms_cache_v6_canonical_sync) kiểm tra ngưỡng tin cậy >= 40 phiếu có điểm, loại bỏ hoàn toàn tình trạng hiển thị 0/100 hoặc "Chưa chấm" khi mở trang.'
+    ]
+  },
   {
     version: 'v1.3.4',
     releaseDate: '2026-10-29',

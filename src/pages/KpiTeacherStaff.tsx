@@ -61,7 +61,9 @@ import {
   bulkDeleteVcForms,
   toggleLockVcForm,
   resetFormsWith100Points,
-  Reset100BatchResult
+  Reset100BatchResult,
+  syncCanonicalVcDataToStorageAndFirestore,
+  getVcFormsCache
 } from '../services/kpiVcService';
 import { 
   getEligibleVcTeachers,
@@ -138,6 +140,7 @@ export default function KpiTeacherStaff() {
   const [isResetting100, setIsResetting100] = useState<boolean>(false);
   const [reset100Result, setReset100Result] = useState<Reset100BatchResult | null>(null);
   const [reset100Error, setReset100Error] = useState<string | null>(null);
+  const [isSyncingCanonical, setIsSyncingCanonical] = useState<boolean>(false);
 
   // Firestore Data State
   const [forms, setForms] = useState<KpiVcForm[]>([]);
@@ -196,6 +199,22 @@ export default function KpiTeacherStaff() {
       alert('Lỗi xuất file Word: ' + (err instanceof Error ? err.message : 'Không xác định'));
     } finally {
       setExportingWordId(null);
+    }
+  };
+
+  const handleSyncCanonicalData = async () => {
+    setIsSyncingCanonical(true);
+    try {
+      const res = await syncCanonicalVcDataToStorageAndFirestore(true);
+      const freshForms = getVcFormsCache();
+      setForms(freshForms);
+      setNotificationMessage(res.message || 'Đã đồng bộ thành công toàn bộ 51 phiếu KPI có điểm từ Google AI Studio.');
+      setTimeout(() => setNotificationMessage(null), 5000);
+    } catch (err: any) {
+      setNotificationMessage('Lỗi đồng bộ dữ liệu: ' + (err?.message || 'Không xác định'));
+      setTimeout(() => setNotificationMessage(null), 5000);
+    } finally {
+      setIsSyncingCanonical(false);
     }
   };
 
@@ -832,11 +851,23 @@ export default function KpiTeacherStaff() {
             </button>
           )}
 
+          {/* Đồng bộ dữ liệu chuẩn từ Google Studio */}
+          <button
+            type="button"
+            disabled={isSyncingCanonical}
+            onClick={handleSyncCanonicalData}
+            title="Đồng bộ lại toàn bộ điểm đã chấm và trạng thái 51 phiếu KPI từ môi trường Google AI Studio"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md disabled:opacity-50 ml-auto"
+          >
+            <RefreshCw size={15} className={isSyncingCanonical ? 'animate-spin' : ''} />
+            {isSyncingCanonical ? 'Đang đồng bộ...' : 'Đồng bộ dữ liệu từ Google Studio'}
+          </button>
+
           {/* Xuất Excel */}
           <button
             type="button"
             onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear, ratingConfigs)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md ml-auto"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md"
           >
             <FileSpreadsheet size={15} /> Xuất Excel tổng hợp
           </button>

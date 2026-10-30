@@ -93,27 +93,7 @@ export const sanitizeStaffForm = (form: KpiStaffForm): KpiStaffForm => {
     (form.generalTotalSelf === 30 && form.positionTotalSelf === 70) ||
     ((allGeneralMax || form.generalTotalSelf === 30) && form.totalScore === 100);
 
-  // If this form has legacy full default max scores and was never locked/evaluated by BGH:
-  if (!isLocked && (isLegacyFullDefault || (form.totalScore === 100 && hasNoManagerEval && hasNoTtcmEval) || (allGeneralMax && hasNoManagerEval && hasNoTtcmEval))) {
-    const cleanedGeneral = (form.generalItems || []).map(item => ({
-      ...item,
-      selfScore: 0
-    }));
-    const cleanedPos = (form.positionItems || []).map(item => ({
-      ...item,
-      selfScore: 0
-    }));
-    return {
-      ...form,
-      generalItems: cleanedGeneral,
-      positionItems: cleanedPos,
-      generalTotalSelf: 0,
-      positionTotalSelf: 0,
-      totalScore: (form.managerTotalScore ?? form.ttcmTotalScore ?? 0),
-      selfClassification: 'Chưa tự đánh giá',
-      status: 'draft'
-    };
-  }
+  // Bảo toàn 100% điểm số đã đánh giá, tuyệt đối không tự ý đưa điểm 100 về 0
 
   // Ensure any item with null or undefined selfScore is normalized to 0
   const normalizedGeneral = (form.generalItems || []).map(item => ({

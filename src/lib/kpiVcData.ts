@@ -918,12 +918,22 @@ export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolea
   if (['submitted', 'ttcm_evaluated', 'completed', 'locked', 'self_evaluated', 'evaluating', 'self_assessed', 'pending_evaluator'].includes(statusStr)) {
     return true;
   }
+  if (form.submittedAt) {
+    return true;
+  }
+  // Nếu status là draft hoặc rỗng, kiểm tra xem có phải tất cả các item đều mang giá trị maxScore (template mặc định) hay không
+  if (!statusStr || statusStr === 'draft') {
+    const isAllMaxScore = form.items && form.items.length > 0 && form.items.every(i => i.selfScore !== null && i.selfScore !== undefined && Number(i.selfScore) === Number(i.maxScore));
+    if (isAllMaxScore) {
+      return false;
+    }
+  }
   // Nếu có điểm tự chấm hợp lệ >= 0
-  if (typeof form.totalScore === 'number' && !isNaN(form.totalScore) && form.totalScore > 0) {
+  if (typeof form.totalScore === 'number' && !isNaN(form.totalScore) && form.totalScore > 0 && form.totalScore < 100) {
     return true;
   }
   // Nếu có ít nhất 1 tiêu chí có điểm tự chấm (kể cả 0 điểm)
-  if (form.items && form.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null && !isNaN(i.selfScore))) {
+  if (form.items && form.items.some(i => typeof i.selfScore === 'number' && i.selfScore !== null && !isNaN(i.selfScore) && Number(i.selfScore) > 0)) {
     return true;
   }
   return false;
@@ -931,6 +941,15 @@ export const hasFormBeenEvaluated = (form: KpiVcForm | null | undefined): boolea
 
 export const getFormTotalScore = (form: KpiVcForm): number => {
   if (!form) return 0;
+  const statusStr = String(form.status || 'draft');
+  if ((statusStr === 'draft' || !form.status) && !form.submittedAt) {
+    const isAllMaxScore = form.items && form.items.length > 0 && form.items.every(i => i.selfScore !== null && i.selfScore !== undefined && Number(i.selfScore) === Number(i.maxScore));
+    if (isAllMaxScore || form.totalScore === 100) {
+      if (!hasFormBeenEvaluated(form)) {
+        return 0;
+      }
+    }
+  }
   if (typeof form.totalScore === 'number' && !isNaN(form.totalScore)) {
     return form.totalScore;
   }

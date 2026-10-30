@@ -10,6 +10,7 @@ import { OFFICIAL_SCHOOL_TASKS_2026_2027 } from '../utils/sampleSchoolTasks';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc } from 'firebase/firestore';
+import { syncCanonicalVcDataToStorageAndFirestore } from '../services/kpiVcService';
 
 interface AppState {
   teachers: Teacher[];
@@ -306,8 +307,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     error: null,
   });
 
-  // Staff KPI subscription
+  // Staff KPI subscription & Auto-sync canonical data from Google AI Studio
   useEffect(() => {
+    // Tự động đồng bộ 51 phiếu KPI có điểm từ Google AI Studio trên mọi môi trường
+    syncCanonicalVcDataToStorageAndFirestore(false).catch(err => {
+      console.warn('Auto sync VC data notice:', err);
+    });
+
     const unsub = subscribeStaffForms((forms) => {
       setState(prev => ({ ...prev, kpiStaffForms: forms }));
     });
