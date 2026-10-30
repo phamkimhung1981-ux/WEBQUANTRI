@@ -10,7 +10,7 @@ export const CANONICAL_51_VC_FORMS: KpiVcForm[] = [
     "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
     "leaderDate": "23/10/2026",
     "updatedBy": "Ban Giám Hiệu",
-    "status": "draft",
+    "status": "submitted",
     "employeeAvatar": null,
     "leaderClassification": "Hoàn thành tốt nhiệm vụ",
     "items": [
@@ -962,7 +962,8 @@ export const CANONICAL_51_VC_FORMS: KpiVcForm[] = [
     "ttcmClassification": "Hoàn thành tốt nhiệm vụ",
     "employeeId": "t1792151918417_0ua1gu",
     "bghDate": "23/10/2026",
-    "ttcmEvaluatorId": "t1792151918417_8odnav"
+    "ttcmEvaluatorId": "t1792151918417_8odnav",
+    "submittedAt": "2026-10-23T14:14:09.000Z"
   },
   {
     "id": "vc_vc_period_2026_09_t1792151918417_1wvns3",
@@ -2851,7 +2852,7 @@ export const CANONICAL_51_VC_FORMS: KpiVcForm[] = [
     "ttcmEvaluatorRole": "Tổ trưởng chuyên môn",
     "updatedBy": "Ban Giám Hiệu",
     "leaderDate": "23/10/2026",
-    "status": "draft",
+    "status": "submitted",
     "employeeAvatar": null,
     "leaderClassification": "Hoàn thành tốt nhiệm vụ",
     "items": [
@@ -7618,7 +7619,7 @@ export const CANONICAL_51_VC_FORMS: KpiVcForm[] = [
     "submittedAt": "2026-10-29T10:00:00.000Z",
     "ttcmEvaluatorName": "Nguyễn Quang Sáng",
     "evaluatorName": "Nguyễn Quang Sáng",
-    "ttcmStatus": "evaluating"
+    "ttcmStatus": "pending"
   },
   {
     "id": "vc_vc_period_2026_09_t1792151918417_5pago1",
@@ -19299,7 +19300,7 @@ export const CANONICAL_51_VC_FORMS: KpiVcForm[] = [
     "selfEvaluatedAt": "2026-10-19T11:17:55.283Z",
     "academicYear": "2026-2027",
     "periodId": "vc_period_2026_09",
-    "status": "draft",
+    "status": "submitted",
     "selfDate": "19/10/2026",
     "totalScore": 89.5,
     "hasBghEval": true,

@@ -158,7 +158,7 @@ const hasTeacherActuallyEvaluated = (form: KpiVcForm): boolean => {
 };
 
 // Local Storage Cache Helpers - Use authoritative versioned cache v6
-export const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache_v6_canonical_sync';
+export const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache_v7_workflow_unlocked';
 
 // Tự động dọn dẹp các cache cũ có nguy cơ chứa điểm rỗng hoặc không đồng bộ
 if (typeof window !== 'undefined' && window.localStorage) {
@@ -169,6 +169,7 @@ if (typeof window !== 'undefined' && window.localStorage) {
       'kpi_vc_forms_cache_v3',
       'kpi_vc_forms_cache_v4',
       'kpi_vc_forms_cache_v5_authoritative',
+      'kpi_vc_forms_cache_v6_canonical_sync',
       'kpi_vc_forms_backup_100_reset'
     ].forEach(k => {
       localStorage.removeItem(k);

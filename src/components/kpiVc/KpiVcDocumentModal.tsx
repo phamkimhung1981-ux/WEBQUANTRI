@@ -32,7 +32,9 @@ import {
   ArrowRight,
   CornerDownLeft,
   ShieldAlert,
-  Check
+  Check,
+  Copy,
+  Edit3
 } from 'lucide-react';
 import { 
   KpiVcForm, 
@@ -541,6 +543,18 @@ export default function KpiVcDocumentModal({
     }
   }, [isOpen, selectedTeacherId, selectedEvaluatorId, eligibleEvaluatorsResult, recommendedEvaluators, allCbqlEvaluators, teachers]);
 
+  // Đồng bộ vai trò mô phỏng theo chế độ mở (mode) hoặc theo tiến trình
+  useEffect(() => {
+    if (!isOpen) return;
+    if (mode === 'ttcm_eval') {
+      setSimulatedRole('TTCM');
+    } else if (mode === 'leader_eval') {
+      setSimulatedRole('BGH');
+    } else if (mode === 'self_eval') {
+      setSimulatedRole('TEACHER');
+    }
+  }, [isOpen, mode]);
+
   // --- HANDLERS FOR MULTI-SELECT (CREATE MODE) ---
   const getTeachersInDept = (deptId: string) => {
     const dept = departments.find(d => d.id === deptId);
@@ -960,13 +974,18 @@ export default function KpiVcDocumentModal({
   const effectiveRole = useMemo<'TEACHER' | 'TTCM' | 'BGH' | 'ADMIN'>(() => {
     if (simulatedRole !== 'AUTO') return simulatedRole;
     if (isAdmin) return 'ADMIN';
-    if (isOwnerOfThisForm && isDraftOrReturned) return 'TEACHER';
-    if (isSubmittedToTtcm && isTtcmForThisForm) return 'TTCM';
-    if (isEvaluatedByTtcm && isBghForThisForm) return 'BGH';
+    if (mode === 'ttcm_eval') return 'TTCM';
+    if (mode === 'leader_eval') return 'BGH';
+    if (mode === 'self_eval') return 'TEACHER';
+    // Ở chế độ Tự động: Tự động nhận diện vai trò phù hợp với bước tiến trình hiện thời của phiếu
+    if (isSubmittedToTtcm) return 'TTCM';
+    if (isEvaluatedByTtcm) return 'BGH';
+    if (isDraftOrReturned) return 'TEACHER';
+    if (isCompleted || isLocked) return 'ADMIN';
     if (isBghForThisForm) return 'BGH';
     if (isTtcmForThisForm) return 'TTCM';
     return 'TEACHER';
-  }, [simulatedRole, isAdmin, isBghForThisForm, isTtcmForThisForm, isOwnerOfThisForm, isDraftOrReturned, isSubmittedToTtcm, isEvaluatedByTtcm]);
+  }, [simulatedRole, isAdmin, mode, isSubmittedToTtcm, isEvaluatedByTtcm, isDraftOrReturned, isCompleted, isLocked, isBghForThisForm, isTtcmForThisForm]);
 
   // Kiểm tra hoàn thành tự chấm: tất cả tiêu chí đều phải có điểm tự chấm hợp lệ (kể cả 0 điểm)
   const missingSelfCriteria = useMemo(() => {
@@ -983,43 +1002,62 @@ export default function KpiVcDocumentModal({
   const isTtcmComplete = missingTtcmCriteria.length === 0;
 
   // RÀNG BUỘC THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ (TÁCH BIỆT KHÓA RIÊNG TỪNG CẤP):
-  // (1) Giáo viên tự chấm điểm và gửi phiếu
-  const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && 
-    (effectiveRole === 'TEACHER' || effectiveRole === 'ADMIN' || mode === 'self_eval' || isOwnerOfThisForm || isAdmin || simulatedRole === 'TEACHER' || simulatedRole === 'ADMIN');
-
-  // (2) TTCM đánh giá sau khi giáo viên gửi phiếu tự chấm
-  // Cho phép chỉnh sửa khi phiếu ở bước 2 và người dùng có thẩm quyền TTCM/Admin hoặc chọn vai trò TTCM/Admin
-  const canEditTtcm = !isLocked && !isCompleted && (
-    (isSubmittedToTtcm && (effectiveRole === 'TTCM' || effectiveRole === 'ADMIN' || isTtcmForThisForm || isAdmin || mode === 'ttcm_eval')) ||
-    ((simulatedRole === 'TTCM' || simulatedRole === 'ADMIN') && !isCompleted) ||
-    (mode === 'ttcm_eval' && !isCompleted)
+  // (1) Giáo viên tự chấm điểm và gửi phiếu: Chỉ mở ở bước 1 (draft/returned)
+  const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && (
+    effectiveRole === 'TEACHER' ||
+    effectiveRole === 'ADMIN' ||
+    mode === 'self_eval' ||
+    mode === 'edit' ||
+    isOwnerOfThisForm ||
+    isAdmin ||
+    simulatedRole === 'TEACHER' ||
+    simulatedRole === 'ADMIN'
   );
 
-  // (3) BGH chấm và phê duyệt sau khi phiếu được gửi lên BGH (hoặc sau khi GV tự chấm nếu BGH đánh giá trực tiếp)
+  // (2) TTCM đánh giá: Mở khi phiếu đã được giáo viên gửi (isSubmittedToTtcm) hoặc đang ở bước 2 và TTCM chưa chốt gửi BGH
+  const canEditTtcm = !isLocked && !isCompleted && !isEvaluatedByTtcm && (
+    mode === 'ttcm_eval' ||
+    mode === 'edit' ||
+    simulatedRole === 'TTCM' ||
+    simulatedRole === 'ADMIN' ||
+    effectiveRole === 'TTCM' ||
+    effectiveRole === 'ADMIN' ||
+    isAdmin ||
+    isTtcmForThisForm ||
+    isSubmittedToTtcm
+  );
+
+  // (3) BGH chấm và phê duyệt: Mở khi TTCM đã hoàn thành hoặc ở bước BGH
   const canEditManager = !isLocked && !isCompleted && (
-    ((isEvaluatedByTtcm || isSubmittedToTtcm) && (effectiveRole === 'BGH' || effectiveRole === 'ADMIN' || isBghForThisForm || isAdmin || mode === 'leader_eval')) ||
-    ((simulatedRole === 'BGH' || simulatedRole === 'ADMIN') && !isCompleted) ||
-    (mode === 'leader_eval' && !isCompleted)
+    mode === 'leader_eval' ||
+    mode === 'edit' ||
+    simulatedRole === 'BGH' ||
+    simulatedRole === 'ADMIN' ||
+    effectiveRole === 'BGH' ||
+    effectiveRole === 'ADMIN' ||
+    isAdmin ||
+    isBghForThisForm ||
+    (isEvaluatedByTtcm && simulatedRole === 'AUTO')
   );
 
   // Lý do khóa cấp TTCM
   const lockReasonTtcm = useMemo(() => {
-    if (canEditTtcm) return '';
-    if (isDraftOrReturned) return 'Khóa: Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm';
-    if (isEvaluatedByTtcm) return 'Đã khóa: TTCM đã hoàn tất và gửi kết quả lên BGH';
-    if (isCompleted) return 'Đã khóa: Phiếu đánh giá đã hoàn thành chốt kết quả';
-    if (isLocked) return 'Đã khóa: Phiếu đang bị khóa bảo mật';
-    return 'Khóa: Cần quyền Tổ trưởng chuyên môn (hoặc chọn vai trò TTCM trên thanh trên cùng)';
+    if (canEditTtcm) return 'Cấp 2: Tổ trưởng chuyên môn đang thực hiện đánh giá';
+    if (isDraftOrReturned) return 'Chờ giáo viên hoàn thành và gửi phiếu tự chấm';
+    if (isEvaluatedByTtcm) return 'TTCM đã hoàn tất đánh giá và gửi kết quả lên BGH';
+    if (isCompleted) return 'Phiếu đánh giá đã hoàn thành chốt kết quả';
+    if (isLocked) return 'Phiếu đang bị khóa bảo mật';
+    return '';
   }, [canEditTtcm, isDraftOrReturned, isEvaluatedByTtcm, isCompleted, isLocked]);
 
   // Lý do khóa cấp BGH
   const lockReasonManager = useMemo(() => {
-    if (canEditManager) return '';
-    if (isDraftOrReturned) return 'Khóa: Đang chờ giáo viên gửi phiếu tự chấm';
-    if (isSubmittedToTtcm && !isEvaluatedByTtcm) return 'Khóa: Đang chờ TTCM hoàn thành, xác nhận và gửi kết quả';
-    if (isCompleted) return 'Đã khóa: Ban Giám hiệu đã phê duyệt hoàn tất';
-    if (isLocked) return 'Đã khóa: Phiếu đang bị khóa bảo mật';
-    return 'Khóa: Cần quyền Ban Giám hiệu (hoặc chọn vai trò BGH trên thanh trên cùng)';
+    if (canEditManager) return 'Cấp 3: Ban Giám hiệu đang thực hiện đánh giá & phê duyệt';
+    if (isDraftOrReturned) return 'Chờ giáo viên gửi phiếu tự chấm';
+    if (isSubmittedToTtcm && !isEvaluatedByTtcm) return 'Chờ TTCM hoàn thành, xác nhận và gửi kết quả';
+    if (isCompleted) return 'Ban Giám hiệu đã phê duyệt hoàn tất';
+    if (isLocked) return 'Phiếu đang bị khóa bảo mật';
+    return '';
   }, [canEditManager, isDraftOrReturned, isSubmittedToTtcm, isEvaluatedByTtcm, isCompleted, isLocked]);
 
   const canChangeEvaluator = useMemo(() => {
@@ -2722,7 +2760,7 @@ export default function KpiVcDocumentModal({
                     }`}>
                       <div>Tự chấm</div>
                       <div className="text-[10px] font-bold text-blue-700">
-                        (Cấp 1) {!canEditSelf && '🔒'}
+                        (Cấp 1) {!isDraftOrReturned ? '✓ Đã gửi' : (canEditSelf ? '✏️ Đang chấm' : '⏳ Chờ chấm')}
                       </div>
                     </th>
 
@@ -2737,7 +2775,7 @@ export default function KpiVcDocumentModal({
                     >
                       <div>TTCM đánh giá</div>
                       <div className="text-[10px] font-bold text-purple-700">
-                        (Cấp 2) {!canEditTtcm && '🔒'}
+                        (Cấp 2) {isLocked ? '🔒 Đã khóa' : (isEvaluatedByTtcm || isCompleted ? '🔒 Đã chốt' : (canEditTtcm ? '✏️ Đang chấm' : (isDraftOrReturned ? '⏳ Chờ GV gửi' : '⏳ Chờ chấm')))}
                       </div>
                     </th>
 
@@ -2752,7 +2790,7 @@ export default function KpiVcDocumentModal({
                     >
                       <div>CBQL đánh giá</div>
                       <div className="text-[10px] font-bold text-amber-700">
-                        (Cấp 3) {!canEditManager && '🔒'}
+                        (Cấp 3) {isLocked ? '🔒 Đã khóa' : (isCompleted ? '🔒 Đã duyệt' : (canEditManager ? '✏️ Đang chấm' : '⏳ Chờ cấp trước'))}
                       </div>
                     </th>
 
@@ -2930,8 +2968,8 @@ export default function KpiVcDocumentModal({
                                     />
                                   </div>
                                 ) : isDraftOrReturned ? (
-                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title="Khóa: Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm">
-                                    <Lock size={11} className="text-slate-300 shrink-0" /> ---
+                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title="Đang chờ giáo viên hoàn thành và gửi phiếu tự chấm">
+                                    ⏳ Chờ GV
                                   </span>
                                 ) : (
                                   <span className="font-bold text-purple-950 font-mono">
@@ -2966,8 +3004,8 @@ export default function KpiVcDocumentModal({
                                     />
                                   </div>
                                 ) : (isDraftOrReturned || isSubmittedToTtcm) ? (
-                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title={isDraftOrReturned ? "Khóa: Đang chờ giáo viên gửi phiếu tự chấm" : "Khóa: Đang chờ TTCM hoàn thành và gửi kết quả"}>
-                                    <Lock size={11} className="text-slate-300 shrink-0" /> ---
+                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title={isDraftOrReturned ? "Đang chờ giáo viên gửi phiếu tự chấm" : "Đang chờ TTCM hoàn thành và gửi kết quả"}>
+                                    {isDraftOrReturned ? '⏳ Chờ GV' : '⏳ Chờ TTCM'}
                                   </span>
                                 ) : (
                                   <span className="font-bold text-amber-950 font-mono">
@@ -3468,6 +3506,16 @@ export default function KpiVcDocumentModal({
                     <button
                       type="button"
                       disabled={isSubmitting}
+                      onClick={handleCopySelfScoresToTtcm}
+                      className="px-3.5 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Sao chép toàn bộ điểm giáo viên tự chấm sang cột TTCM để chấm nhanh"
+                    >
+                      <Copy size={15} /> Sao chép điểm tự chấm
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
                       onClick={handleSaveTtcmDraft}
                       className="px-4 py-2.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                       title="Lưu tạm điểm TTCM, phiếu vẫn ở trạng thái Chờ TTCM"
@@ -3486,9 +3534,19 @@ export default function KpiVcDocumentModal({
                     </button>
                   </>
                 ) : (
-                  <span className="text-xs text-purple-800 font-medium bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200">
-                    📨 Đã gửi phiếu tự chấm. Đang chờ Tổ trưởng chuyên môn đánh giá.
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-purple-800 font-medium bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200">
+                      📨 Đã gửi phiếu tự chấm. Đang chờ Tổ trưởng chuyên môn đánh giá.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSimulatedRole('TTCM')}
+                      className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Chuyển sang vai trò TTCM để chấm điểm phiếu này"
+                    >
+                      <Edit3 size={14} /> Chấm TTCM ngay
+                    </button>
+                  </div>
                 )}
               </>
             )}

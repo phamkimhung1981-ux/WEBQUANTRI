@@ -1216,9 +1216,14 @@ export default function KpiTeacherStaff() {
               (user?.position || '').toLowerCase().includes('tổ trưởng') ||
               form.ttcmEvaluatorId === user?.id;
 
-            const canTtcmScore = isTtcmUser && 
-              (effStatus === 'submitted' || effStatus === 'self_evaluated' || effStatus === 'pending_evaluator' || effStatus === 'evaluating') && 
-              !isLocked;
+            const canTtcmScore = !isLocked && effStatus !== 'completed' && effStatus !== 'locked' && (
+              effStatus === 'submitted' || 
+              effStatus === 'self_evaluated' || 
+              effStatus === 'pending_evaluator' || 
+              effStatus === 'evaluating' ||
+              isTtcmUser ||
+              isAdmin
+            );
 
             const isBghUser = isAdmin || 
               isTeacherBgh(user) || 
@@ -1228,9 +1233,12 @@ export default function KpiTeacherStaff() {
               form.bghEvaluatorId === user?.id || 
               form.evaluatorId === user?.id;
 
-            const canBghScore = isBghUser && 
-              (effStatus === 'ttcm_evaluated' || effStatus === 'pending_bgh' || effStatus === 'bgh_evaluating' || effStatus === 'submitted') && 
-              !isLocked;
+            const canBghScore = !isLocked && effStatus !== 'locked' && (
+              effStatus === 'ttcm_evaluated' || 
+              effStatus === 'pending_bgh' || 
+              effStatus === 'bgh_evaluating' ||
+              ((isBghUser || isAdmin) && effStatus !== 'completed')
+            );
 
             const sttStickyClass = showAdminCheckbox ? 'left-10' : 'left-0';
             const nameStickyClass = showAdminCheckbox ? 'left-[88px]' : 'left-12';
