@@ -538,6 +538,7 @@ export const accountService = {
 
       await setDoc(doc(db, ACCOUNTS_COLLECTION, accId), {
         password: hashedNew,
+        plainPassword: newPassTrim,
         updatedAt: now
       }, { merge: true });
 
@@ -546,6 +547,7 @@ export const accountService = {
           await setDoc(doc(db, 'teachers', accId), {
             accountPassword: hashedNew,
             password: hashedNew,
+            plainPassword: newPassTrim,
             accountUpdatedAt: now
           }, { merge: true });
         } catch (e) {}
