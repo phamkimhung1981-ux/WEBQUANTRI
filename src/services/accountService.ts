@@ -141,10 +141,25 @@ export const accountService = {
         const customMap = getStoredUserCustomPermissions();
         const accounts = snap.docs.map((d: any) => {
           const acc = { id: d.id, ...d.data() } as AccountRecord;
-          const customPerm = customMap[acc.id?.toLowerCase()] || (acc.username ? customMap[acc.username.toLowerCase()] : null);
-          if (customPerm) {
+          const uId = acc.id?.toLowerCase().trim();
+          const uName = acc.username ? acc.username.toLowerCase().trim() : '';
+          const uCode = acc.teacherCode ? acc.teacherCode.toLowerCase().trim() : '';
+
+          const customPerm = 
+            acc.customPermissions ||
+            (uId && customMap[uId]) || 
+            (uName && customMap[uName]) || 
+            (uCode && customMap[uCode]) ||
+            null;
+
+          const hasCustom = !!(acc.hasCustomPermissions || (customPerm && Object.keys(customPerm).length > 0));
+
+          if (hasCustom && customPerm) {
             acc.hasCustomPermissions = true;
             acc.customPermissions = customPerm;
+            if (uId) setStoredUserCustomPermissions(uId, customPerm);
+            if (uName) setStoredUserCustomPermissions(uName, customPerm);
+            if (uCode) setStoredUserCustomPermissions(uCode, customPerm);
           }
           return acc;
         });
@@ -167,6 +182,7 @@ export const accountService = {
 
       // Initialize default accounts list
       const initialAccounts: AccountRecord[] = [];
+      const customMap = getStoredUserCustomPermissions();
 
       // 1. Admin account
       const adminAccount: AccountRecord = {
@@ -188,23 +204,36 @@ export const accountService = {
 
       // 2. Generate accounts for all teachers
       for (const t of teachersList) {
-        const username = t.username || t.code?.toLowerCase() || `gv_${t.id.slice(0, 6)}`;
+        const username = (t.username || t.code?.toLowerCase() || `gv_${t.id.slice(0, 6)}`).toLowerCase().trim();
         const roleGroup = detectRoleGroupByPosition(t.position, t.departmentId);
         const status: AccountStatus = t.accountStatus === 'Đã khóa' ? 'Đã khóa' : 'Đang hoạt động';
         
+        const tId = t.id?.toLowerCase().trim();
+        const tCode = t.code ? t.code.toLowerCase().trim() : '';
+
+        const customPerm = 
+          (t as any).customPermissions ||
+          (tId && customMap[tId]) ||
+          (username && customMap[username]) ||
+          (tCode && customMap[tCode]) ||
+          null;
+
+        const hasCustom = !!((t as any).hasCustomPermissions || (customPerm && Object.keys(customPerm).length > 0));
+
         const account: AccountRecord = {
           id: t.id,
           teacherId: t.id,
           teacherCode: t.code,
           fullName: t.name,
-          username: username.toLowerCase().trim(),
+          username: username,
           password: t.accountPassword || t.password || '123456',
           position: t.position || 'Giáo viên',
           departmentId: t.departmentId,
           departmentName: t.departmentName,
           roleGroup: roleGroup,
           status: status,
-          hasCustomPermissions: false,
+          hasCustomPermissions: hasCustom,
+          customPermissions: hasCustom ? customPerm : undefined,
           createdAt: t.joinDate || '2026-10-16T00:00:00.000Z',
           updatedAt: new Date().toISOString(),
           email: t.email,
@@ -679,51 +708,96 @@ export const accountService = {
   async saveUserPermissions(
     id: string,
     permissions: Partial<ModulePermissionsMap>,
-    performedBy: string
+    performedBy: string,
+    extraInfo?: { username?: string; teacherCode?: string; fullName?: string }
   ): Promise<void> {
     if (!id || typeof id !== 'string') {
       throw new Error('ID tài khoản không hợp lệ.');
     }
     const now = new Date().toISOString();
 
-    // 0. Instant local persistence (0ms)
-    setStoredUserCustomPermissions(id, permissions);
-
-    // 1. Fetch current account info for logging and sync (with timeout)
-    let targetName = id;
-    let targetUser = id;
+    let targetName = extraInfo?.fullName || id;
+    let targetUser = extraInfo?.username ? extraInfo.username.toLowerCase().trim() : '';
+    let teacherCode = extraInfo?.teacherCode ? extraInfo.teacherCode.toLowerCase().trim() : '';
     let teacherId = id;
-    try {
-      const getAccPromise = getDoc(doc(db, ACCOUNTS_COLLECTION, id));
-      const timeoutGet = new Promise<null>(res => setTimeout(() => res(null), 1000));
-      const accDoc: any = await Promise.race([getAccPromise, timeoutGet]);
-      if (accDoc && accDoc.exists && accDoc.exists()) {
-        const d = accDoc.data();
-        if (d.fullName) targetName = d.fullName;
-        if (d.username) {
-          targetUser = d.username;
-          setStoredUserCustomPermissions(d.username, permissions);
+
+    // 0. Instant local persistence (0ms) under all known identifiers
+    setStoredUserCustomPermissions(id, permissions);
+    if (targetUser) setStoredUserCustomPermissions(targetUser, permissions);
+    if (teacherCode) setStoredUserCustomPermissions(teacherCode, permissions);
+
+    // 1. Fetch current account info for logging and sync if not provided (with timeout)
+    if (!targetUser) {
+      try {
+        const getAccPromise = getDoc(doc(db, ACCOUNTS_COLLECTION, id));
+        const timeoutGet = new Promise<null>(res => setTimeout(() => res(null), 1000));
+        const accDoc: any = await Promise.race([getAccPromise, timeoutGet]);
+        if (accDoc && accDoc.exists && accDoc.exists()) {
+          const d = accDoc.data();
+          if (d.fullName) targetName = d.fullName;
+          if (d.username) {
+            targetUser = d.username.toLowerCase().trim();
+            setStoredUserCustomPermissions(d.username, permissions);
+          }
+          if (d.teacherCode) {
+            teacherCode = d.teacherCode.toLowerCase().trim();
+            setStoredUserCustomPermissions(d.teacherCode, permissions);
+          }
+          if (d.teacherId) teacherId = d.teacherId;
         }
-        if (d.teacherId) teacherId = d.teacherId;
+      } catch (e) {
+        console.warn('Could not read existing account doc:', e);
       }
-    } catch (e) {
-      console.warn('Could not read existing account doc:', e);
     }
 
-    // 2. Update localStorage if the active logged-in user is this account
+    // 2. Update active logged-in user in sessionStorage & localStorage if it matches
     try {
-      const stored = localStorage.getItem('authUser');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.id === id || parsed.username === targetUser || parsed.id === teacherId) {
-          parsed.hasCustomPermissions = true;
-          parsed.customPermissions = permissions;
-          localStorage.setItem('authUser', JSON.stringify(parsed));
+      ['sessionStorage', 'localStorage'].forEach(storageType => {
+        const storage = storageType === 'sessionStorage' ? sessionStorage : localStorage;
+        const stored = storage.getItem('authUser');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const pId = parsed.id?.toLowerCase();
+          const pUser = parsed.username?.toLowerCase();
+          const pCode = parsed.teacherCode?.toLowerCase();
+          if (
+            pId === id.toLowerCase() || 
+            (targetUser && pUser === targetUser) || 
+            (teacherCode && pCode === teacherCode) ||
+            pId === teacherId.toLowerCase()
+          ) {
+            parsed.hasCustomPermissions = true;
+            parsed.customPermissions = permissions;
+            storage.setItem('authUser', JSON.stringify(parsed));
+          }
         }
+      });
+    } catch (e) {}
+
+    // 3. Update cached_user_accounts in localStorage
+    try {
+      const cached = localStorage.getItem('cached_user_accounts');
+      if (cached) {
+        const list = JSON.parse(cached);
+        const updated = list.map((a: any) => {
+          if (
+            a.id === id || 
+            (targetUser && a.username?.toLowerCase() === targetUser) || 
+            a.id === teacherId
+          ) {
+            return {
+              ...a,
+              hasCustomPermissions: true,
+              customPermissions: permissions
+            };
+          }
+          return a;
+        });
+        localStorage.setItem('cached_user_accounts', JSON.stringify(updated));
       }
     } catch (e) {}
 
-    // 3. Persist to Firestore with non-blocking timeout race (1200ms)
+    // 4. Persist to Firestore with non-blocking timeout race (1200ms)
     const firestoreSyncPromise = (async () => {
       try {
         await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
@@ -732,19 +806,26 @@ export const accountService = {
           updatedAt: now
         }, { merge: true });
 
-        const tId = teacherId || id;
-        const tDoc = await getDoc(doc(db, 'teachers', tId));
-        if (tDoc.exists()) {
-          await setDoc(doc(db, 'teachers', tId), {
-            hasCustomPermissions: true,
-            customPermissions: permissions,
-            accountUpdatedAt: now
-          }, { merge: true });
+        if (targetUser && targetUser !== id) {
+          try {
+            await setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
+              hasCustomPermissions: true,
+              customPermissions: permissions,
+              updatedAt: now
+            }, { merge: true });
+          } catch (e) {}
         }
+
+        const tId = teacherId || id;
+        await setDoc(doc(db, 'teachers', tId), {
+          hasCustomPermissions: true,
+          customPermissions: permissions,
+          accountUpdatedAt: now
+        }, { merge: true });
 
         await this.addAuditLog({
           action: 'UPDATE_PERMISSIONS',
-          targetUsername: targetUser,
+          targetUsername: targetUser || id,
           targetFullName: targetName,
           performedBy,
           details: `Thiết lập ma trận phân quyền tùy biến riêng (18 modules)`
@@ -761,27 +842,40 @@ export const accountService = {
   /**
    * Reset user's custom permissions back to standard role group defaults
    */
-  async resetUserPermissionsToRoleGroup(id: string, performedBy: string): Promise<void> {
+  async resetUserPermissionsToRoleGroup(
+    id: string, 
+    performedBy: string,
+    extraInfo?: { username?: string; teacherCode?: string; fullName?: string }
+  ): Promise<void> {
     if (!id) throw new Error('ID tài khoản không hợp lệ.');
     const now = new Date().toISOString();
 
-    setStoredUserCustomPermissions(id, null);
-
-    let targetName = id;
-    let targetUser = id;
+    let targetName = extraInfo?.fullName || id;
+    let targetUser = extraInfo?.username ? extraInfo.username.toLowerCase().trim() : '';
+    let teacherCode = extraInfo?.teacherCode ? extraInfo.teacherCode.toLowerCase().trim() : '';
     let teacherId = id;
+
+    setStoredUserCustomPermissions(id, null);
+    if (targetUser) setStoredUserCustomPermissions(targetUser, null);
+    if (teacherCode) setStoredUserCustomPermissions(teacherCode, null);
 
     const firestoreSyncPromise = (async () => {
       try {
-        const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, id));
-        if (accDoc.exists()) {
-          const d = accDoc.data();
-          if (d.fullName) targetName = d.fullName;
-          if (d.username) {
-            targetUser = d.username;
-            setStoredUserCustomPermissions(d.username, null);
+        if (!targetUser) {
+          const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, id));
+          if (accDoc.exists()) {
+            const d = accDoc.data();
+            if (d.fullName) targetName = d.fullName;
+            if (d.username) {
+              targetUser = d.username.toLowerCase().trim();
+              setStoredUserCustomPermissions(d.username, null);
+            }
+            if (d.teacherCode) {
+              teacherCode = d.teacherCode.toLowerCase().trim();
+              setStoredUserCustomPermissions(d.teacherCode, null);
+            }
+            if (d.teacherId) teacherId = d.teacherId;
           }
-          if (d.teacherId) teacherId = d.teacherId;
         }
 
         await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
@@ -789,6 +883,16 @@ export const accountService = {
           customPermissions: null,
           updatedAt: now
         }, { merge: true });
+
+        if (targetUser && targetUser !== id) {
+          try {
+            await setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
+              hasCustomPermissions: false,
+              customPermissions: null,
+              updatedAt: now
+            }, { merge: true });
+          } catch (e) {}
+        }
 
         const tId = teacherId || id;
         const tDoc = await getDoc(doc(db, 'teachers', tId));
@@ -802,7 +906,7 @@ export const accountService = {
 
         await this.addAuditLog({
           action: 'UPDATE_PERMISSIONS',
-          targetUsername: targetUser,
+          targetUsername: targetUser || id,
           targetFullName: targetName,
           performedBy,
           details: `Khôi phục phân quyền về mặc định theo nhóm quyền`
@@ -816,15 +920,26 @@ export const accountService = {
     await Promise.race([firestoreSyncPromise, timeoutP]);
 
     try {
-      const stored = localStorage.getItem('authUser');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.id === id || parsed.username === targetUser || parsed.id === teacherId) {
-          parsed.hasCustomPermissions = false;
-          parsed.customPermissions = null;
-          localStorage.setItem('authUser', JSON.stringify(parsed));
+      ['sessionStorage', 'localStorage'].forEach(storageType => {
+        const storage = storageType === 'sessionStorage' ? sessionStorage : localStorage;
+        const stored = storage.getItem('authUser');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const pId = parsed.id?.toLowerCase();
+          const pUser = parsed.username?.toLowerCase();
+          const pCode = parsed.teacherCode?.toLowerCase();
+          if (
+            pId === id.toLowerCase() || 
+            (targetUser && pUser === targetUser) || 
+            (teacherCode && pCode === teacherCode) ||
+            pId === teacherId.toLowerCase()
+          ) {
+            parsed.hasCustomPermissions = false;
+            parsed.customPermissions = null;
+            storage.setItem('authUser', JSON.stringify(parsed));
+          }
         }
-      }
+      });
     } catch (e) {}
   },
 
@@ -876,6 +991,18 @@ export const accountService = {
    */
   async loadRoleGroupConfigs(): Promise<void> {
     try {
+      (Object.keys(DEFAULT_ROLE_GROUPS) as RoleGroupCode[]).forEach(code => {
+        const raw = localStorage.getItem(`custom_role_group_permissions_${code}`);
+        if (raw) {
+          const perms = JSON.parse(raw);
+          if (perms && DEFAULT_ROLE_GROUPS[code]) {
+            DEFAULT_ROLE_GROUPS[code].permissions = perms;
+          }
+        }
+      });
+    } catch (e) {}
+
+    try {
       const snapPromise = getDocs(collection(db, ROLE_GROUPS_COLLECTION));
       const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 1500));
       const snap: any = await Promise.race([snapPromise, timeoutP]);
@@ -885,6 +1012,9 @@ export const accountService = {
           const code = (data.code || d.id) as RoleGroupCode;
           if (DEFAULT_ROLE_GROUPS[code] && data.permissions) {
             DEFAULT_ROLE_GROUPS[code].permissions = data.permissions;
+            try {
+              localStorage.setItem(`custom_role_group_permissions_${code}`, JSON.stringify(data.permissions));
+            } catch (e) {}
           }
         });
       }

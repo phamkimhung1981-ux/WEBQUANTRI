@@ -501,7 +501,16 @@ export default function AccountManagement() {
 
         const targetId = targetAccount.id;
         // 1. Write to Firestore & Local Storage via service (protected with 1.2s timeout)
-        await accountService.saveUserPermissions(targetId, matrixPermissions, user?.name || 'Quản trị viên');
+        await accountService.saveUserPermissions(
+          targetId, 
+          matrixPermissions, 
+          user?.name || 'Quản trị viên',
+          {
+            username: targetAccount.username,
+            teacherCode: targetAccount.teacherCode,
+            fullName: targetAccount.fullName
+          }
+        );
 
         // 2. Optimistically update local accounts state so UI immediately retains changes
         setAccounts(prev => prev.map(acc => {
@@ -539,7 +548,15 @@ export default function AccountManagement() {
     }
     setIsSavingMatrix(true);
     try {
-      await accountService.resetUserPermissionsToRoleGroup(targetAccount.id, user?.name || 'Quản trị viên');
+      await accountService.resetUserPermissionsToRoleGroup(
+        targetAccount.id, 
+        user?.name || 'Quản trị viên',
+        {
+          username: targetAccount.username,
+          teacherCode: targetAccount.teacherCode,
+          fullName: targetAccount.fullName
+        }
+      );
       
       // Optimistically update
       setAccounts(prev => prev.map(acc => {

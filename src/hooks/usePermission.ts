@@ -8,7 +8,7 @@ import {
   ModuleActionPermissions,
   SYSTEM_MODULES_LIST 
 } from '../types/permission';
-import { detectRoleGroupByPosition } from '../services/accountService';
+import { detectRoleGroupByPosition, getStoredUserCustomPermissions } from '../services/accountService';
 
 export function usePermission() {
   const { user } = useAuth();
@@ -48,8 +48,21 @@ export function usePermission() {
     const basePermissions = baseConfig.permissions;
 
     const anyUser = user as any;
-    const hasCustom = anyUser?.hasCustomPermissions;
-    const customPerms = anyUser?.customPermissions as Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
+    let hasCustom = !!anyUser?.hasCustomPermissions;
+    let customPerms = anyUser?.customPermissions as Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
+
+    // Fallback: check stored custom permissions map if user object in memory lacks it
+    if (!hasCustom || !customPerms || Object.keys(customPerms).length === 0) {
+      const storedMap = getStoredUserCustomPermissions();
+      const uId = (user?.id || '').toLowerCase().trim();
+      const uName = (user?.username || '').toLowerCase().trim();
+      const uCode = (anyUser?.teacherCode || '').toLowerCase().trim();
+      const matched = (uId && storedMap[uId]) || (uName && storedMap[uName]) || (uCode && storedMap[uCode]);
+      if (matched && Object.keys(matched).length > 0) {
+        hasCustom = true;
+        customPerms = matched;
+      }
+    }
 
     const result: Record<ModuleCode, ModuleActionPermissions> = {} as any;
 
@@ -65,10 +78,27 @@ export function usePermission() {
       };
 
       if (hasCustom && customPerms && customPerms[mod.code] !== undefined) {
-        // Individual custom override takes precedence
+        // Individual custom override takes precedence: strictly use custom matrix settings
+        const modPerm = customPerms[mod.code];
         result[mod.code] = {
-          ...baseMod,
-          ...customPerms[mod.code]
+          view: !!modPerm?.view,
+          create: !!modPerm?.create,
+          edit: !!modPerm?.edit,
+          delete: !!modPerm?.delete,
+          approve: !!modPerm?.approve,
+          export: !!modPerm?.export,
+          lock: !!modPerm?.lock
+        };
+      } else if (hasCustom) {
+        // If teacher has a custom permission assignment but this module is not in it, strictly deny
+        result[mod.code] = {
+          view: false,
+          create: false,
+          edit: false,
+          delete: false,
+          approve: false,
+          export: false,
+          lock: false
         };
       } else {
         result[mod.code] = { ...baseMod };

@@ -4,7 +4,15 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { isAdminUser } from '../lib/moduleData';
 import { AccountRecord, RoleGroupCode } from '../types/permission';
-import { detectRoleGroupByPosition, hashPassword, accountService, getStoredUserPassword, setStoredUserPassword } from '../services/accountService';
+import { 
+  detectRoleGroupByPosition, 
+  hashPassword, 
+  accountService, 
+  getStoredUserPassword, 
+  setStoredUserPassword,
+  getStoredUserCustomPermissions,
+  setStoredUserCustomPermissions
+} from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
 export interface AppUser extends User {
@@ -75,14 +83,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const initialUser: AppUser = JSON.parse(stored);
+        
+        // Ensure initialUser has custom permissions from custom_user_permissions_map if missing
+        if (!initialUser.hasCustomPermissions || !initialUser.customPermissions) {
+          const customMap = getStoredUserCustomPermissions();
+          const uId = (initialUser.id || '').toLowerCase().trim();
+          const uName = (initialUser.username || '').toLowerCase().trim();
+          const uCode = (initialUser.teacherCode || '').toLowerCase().trim();
+          const p = (uId && customMap[uId]) || (uName && customMap[uName]) || (uCode && customMap[uCode]);
+          if (p && Object.keys(p).length > 0) {
+            initialUser.hasCustomPermissions = true;
+            initialUser.customPermissions = p;
+          }
+        }
         setUser(initialUser);
+
+        // Preload any custom role group configurations into memory
+        accountService.loadRoleGroupConfigs().catch(() => {});
 
         // Live refresh from Firestore in background (so F5 never uses stale status or permissions)
         if (initialUser && initialUser.id) {
           try {
+            let d: any = null;
             const accDoc = await getDoc(doc(db, 'user_accounts', initialUser.id));
             if (accDoc.exists()) {
-              const d = accDoc.data();
+              d = accDoc.data();
+            } else if (initialUser.username) {
+              const qAcc = query(collection(db, 'user_accounts'), where('username', '==', initialUser.username.toLowerCase()));
+              const snap = await getDocs(qAcc);
+              if (!snap.empty) {
+                d = snap.docs[0].data();
+              }
+            }
+
+            if (d) {
               // Check if account has been locked or deactivated
               if (d.status === 'Đã khóa' || d.status === 'Vô hiệu hóa') {
                 console.warn(`Tài khoản ${d.username} đang ở trạng thái ${d.status}. Chấm dứt phiên.`);
@@ -93,13 +127,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 return;
               }
 
+              const hasCust = !!(d.hasCustomPermissions || (d.customPermissions && Object.keys(d.customPermissions).length > 0));
+              const custPerm = d.customPermissions || initialUser.customPermissions || null;
+
+              if (hasCust && custPerm) {
+                setStoredUserCustomPermissions(initialUser.id, custPerm);
+                if (initialUser.username) setStoredUserCustomPermissions(initialUser.username, custPerm);
+                if (initialUser.teacherCode) setStoredUserCustomPermissions(initialUser.teacherCode, custPerm);
+              }
+
               const freshUser: AppUser = {
                 ...initialUser,
                 name: d.fullName || initialUser.name,
                 roleGroup: d.roleGroup || initialUser.roleGroup,
                 accountStatus: d.status || initialUser.accountStatus,
-                hasCustomPermissions: !!d.hasCustomPermissions,
-                customPermissions: d.customPermissions || null,
+                hasCustomPermissions: hasCust,
+                customPermissions: custPerm,
                 position: d.position || initialUser.position,
                 departmentName: d.departmentName || initialUser.departmentName
               };
@@ -121,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
-  const doSuccessfulLogin = (cleanUsername: string): boolean => {
+  const doSuccessfulLogin = (cleanUsername: string, extraDocData?: any): boolean => {
     if (cleanUsername === 'admin') {
       const adminUser: AppUser = {
         id: 'admin',
@@ -140,6 +183,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
+    const customMap = getStoredUserCustomPermissions();
+
     const foundDefaultTeacher = DEFAULT_TEACHERS.find(t => 
       t.username && String(t.username).trim().toLowerCase() === cleanUsername
     );
@@ -149,6 +194,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       }
       const roleGroup = detectRoleGroupByPosition(foundDefaultTeacher.position, foundDefaultTeacher.departmentId);
+      
+      const tId = foundDefaultTeacher.id?.toLowerCase().trim();
+      const tUser = (foundDefaultTeacher.username || cleanUsername).toLowerCase().trim();
+      const tCode = foundDefaultTeacher.code ? foundDefaultTeacher.code.toLowerCase().trim() : '';
+
+      const customPermsFromDoc = extraDocData?.customPermissions || null;
+      const customPermsFromMap = (tId && customMap[tId]) || (tUser && customMap[tUser]) || (tCode && customMap[tCode]) || null;
+      const finalCustomPerms = customPermsFromDoc || customPermsFromMap;
+      const hasCustom = !!(extraDocData?.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
+
+      if (finalCustomPerms) {
+        if (tId) setStoredUserCustomPermissions(tId, finalCustomPerms);
+        if (tUser) setStoredUserCustomPermissions(tUser, finalCustomPerms);
+        if (tCode) setStoredUserCustomPermissions(tCode, finalCustomPerms);
+      }
+
       const appUser: AppUser = {
         id: foundDefaultTeacher.id,
         name: foundDefaultTeacher.name,
@@ -161,7 +222,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         accountStatus: foundDefaultTeacher.accountStatus || 'Đang hoạt động',
         teacherCode: foundDefaultTeacher.code,
         email: foundDefaultTeacher.email,
-        phone: foundDefaultTeacher.phone
+        phone: foundDefaultTeacher.phone,
+        hasCustomPermissions: hasCustom,
+        customPermissions: hasCustom ? finalCustomPerms : undefined
       };
       const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
       setUser(appUser);
@@ -175,6 +238,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (t.name && t.name.toLowerCase().includes(cleanUsername))
     );
     if (foundByName) {
+      const tId = foundByName.id?.toLowerCase().trim();
+      const tUser = (foundByName.username || cleanUsername).toLowerCase().trim();
+      const tCode = foundByName.code ? foundByName.code.toLowerCase().trim() : '';
+
+      const customPermsFromDoc = extraDocData?.customPermissions || null;
+      const customPermsFromMap = (tId && customMap[tId]) || (tUser && customMap[tUser]) || (tCode && customMap[tCode]) || null;
+      const finalCustomPerms = customPermsFromDoc || customPermsFromMap;
+      const hasCustom = !!(extraDocData?.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
+
+      if (finalCustomPerms) {
+        if (tId) setStoredUserCustomPermissions(tId, finalCustomPerms);
+        if (tUser) setStoredUserCustomPermissions(tUser, finalCustomPerms);
+        if (tCode) setStoredUserCustomPermissions(tCode, finalCustomPerms);
+      }
+
       const appUser: AppUser = {
         id: foundByName.id,
         name: foundByName.name,
@@ -185,7 +263,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         departmentId: foundByName.departmentId,
         departmentName: foundByName.departmentName,
         accountStatus: foundByName.accountStatus || 'Đang hoạt động',
-        teacherCode: foundByName.code
+        teacherCode: foundByName.code,
+        hasCustomPermissions: hasCustom,
+        customPermissions: hasCustom ? finalCustomPerms : undefined
       };
       const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
       setUser(appUser);
@@ -214,6 +294,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const inputPasswordTrim = passwordInput.trim();
     const hashedInput = await hashPassword(inputPasswordTrim);
 
+    let matchedDocData: any = null;
+
     // 1. Check custom changed password in localStorage cache (0ms instant)
     const customPass = getStoredUserPassword(cleanUsername);
     if (customPass) {
@@ -231,7 +313,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // 2. Query Firestore user_accounts & teachers to check if password was updated on Firestore
     try {
       const checkFirestoreAuthPromise = async (): Promise<boolean> => {
-        let matchedDocData: any = null;
         if (cleanUsername === 'admin') {
           const accAdminDoc = await getDoc(doc(db, 'user_accounts', 'admin'));
           if (accAdminDoc.exists()) {
@@ -243,10 +324,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!snapAcc.empty) {
             matchedDocData = snapAcc.docs[0].data();
           } else {
-            const qTea = query(collection(db, 'teachers'), where('username', '==', cleanUsername));
-            const snapTea = await getDocs(qTea);
-            if (!snapTea.empty) {
-              matchedDocData = snapTea.docs[0].data();
+            const accDirect = await getDoc(doc(db, 'user_accounts', cleanUsername));
+            if (accDirect.exists()) {
+              matchedDocData = accDirect.data();
+            } else {
+              const qTea = query(collection(db, 'teachers'), where('username', '==', cleanUsername));
+              const snapTea = await getDocs(qTea);
+              if (!snapTea.empty) {
+                matchedDocData = snapTea.docs[0].data();
+              }
             }
           }
         }
@@ -273,7 +359,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const timeoutP = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1200));
       const isFirestoreMatched = await Promise.race([checkFirestoreAuthPromise(), timeoutP]);
       if (isFirestoreMatched) {
-        return doSuccessfulLogin(cleanUsername);
+        return doSuccessfulLogin(cleanUsername, matchedDocData);
       }
     } catch (e) {
       console.warn('Firestore password check warning:', e);
@@ -311,7 +397,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError('Mật khẩu không chính xác. Thầy/Cô đã thay đổi mật khẩu, vui lòng nhập mật khẩu mới.');
         return false;
       }
-      return doSuccessfulLogin(cleanUsername);
+      return doSuccessfulLogin(cleanUsername, matchedDocData);
     }
 
     // 4. If nothing matched
