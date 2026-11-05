@@ -36,7 +36,7 @@ import { ShieldAlert } from 'lucide-react';
 
 function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; children: React.ReactNode }) {
   const { canAccessModule, isAdmin } = usePermission();
-  if (isAdmin || canAccessModule(moduleCode)) {
+  if (isAdmin || moduleCode === 'home' || canAccessModule(moduleCode)) {
     return <>{children}</>;
   }
   return (

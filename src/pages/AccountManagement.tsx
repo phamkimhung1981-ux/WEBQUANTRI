@@ -500,10 +500,19 @@ export default function AccountManagement() {
         }
 
         const targetId = targetAccount.id;
+        // Ensure home (Trang chủ) always remains view: true so users can land on the dashboard
+        const finalPermissions: ModulePermissionsMap = {
+          ...matrixPermissions,
+          home: {
+            ...(matrixPermissions.home || createEmptyModulePermissions()),
+            view: true
+          }
+        };
+
         // 1. Write to Firestore & Local Storage via service (protected with 1.2s timeout)
         await accountService.saveUserPermissions(
           targetId, 
-          matrixPermissions, 
+          finalPermissions, 
           user?.name || 'Quản trị viên',
           {
             username: targetAccount.username,
@@ -518,7 +527,7 @@ export default function AccountManagement() {
             return {
               ...acc,
               hasCustomPermissions: true,
-              customPermissions: matrixPermissions
+              customPermissions: finalPermissions
             };
           }
           return acc;
@@ -527,8 +536,15 @@ export default function AccountManagement() {
         setMatrixIsDirty(false);
         showToast(`Đã lưu thành công ma trận phân quyền cho ${targetAccount.fullName} (${targetAccount.username})!`, 'success');
       } else {
-        // Role group mode
-        await accountService.saveRoleGroupPermissions(selectedRoleGroup, matrixPermissions, user?.name || 'Quản trị viên');
+        // Role group mode: Ensure home view remains true
+        const finalRolePermissions: ModulePermissionsMap = {
+          ...matrixPermissions,
+          home: {
+            ...(matrixPermissions.home || createEmptyModulePermissions()),
+            view: true
+          }
+        };
+        await accountService.saveRoleGroupPermissions(selectedRoleGroup, finalRolePermissions, user?.name || 'Quản trị viên');
         setMatrixIsDirty(false);
         showToast(`Đã lưu thành công cấu hình phân quyền cho nhóm ${DEFAULT_ROLE_GROUPS[selectedRoleGroup]?.name || selectedRoleGroup}!`, 'success');
       }

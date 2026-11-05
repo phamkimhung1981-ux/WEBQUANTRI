@@ -104,6 +104,19 @@ export function usePermission() {
         result[mod.code] = { ...baseMod };
       }
 
+      // Trang chủ / Bảng điều khiển là không gian làm việc chính, luôn mở cho mọi tài khoản đã đăng nhập
+      if (mod.code === 'home') {
+        result[mod.code] = {
+          view: true,
+          create: false,
+          edit: false,
+          delete: false,
+          approve: false,
+          export: false,
+          lock: false
+        };
+      }
+
       // ONLY System Administrator has blanket override for everything
       if (isSystemAdmin) {
         result[mod.code] = {
@@ -127,6 +140,7 @@ export function usePermission() {
   const hasPermission = (moduleCode: ModuleCode, action: PermissionAction): boolean => {
     if (!user) return false;
     if (isSystemAdmin) return true;
+    if (moduleCode === 'home' && action === 'view') return true;
     
     const modPerm = effectivePermissions[moduleCode];
     if (!modPerm) return false;
@@ -136,7 +150,10 @@ export function usePermission() {
   /**
    * Helper shortcuts
    */
-  const canAccessModule = (moduleCode: ModuleCode) => hasPermission(moduleCode, 'view');
+  const canAccessModule = (moduleCode: ModuleCode) => {
+    if (moduleCode === 'home') return true;
+    return hasPermission(moduleCode, 'view');
+  };
   const canCreate = (moduleCode: ModuleCode) => hasPermission(moduleCode, 'create');
   const canEdit = (moduleCode: ModuleCode) => hasPermission(moduleCode, 'edit');
   const canDelete = (moduleCode: ModuleCode) => hasPermission(moduleCode, 'delete');

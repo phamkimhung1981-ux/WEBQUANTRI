@@ -2,7 +2,7 @@
   "roleGroups": {},
   "userCustom": {
     "my.lt": {
-      "home": { "view": false, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false },
+      "home": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false },
       "calendar": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
       "school_work_schedule": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
       "department_schedule": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
@@ -22,7 +22,7 @@
       "accounts": { "view": false, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false }
     },
     "t1792151918417_oi9yst": {
-      "home": { "view": false, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false },
+      "home": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false },
       "calendar": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
       "school_work_schedule": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
       "department_schedule": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
@@ -42,7 +42,7 @@
       "accounts": { "view": false, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false }
     },
     "gv23": {
-      "home": { "view": false, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false },
+      "home": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": false, "lock": false },
       "calendar": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
       "school_work_schedule": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
       "department_schedule": { "view": true, "create": false, "edit": false, "delete": false, "approve": false, "export": true, "lock": false },
