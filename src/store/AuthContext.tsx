@@ -11,7 +11,8 @@ import {
   getStoredUserPassword, 
   setStoredUserPassword,
   getStoredUserCustomPermissions,
-  setStoredUserCustomPermissions
+  setStoredUserCustomPermissions,
+  syncPermissionsFromServer
 } from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
@@ -59,6 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Clear any legacy localStorage to prevent unauthorized persistent auto-login across sessions/Vercel
         localStorage.removeItem('authUser');
         localStorage.removeItem('authSessionExpiry');
+
+        // Synchronize canonical & customized permissions from server (ensures web export consistency)
+        await syncPermissionsFromServer();
 
         const stored = sessionStorage.getItem('authUser');
         const sessionExpiryStr = sessionStorage.getItem('authSessionExpiry');
@@ -127,8 +131,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 return;
               }
 
-              const hasCust = !!(d.hasCustomPermissions || (d.customPermissions && Object.keys(d.customPermissions).length > 0));
-              const custPerm = d.customPermissions || initialUser.customPermissions || null;
+              const customMap = getStoredUserCustomPermissions();
+              const uId = (initialUser.id || '').toLowerCase().trim();
+              const uName = (initialUser.username || '').toLowerCase().trim();
+              const uCode = (initialUser.teacherCode || '').toLowerCase().trim();
+              const localOrSyncedPerms = (uId && customMap[uId]) || (uName && customMap[uName]) || (uCode && customMap[uCode]) || initialUser.customPermissions || null;
+
+              const custPerm = (d.customPermissions && Object.keys(d.customPermissions).length > 0) ? d.customPermissions : localOrSyncedPerms;
+              const hasCust = !!(d.hasCustomPermissions || (custPerm && Object.keys(custPerm).length > 0));
 
               if (hasCust && custPerm) {
                 setStoredUserCustomPermissions(initialUser.id, custPerm);
@@ -293,6 +303,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const inputPasswordTrim = passwordInput.trim();
     const hashedInput = await hashPassword(inputPasswordTrim);
+
+    // Sync latest matrix permissions so login immediately receives customized permissions
+    await syncPermissionsFromServer();
 
     let matchedDocData: any = null;
 

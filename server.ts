@@ -203,6 +203,45 @@ async function startServer() {
   app.post('/api/upload', upload.any(), handleFileUploadRequest, uploadErrorHandler);
   app.post('/api/upload-file', upload.any(), handleFileUploadRequest, uploadErrorHandler);
 
+  const PERMISSIONS_FILE = path.join(__dirname, 'public/custom_permissions.json');
+
+  // API Endpoints for System-wide Permission Matrix Persistence (Works offline & cross-device)
+  app.get('/api/permissions', (req, res) => {
+    try {
+      if (fs.existsSync(PERMISSIONS_FILE)) {
+        const data = fs.readFileSync(PERMISSIONS_FILE, 'utf-8');
+        return res.json({ success: true, ...JSON.parse(data) });
+      }
+      return res.json({ success: true, roleGroups: {}, userCustom: {} });
+    } catch (err: any) {
+      console.warn('Could not read permissions file:', err);
+      return res.json({ success: false, error: err.message, roleGroups: {}, userCustom: {} });
+    }
+  });
+
+  app.post('/api/permissions', (req, res) => {
+    try {
+      const { roleGroups, userCustom } = req.body;
+      let existing: { roleGroups: any; userCustom: any } = { roleGroups: {}, userCustom: {} };
+      if (fs.existsSync(PERMISSIONS_FILE)) {
+        try {
+          existing = JSON.parse(fs.readFileSync(PERMISSIONS_FILE, 'utf-8'));
+        } catch (e) {}
+      }
+      if (roleGroups) {
+        existing.roleGroups = { ...existing.roleGroups, ...roleGroups };
+      }
+      if (userCustom) {
+        existing.userCustom = { ...existing.userCustom, ...userCustom };
+      }
+      fs.writeFileSync(PERMISSIONS_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+      return res.json({ success: true, data: existing });
+    } catch (err: any) {
+      console.error('Error writing permissions file:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // API Endpoint for OCR / AI Parsing of Schedule Images
   app.post('/api/ocr-schedule', async (req, res) => {
     try {

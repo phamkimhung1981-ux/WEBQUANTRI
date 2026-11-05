@@ -126,6 +126,73 @@ export function setStoredUserCustomPermissions(idOrUsername: string, perms: Part
   } catch (e) {}
 }
 
+/**
+ * Synchronize permission definitions and custom matrices from server / static file.
+ * Guarantees cross-device, web export, and clean browser consistency.
+ */
+export async function syncPermissionsFromServer(): Promise<{ roleGroups: any; userCustom: any }> {
+  try {
+    let data: any = null;
+    try {
+      const res = await fetch('/api/permissions');
+      if (res.ok) {
+        data = await res.json();
+      }
+    } catch (e) {}
+
+    if (!data || !data.userCustom) {
+      try {
+        const resStatic = await fetch('/custom_permissions.json');
+        if (resStatic.ok) {
+          data = await resStatic.json();
+        }
+      } catch (e) {}
+    }
+
+    if (data) {
+      // 1. Sync custom role groups into in-memory DEFAULT_ROLE_GROUPS
+      if (data.roleGroups && typeof data.roleGroups === 'object') {
+        Object.keys(data.roleGroups).forEach(code => {
+          const rg = code as RoleGroupCode;
+          if (DEFAULT_ROLE_GROUPS[rg] && data.roleGroups[code]) {
+            DEFAULT_ROLE_GROUPS[rg].permissions = {
+              ...DEFAULT_ROLE_GROUPS[rg].permissions,
+              ...data.roleGroups[code]
+            };
+            try {
+              localStorage.setItem(`custom_role_group_permissions_${code}`, JSON.stringify(DEFAULT_ROLE_GROUPS[rg].permissions));
+            } catch (e) {}
+          }
+        });
+      }
+
+      // 2. Sync individual customized permissions into local storage map
+      if (data.userCustom && typeof data.userCustom === 'object') {
+        const localMap = getStoredUserCustomPermissions();
+        Object.entries(data.userCustom).forEach(([key, val]) => {
+          const cleanKey = key.toLowerCase().trim();
+          if (val === null) {
+            delete localMap[cleanKey];
+          } else if (val) {
+            localMap[cleanKey] = val as Partial<ModulePermissionsMap>;
+          }
+        });
+        try {
+          localStorage.setItem('custom_user_permissions_map', JSON.stringify(localMap));
+        } catch (e) {}
+      }
+
+      return {
+        roleGroups: data.roleGroups || {},
+        userCustom: data.userCustom || {}
+      };
+    }
+  } catch (err) {
+    console.warn('Could not sync permissions from server:', err);
+  }
+  return { roleGroups: {}, userCustom: {} };
+}
+
 export const accountService = {
   /**
    * Fetch all accounts. If the accounts collection is empty in Firestore,
@@ -133,6 +200,9 @@ export const accountService = {
    */
   async getAccounts(): Promise<AccountRecord[]> {
     try {
+      // Sync latest permissions from server disk / static JSON before reading accounts
+      await syncPermissionsFromServer();
+
       const fetchPromise = getDocs(collection(db, ACCOUNTS_COLLECTION));
       const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 1800));
       const snap: any = await Promise.race([fetchPromise, timeoutP]);
@@ -797,7 +867,19 @@ export const accountService = {
       }
     } catch (e) {}
 
-    // 4. Persist to Firestore with non-blocking timeout race (1200ms)
+    // 4. Save to server persistence API (for cross-device / exported web)
+    try {
+      const payload: Record<string, any> = { [id]: permissions };
+      if (targetUser) payload[targetUser] = permissions;
+      if (teacherCode) payload[teacherCode] = permissions;
+      fetch('/api/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userCustom: payload })
+      }).catch(() => {});
+    } catch (e) {}
+
+    // 5. Persist to Firestore with non-blocking timeout race (1200ms)
     const firestoreSyncPromise = (async () => {
       try {
         await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
@@ -858,6 +940,18 @@ export const accountService = {
     setStoredUserCustomPermissions(id, null);
     if (targetUser) setStoredUserCustomPermissions(targetUser, null);
     if (teacherCode) setStoredUserCustomPermissions(teacherCode, null);
+
+    // Remove from server persistence API
+    try {
+      const payload: Record<string, any> = { [id]: null };
+      if (targetUser) payload[targetUser] = null;
+      if (teacherCode) payload[teacherCode] = null;
+      fetch('/api/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userCustom: payload })
+      }).catch(() => {});
+    } catch (e) {}
 
     const firestoreSyncPromise = (async () => {
       try {
@@ -961,6 +1055,15 @@ export const accountService = {
       localStorage.setItem(`custom_role_group_permissions_${roleGroup}`, JSON.stringify(permissions));
     } catch (e) {}
 
+    // Save to server persistence API
+    try {
+      fetch('/api/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roleGroups: { [roleGroup]: permissions } })
+      }).catch(() => {});
+    } catch (e) {}
+
     const firestoreSyncPromise = (async () => {
       try {
         await setDoc(doc(db, ROLE_GROUPS_COLLECTION, roleGroup), {
@@ -990,6 +1093,9 @@ export const accountService = {
    * Load customized role group configurations from Firestore
    */
   async loadRoleGroupConfigs(): Promise<void> {
+    // Sync from server / custom_permissions.json first (ensures web export has configured permissions)
+    await syncPermissionsFromServer();
+
     try {
       (Object.keys(DEFAULT_ROLE_GROUPS) as RoleGroupCode[]).forEach(code => {
         const raw = localStorage.getItem(`custom_role_group_permissions_${code}`);
