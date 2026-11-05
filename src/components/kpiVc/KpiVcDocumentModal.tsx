@@ -1014,8 +1014,8 @@ export default function KpiVcDocumentModal({
     simulatedRole === 'ADMIN'
   );
 
-  // (2) TTCM đánh giá: Mở khi phiếu đã được giáo viên gửi (isSubmittedToTtcm) hoặc đang ở bước 2 và TTCM chưa chốt gửi BGH
-  const canEditTtcm = !isLocked && !isCompleted && !isEvaluatedByTtcm && (
+  // (2) TTCM đánh giá: Mở khi phiếu chưa khóa và chưa hoàn thành đối với TTCM / Admin / người quản lý
+  const canEditTtcm = !isLocked && !isCompleted && (
     mode === 'ttcm_eval' ||
     mode === 'edit' ||
     simulatedRole === 'TTCM' ||
@@ -1024,7 +1024,8 @@ export default function KpiVcDocumentModal({
     effectiveRole === 'ADMIN' ||
     isAdmin ||
     isTtcmForThisForm ||
-    isSubmittedToTtcm
+    isSubmittedToTtcm ||
+    isDraftOrReturned
   );
 
   // (3) BGH chấm và phê duyệt: Mở khi TTCM đã hoàn thành hoặc ở bước BGH
