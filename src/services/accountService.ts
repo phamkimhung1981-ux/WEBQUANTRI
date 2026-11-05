@@ -103,6 +103,29 @@ export function setStoredUserPassword(username: string, plainPass: string, hashe
   } catch (e) {}
 }
 
+export function getStoredUserCustomPermissions(): Record<string, Partial<ModulePermissionsMap>> {
+  try {
+    const raw = localStorage.getItem('custom_user_permissions_map');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export function setStoredUserCustomPermissions(idOrUsername: string, perms: Partial<ModulePermissionsMap> | null): void {
+  if (!idOrUsername) return;
+  try {
+    const map = getStoredUserCustomPermissions();
+    const key = idOrUsername.toLowerCase().trim();
+    if (perms === null) {
+      delete map[key];
+    } else {
+      map[key] = perms;
+    }
+    localStorage.setItem('custom_user_permissions_map', JSON.stringify(map));
+  } catch (e) {}
+}
+
 export const accountService = {
   /**
    * Fetch all accounts. If the accounts collection is empty in Firestore,
@@ -110,16 +133,34 @@ export const accountService = {
    */
   async getAccounts(): Promise<AccountRecord[]> {
     try {
-      const snap = await getDocs(collection(db, ACCOUNTS_COLLECTION));
-      if (!snap.empty) {
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as AccountRecord));
+      const fetchPromise = getDocs(collection(db, ACCOUNTS_COLLECTION));
+      const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 1800));
+      const snap: any = await Promise.race([fetchPromise, timeoutP]);
+
+      if (snap && !snap.empty) {
+        const customMap = getStoredUserCustomPermissions();
+        const accounts = snap.docs.map((d: any) => {
+          const acc = { id: d.id, ...d.data() } as AccountRecord;
+          const customPerm = customMap[acc.id?.toLowerCase()] || (acc.username ? customMap[acc.username.toLowerCase()] : null);
+          if (customPerm) {
+            acc.hasCustomPermissions = true;
+            acc.customPermissions = customPerm;
+          }
+          return acc;
+        });
+        try {
+          localStorage.setItem('cached_user_accounts', JSON.stringify(accounts));
+        } catch (e) {}
+        return accounts;
       }
 
       // Check if teachers collection has data
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
+      const teachersPromise = getDocs(collection(db, 'teachers'));
+      const teachersTimeout = new Promise<null>(res => setTimeout(() => res(null), 1500));
+      const teachersSnap: any = await Promise.race([teachersPromise, teachersTimeout]);
       let teachersList: Teacher[] = [];
-      if (!teachersSnap.empty) {
-        teachersList = teachersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
+      if (teachersSnap && !teachersSnap.empty) {
+        teachersList = teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher));
       } else {
         teachersList = DEFAULT_TEACHERS;
       }
@@ -645,45 +686,31 @@ export const accountService = {
     }
     const now = new Date().toISOString();
 
-    // 1. Fetch current account info for logging and sync
+    // 0. Instant local persistence (0ms)
+    setStoredUserCustomPermissions(id, permissions);
+
+    // 1. Fetch current account info for logging and sync (with timeout)
     let targetName = id;
     let targetUser = id;
     let teacherId = id;
     try {
-      const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, id));
-      if (accDoc.exists()) {
+      const getAccPromise = getDoc(doc(db, ACCOUNTS_COLLECTION, id));
+      const timeoutGet = new Promise<null>(res => setTimeout(() => res(null), 1000));
+      const accDoc: any = await Promise.race([getAccPromise, timeoutGet]);
+      if (accDoc && accDoc.exists && accDoc.exists()) {
         const d = accDoc.data();
         if (d.fullName) targetName = d.fullName;
-        if (d.username) targetUser = d.username;
+        if (d.username) {
+          targetUser = d.username;
+          setStoredUserCustomPermissions(d.username, permissions);
+        }
         if (d.teacherId) teacherId = d.teacherId;
       }
     } catch (e) {
       console.warn('Could not read existing account doc:', e);
     }
 
-    // 2. Persist to user_accounts using setDoc with merge: true (never fails on missing doc)
-    await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
-      hasCustomPermissions: true,
-      customPermissions: permissions,
-      updatedAt: now
-    }, { merge: true });
-
-    // 3. Sync to teachers collection if document exists
-    try {
-      const tId = teacherId || id;
-      const tDoc = await getDoc(doc(db, 'teachers', tId));
-      if (tDoc.exists()) {
-        await setDoc(doc(db, 'teachers', tId), {
-          hasCustomPermissions: true,
-          customPermissions: permissions,
-          accountUpdatedAt: now
-        }, { merge: true });
-      }
-    } catch (e) {
-      console.warn('Teacher collection permission sync error:', e);
-    }
-
-    // 4. Update localStorage if the active logged-in user is this account
+    // 2. Update localStorage if the active logged-in user is this account
     try {
       const stored = localStorage.getItem('authUser');
       if (stored) {
@@ -694,18 +721,41 @@ export const accountService = {
           localStorage.setItem('authUser', JSON.stringify(parsed));
         }
       }
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
 
-    // 5. Add audit log
-    await this.addAuditLog({
-      action: 'UPDATE_PERMISSIONS',
-      targetUsername: targetUser,
-      targetFullName: targetName,
-      performedBy,
-      details: `Thiết lập ma trận phân quyền tùy biến riêng (18 modules)`
-    });
+    // 3. Persist to Firestore with non-blocking timeout race (1200ms)
+    const firestoreSyncPromise = (async () => {
+      try {
+        await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
+          hasCustomPermissions: true,
+          customPermissions: permissions,
+          updatedAt: now
+        }, { merge: true });
+
+        const tId = teacherId || id;
+        const tDoc = await getDoc(doc(db, 'teachers', tId));
+        if (tDoc.exists()) {
+          await setDoc(doc(db, 'teachers', tId), {
+            hasCustomPermissions: true,
+            customPermissions: permissions,
+            accountUpdatedAt: now
+          }, { merge: true });
+        }
+
+        await this.addAuditLog({
+          action: 'UPDATE_PERMISSIONS',
+          targetUsername: targetUser,
+          targetFullName: targetName,
+          performedBy,
+          details: `Thiết lập ma trận phân quyền tùy biến riêng (18 modules)`
+        });
+      } catch (err) {
+        console.warn('Background Firestore sync for permissions:', err);
+      }
+    })();
+
+    const timeoutSync = new Promise<void>(res => setTimeout(res, 1200));
+    await Promise.race([firestoreSyncPromise, timeoutSync]);
   },
 
   /**
@@ -715,36 +765,55 @@ export const accountService = {
     if (!id) throw new Error('ID tài khoản không hợp lệ.');
     const now = new Date().toISOString();
 
+    setStoredUserCustomPermissions(id, null);
+
     let targetName = id;
     let targetUser = id;
     let teacherId = id;
-    try {
-      const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, id));
-      if (accDoc.exists()) {
-        const d = accDoc.data();
-        if (d.fullName) targetName = d.fullName;
-        if (d.username) targetUser = d.username;
-        if (d.teacherId) teacherId = d.teacherId;
-      }
-    } catch (e) {}
 
-    await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
-      hasCustomPermissions: false,
-      customPermissions: null,
-      updatedAt: now
-    }, { merge: true });
+    const firestoreSyncPromise = (async () => {
+      try {
+        const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, id));
+        if (accDoc.exists()) {
+          const d = accDoc.data();
+          if (d.fullName) targetName = d.fullName;
+          if (d.username) {
+            targetUser = d.username;
+            setStoredUserCustomPermissions(d.username, null);
+          }
+          if (d.teacherId) teacherId = d.teacherId;
+        }
 
-    try {
-      const tId = teacherId || id;
-      const tDoc = await getDoc(doc(db, 'teachers', tId));
-      if (tDoc.exists()) {
-        await setDoc(doc(db, 'teachers', tId), {
+        await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
           hasCustomPermissions: false,
           customPermissions: null,
-          accountUpdatedAt: now
+          updatedAt: now
         }, { merge: true });
+
+        const tId = teacherId || id;
+        const tDoc = await getDoc(doc(db, 'teachers', tId));
+        if (tDoc.exists()) {
+          await setDoc(doc(db, 'teachers', tId), {
+            hasCustomPermissions: false,
+            customPermissions: null,
+            accountUpdatedAt: now
+          }, { merge: true });
+        }
+
+        await this.addAuditLog({
+          action: 'UPDATE_PERMISSIONS',
+          targetUsername: targetUser,
+          targetFullName: targetName,
+          performedBy,
+          details: `Khôi phục phân quyền về mặc định theo nhóm quyền`
+        });
+      } catch (e) {
+        console.warn('Background reset sync error:', e);
       }
-    } catch (e) {}
+    })();
+
+    const timeoutP = new Promise<void>(res => setTimeout(res, 1200));
+    await Promise.race([firestoreSyncPromise, timeoutP]);
 
     try {
       const stored = localStorage.getItem('authUser');
@@ -757,14 +826,6 @@ export const accountService = {
         }
       }
     } catch (e) {}
-
-    await this.addAuditLog({
-      action: 'UPDATE_PERMISSIONS',
-      targetUsername: targetUser,
-      targetFullName: targetName,
-      performedBy,
-      details: `Khôi phục phân quyền về mặc định theo nhóm quyền`
-    });
   },
 
   /**
@@ -776,24 +837,38 @@ export const accountService = {
     performedBy: string
   ): Promise<void> {
     const now = new Date().toISOString();
-    await setDoc(doc(db, ROLE_GROUPS_COLLECTION, roleGroup), {
-      code: roleGroup,
-      permissions,
-      updatedAt: now,
-      updatedBy: performedBy
-    }, { merge: true });
-
+    
+    // In-memory and local storage immediate update
     if (DEFAULT_ROLE_GROUPS[roleGroup]) {
       DEFAULT_ROLE_GROUPS[roleGroup].permissions = permissions;
     }
+    try {
+      localStorage.setItem(`custom_role_group_permissions_${roleGroup}`, JSON.stringify(permissions));
+    } catch (e) {}
 
-    await this.addAuditLog({
-      action: 'UPDATE_PERMISSIONS',
-      targetUsername: roleGroup,
-      targetFullName: `Nhóm quyền ${roleGroup}`,
-      performedBy,
-      details: `Cập nhật cấu hình phân quyền mẫu cho nhóm ${DEFAULT_ROLE_GROUPS[roleGroup]?.name || roleGroup}`
-    });
+    const firestoreSyncPromise = (async () => {
+      try {
+        await setDoc(doc(db, ROLE_GROUPS_COLLECTION, roleGroup), {
+          code: roleGroup,
+          permissions,
+          updatedAt: now,
+          updatedBy: performedBy
+        }, { merge: true });
+
+        await this.addAuditLog({
+          action: 'UPDATE_PERMISSIONS',
+          targetUsername: roleGroup,
+          targetFullName: `Nhóm quyền ${roleGroup}`,
+          performedBy,
+          details: `Cập nhật cấu hình phân quyền mẫu cho nhóm ${DEFAULT_ROLE_GROUPS[roleGroup]?.name || roleGroup}`
+        });
+      } catch (err) {
+        console.warn('Background Firestore sync for role group:', err);
+      }
+    })();
+
+    const timeoutP = new Promise<void>(res => setTimeout(res, 1200));
+    await Promise.race([firestoreSyncPromise, timeoutP]);
   },
 
   /**
@@ -801,9 +876,11 @@ export const accountService = {
    */
   async loadRoleGroupConfigs(): Promise<void> {
     try {
-      const snap = await getDocs(collection(db, ROLE_GROUPS_COLLECTION));
-      if (!snap.empty) {
-        snap.docs.forEach(d => {
+      const snapPromise = getDocs(collection(db, ROLE_GROUPS_COLLECTION));
+      const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 1500));
+      const snap: any = await Promise.race([snapPromise, timeoutP]);
+      if (snap && !snap.empty) {
+        snap.docs.forEach((d: any) => {
           const data = d.data();
           const code = (data.code || d.id) as RoleGroupCode;
           if (DEFAULT_ROLE_GROUPS[code] && data.permissions) {

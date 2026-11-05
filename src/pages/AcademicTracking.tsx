@@ -40,6 +40,57 @@ import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATIO
 import { ClassInfo, Student } from '../types/homeroom';
 import { ACADEMIC_YEARS, getAllWeeksInYear, getWeeksForMonth } from '../utils/schoolWeekUtils';
 
+interface TableNumberInputProps {
+  value: number;
+  disabled?: boolean;
+  className?: string;
+  onChange: (val: number) => void;
+}
+
+const TableNumberInput: React.FC<TableNumberInputProps> = ({ value, disabled, className, onChange }) => {
+  const [localVal, setLocalVal] = useState<string>(String(value ?? 0));
+
+  useEffect(() => {
+    setLocalVal(String(value ?? 0));
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setLocalVal(raw);
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      onChange(parsed);
+    } else if (raw.trim() === '') {
+      onChange(0);
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseInt(localVal, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      setLocalVal('0');
+      onChange(0);
+    } else {
+      setLocalVal(String(parsed));
+      onChange(parsed);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={localVal}
+      disabled={disabled}
+      onFocus={e => e.target.select()}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={className}
+    />
+  );
+};
+
 export default function AcademicTrackingPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'student_grades' | 'class_summary' | 'emulation_table' | 'monthly_emulation'>('emulation_table');
@@ -93,6 +144,7 @@ export default function AcademicTrackingPage() {
   // Config Modal State
   const [isConfigModalOpen, setIsConfigModalOpen] = useState<boolean>(false);
   const [showScoreBreakdown, setShowScoreBreakdown] = useState<boolean>(true);
+  const [sortMode, setSortMode] = useState<'className' | 'rank'>('className');
   const [isTestModalOpen, setIsTestModalOpen] = useState<boolean>(false);
   const [formConfig, setFormConfig] = useState<AcademicEmulationConfig>(DEFAULT_EMULATION_CONFIG);
 
@@ -184,17 +236,21 @@ export default function AcademicTrackingPage() {
 
   const sortedEmulationRecords = useMemo(() => {
     const list = [...emulationRecords];
-    list.sort((a, b) => {
-      const scoreA = a.totalScore ?? 0;
-      const scoreB = b.totalScore ?? 0;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      const bonusA = a.bonusPoints ?? 0;
-      const bonusB = b.bonusPoints ?? 0;
-      if (bonusB !== bonusA) return bonusB - bonusA;
-      return a.className.localeCompare(b.className);
-    });
+    if (sortMode === 'rank') {
+      list.sort((a, b) => {
+        const scoreA = a.totalScore ?? 0;
+        const scoreB = b.totalScore ?? 0;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        const bonusA = a.bonusPoints ?? 0;
+        const bonusB = b.bonusPoints ?? 0;
+        if (bonusB !== bonusA) return bonusB - bonusA;
+        return a.className.localeCompare(b.className, 'vi', { numeric: true });
+      });
+    } else {
+      list.sort((a, b) => a.className.localeCompare(b.className, 'vi', { numeric: true }));
+    }
     return list;
-  }, [emulationRecords]);
+  }, [emulationRecords, sortMode]);
 
   const isWeekLocked = useMemo(() => {
     return emulationConfig.lockedWeeks?.includes(selectedWeek) ?? false;
@@ -236,9 +292,10 @@ export default function AcademicTrackingPage() {
     const target = emulationRecords.find(r => r.classId === classId);
     if (!target) return;
 
+    const numVal = isNaN(value) ? 0 : Math.max(0, Math.floor(value));
     const updated: ClassAcademicEmulationRecord = {
       ...target,
-      [field]: Math.max(0, value)
+      [field]: numVal
     };
 
     const saved = await academicEmulationService.saveRecord(updated, emulationConfig);
@@ -739,6 +796,34 @@ export default function AcademicTrackingPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap no-print">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-300">
+                <span className="text-[11px] font-bold text-slate-500 px-1.5">Thứ tự:</span>
+                <button
+                  type="button"
+                  onClick={() => setSortMode('className')}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    sortMode === 'className'
+                      ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Cố định vị trí dòng theo Lớp giúp nhập liệu liên tục mượt mà không bị nhảy dòng"
+                >
+                  🔤 Theo Lớp (Cố định nhập liệu)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSortMode('rank')}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    sortMode === 'rank'
+                      ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Xếp thứ tự theo điểm số thi đua từ cao đến thấp"
+                >
+                  🏆 Theo Thứ hạng
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setActiveTab('monthly_emulation')}
@@ -861,10 +946,10 @@ export default function AcademicTrackingPage() {
                   <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-3 min-w-[90px]">Xếp loại</th>
                 </tr>
                 <tr className="bg-blue-50/50 text-blue-950 font-bold text-[11px] border-b-2 border-slate-300">
-                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Tốt</th>
-                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Khá</th>
-                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Tb</th>
-                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 w-12">Yếu</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 min-w-[56px]">Tốt</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 min-w-[56px]">Khá</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 min-w-[56px]">Tb</th>
+                  <th className="sticky top-[41px] z-30 bg-blue-50 py-2 px-1 border-r border-slate-300 min-w-[56px]">Yếu</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300 bg-white">
@@ -882,91 +967,75 @@ export default function AcademicTrackingPage() {
                       
                       {/* Giờ học - Tốt */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.goodLessons}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'goodLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'goodLessons', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Giờ học - Khá */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.fairLessons}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'fairLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'fairLessons', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Giờ học - Tb */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.avgLessons}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'avgLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-amber-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'avgLessons', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-amber-500 border border-slate-200 rounded py-1 outline-none text-xs text-amber-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Giờ học - Yếu */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.weakLessons}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'weakLessons', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'weakLessons', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-rose-500 border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
 
                       {/* Ngày học tốt */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.goodDays || 0}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'goodDays', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-indigo-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'goodDays', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-500 border border-slate-200 rounded py-1 outline-none text-xs text-indigo-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Tuần học tốt */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.goodWeeks ?? 0}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'goodWeeks', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-blue-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'goodWeeks', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 border border-slate-200 rounded py-1 outline-none text-xs text-blue-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Điểm tốt */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.goodMarks}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'goodMarks', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-emerald-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'goodMarks', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-emerald-500 border border-slate-200 rounded py-1 outline-none text-xs text-emerald-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
                       {/* Điểm kém */}
                       <td className="py-2 px-1 border-r border-slate-300">
-                        <input
-                          type="number"
-                          min="0"
+                        <TableNumberInput
                           value={r.badMarks}
                           disabled={isWeekLocked}
-                          onChange={e => handleUpdateEmulationField(r.classId, 'badMarks', Number(e.target.value))}
-                          className="w-12 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          onChange={val => handleUpdateEmulationField(r.classId, 'badMarks', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-rose-500 border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
 

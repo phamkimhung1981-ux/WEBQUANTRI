@@ -114,23 +114,28 @@ export default function AccountManagement() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [accList, teachersSnap, logs] = await Promise.all([
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+      const fetchPromise = Promise.all([
         accountService.getAccounts(),
         getDocs(collection(db, 'teachers')),
         accountService.getAuditLogs(30)
       ]);
 
-      setAccounts(accList);
-      if (accList.length > 0) {
-        setSelectedUserId(prev => {
-          if (prev && accList.some(a => a.id === prev)) return prev;
-          return accList[0].id;
-        });
+      const res: any = await Promise.race([fetchPromise, timeoutPromise]);
+      if (res) {
+        const [accList, teachersSnap, logs] = res;
+        setAccounts(accList);
+        if (accList.length > 0) {
+          setSelectedUserId(prev => {
+            if (prev && accList.some((a: any) => a.id === prev)) return prev;
+            return accList[0].id;
+          });
+        }
+        if (teachersSnap && !teachersSnap.empty) {
+          setTeachers(teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher)));
+        }
+        if (logs) setAuditLogs(logs);
       }
-      if (!teachersSnap.empty) {
-        setTeachers(teachersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher)));
-      }
-      setAuditLogs(logs);
     } catch (e: any) {
       console.error('Error loading account data:', e);
       showToast('Lỗi khi tải dữ liệu tài khoản: ' + e?.message, 'error');
@@ -448,6 +453,41 @@ export default function AccountManagement() {
     setMatrixIsDirty(true);
   };
 
+  const handleApplyTeacherPreset = () => {
+    const teacherBase = DEFAULT_ROLE_GROUPS.TEACHER.permissions;
+    setMatrixPermissions(JSON.parse(JSON.stringify(teacherBase)));
+    setMatrixIsDirty(true);
+    showToast('Đã áp dụng mẫu phân quyền chuẩn cho Giáo viên bộ môn!', 'success');
+  };
+
+  const handleApplyTeacherHomeroomPreset = () => {
+    const base = JSON.parse(JSON.stringify(DEFAULT_ROLE_GROUPS.TEACHER.permissions));
+    base.homeroom = { view: true, create: true, edit: true, delete: false, approve: false, export: true, lock: false };
+    base.youth_discipline = { view: true, create: true, edit: true, delete: false, approve: false, export: true, lock: false };
+    base.academic_tracking = { view: true, create: true, edit: true, delete: false, approve: false, export: true, lock: false };
+    setMatrixPermissions(base);
+    setMatrixIsDirty(true);
+    showToast('Đã áp dụng mẫu phân quyền Giáo viên Chủ nhiệm (thêm Sổ chủ nhiệm & Thi đua)!', 'success');
+  };
+
+  const handleApplyViewOnlyPreset = () => {
+    const updated: Partial<ModulePermissionsMap> = {};
+    SYSTEM_MODULES_LIST.forEach(m => {
+      updated[m.code] = {
+        view: true,
+        create: false,
+        edit: false,
+        delete: false,
+        approve: false,
+        export: false,
+        lock: false
+      };
+    });
+    setMatrixPermissions(updated as ModulePermissionsMap);
+    setMatrixIsDirty(true);
+    showToast('Đã bật quyền Chỉ xem cho tất cả các module!', 'info');
+  };
+
   const handleSaveMatrix = async () => {
     setIsSavingMatrix(true);
     try {
@@ -460,12 +500,12 @@ export default function AccountManagement() {
         }
 
         const targetId = targetAccount.id;
-        // 1. Write to Firestore
+        // 1. Write to Firestore & Local Storage via service (protected with 1.2s timeout)
         await accountService.saveUserPermissions(targetId, matrixPermissions, user?.name || 'Quản trị viên');
 
         // 2. Optimistically update local accounts state so UI immediately retains changes
         setAccounts(prev => prev.map(acc => {
-          if (acc.id === targetId) {
+          if (acc.id === targetId || acc.username === targetAccount.username) {
             return {
               ...acc,
               hasCustomPermissions: true,
@@ -477,15 +517,11 @@ export default function AccountManagement() {
 
         setMatrixIsDirty(false);
         showToast(`Đã lưu thành công ma trận phân quyền cho ${targetAccount.fullName} (${targetAccount.username})!`, 'success');
-
-        // 3. Reload from Firestore to ensure persistent consistency
-        await loadData();
       } else {
         // Role group mode
         await accountService.saveRoleGroupPermissions(selectedRoleGroup, matrixPermissions, user?.name || 'Quản trị viên');
         setMatrixIsDirty(false);
         showToast(`Đã lưu thành công cấu hình phân quyền cho nhóm ${DEFAULT_ROLE_GROUPS[selectedRoleGroup]?.name || selectedRoleGroup}!`, 'success');
-        await loadData();
       }
     } catch (err: any) {
       console.error('Lỗi khi lưu ma trận phân quyền:', err);
@@ -523,7 +559,6 @@ export default function AccountManagement() {
       setMatrixIsDirty(false);
 
       showToast(`Đã khôi phục phân quyền mặc định theo nhóm ${targetAccount.roleGroup} cho ${targetAccount.fullName}!`, 'success');
-      await loadData();
     } catch (err: any) {
       console.error('Lỗi khi khôi phục quyền mặc định:', err);
       showToast('Lỗi khôi phục quyền: ' + (err?.message || 'Vui lòng thử lại.'), 'error');
@@ -820,9 +855,9 @@ export default function AccountManagement() {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+          <div className="overflow-x-auto overflow-y-auto max-h-[640px] border border-slate-200 rounded-xl relative shadow-inner">
             <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-700 font-extrabold uppercase tracking-wider text-[11px]">
+              <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700 font-extrabold uppercase tracking-wider text-[11px] shadow-xs border-b border-slate-300">
                 <tr>
                   <th className="px-3.5 py-3 text-center w-12">STT</th>
                   <th className="px-4 py-3 text-left">Cán bộ / Giáo viên</th>
@@ -1149,30 +1184,101 @@ export default function AccountManagement() {
             </div>
           </div>
 
-          {/* Matrix Table */}
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                <tr>
-                  <th className="px-3 py-3 text-center w-10">STT</th>
-                  <th className="px-4 py-3 text-left min-w-[220px]">Module Hệ thống (18 Modules)</th>
-                  
-                  {/* Actions columns with quick header click */}
-                  {(['view', 'create', 'edit', 'delete', 'approve', 'export', 'lock'] as PermissionAction[]).map(act => (
-                    <th 
-                      key={act} 
-                      className="px-2 py-3 text-center cursor-pointer hover:bg-blue-100/60 transition-colors"
-                      onClick={() => handleToggleColumn(act)}
-                      title={`Bấm để chọn/bỏ chọn toàn bộ cột ${ACTION_LABELS[act].label}`}
-                    >
-                      <div className="flex flex-col items-center justify-center">
-                        <span className="text-blue-700">{ACTION_LABELS[act].label}</span>
-                        <span className="text-[9px] font-normal text-slate-500 lowercase">(chọn cột)</span>
-                      </div>
-                    </th>
-                  ))}
+          {/* Quick presets for easy teacher permission assignment */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <span>⚡</span> Phân quyền mẫu nhanh:
+              </span>
+              <button
+                type="button"
+                onClick={handleApplyTeacherPreset}
+                className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                title="Áp dụng ngay phân quyền chuẩn cho Giáo viên bộ môn"
+              >
+                <span>🎓</span> Mẫu Giáo viên bộ môn
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyTeacherHomeroomPreset}
+                className="px-3 py-1.5 text-xs font-bold text-blue-800 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                title="Áp dụng phân quyền Giáo viên kiêm Chủ nhiệm lớp"
+              >
+                <span>🏫</span> Mẫu Giáo viên Chủ nhiệm
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyViewOnlyPreset}
+                className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                title="Bật quyền Xem cho tất cả 18 module"
+              >
+                <span>👁</span> Xem tất cả module
+              </button>
+            </div>
 
-                  <th className="px-3 py-3 text-center w-24">Cả dòng</th>
+            <div className="text-[11px] font-semibold text-slate-500">
+              💡 Bấm vào <strong className="text-blue-700">Tiêu đề cột</strong> hoặc nút <strong className="text-blue-700">(chọn cột)</strong> để bật/tắt toàn bộ 18 module.
+            </div>
+          </div>
+
+          {/* Matrix Table with sticky headers & sticky title columns */}
+          <div className="overflow-x-auto overflow-y-auto max-h-[640px] border border-slate-300 rounded-xl shadow-inner relative bg-white">
+            <table className="min-w-full divide-y divide-slate-200 text-xs border-collapse">
+              <thead className="sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs text-slate-800 font-extrabold text-[11px] uppercase tracking-wider shadow-xs border-b-2 border-slate-300">
+                <tr>
+                  <th className="sticky top-0 left-0 z-40 bg-slate-100 px-3 py-3 text-center w-12 border-r border-slate-300 shadow-xs">
+                    STT
+                  </th>
+                  <th className="sticky top-0 left-12 z-40 bg-slate-100 px-4 py-3 text-left min-w-[260px] border-r border-slate-300 shadow-xs">
+                    Module Hệ thống (18 Modules)
+                  </th>
+                  
+                  {/* Actions columns with sticky header & quick interactive toggle button */}
+                  {(['view', 'create', 'edit', 'delete', 'approve', 'export', 'lock'] as PermissionAction[]).map(act => {
+                    const isAllCol = SYSTEM_MODULES_LIST.every(m => matrixPermissions[m.code]?.[act]);
+                    const isSomeCol = !isAllCol && SYSTEM_MODULES_LIST.some(m => matrixPermissions[m.code]?.[act]);
+
+                    return (
+                      <th 
+                        key={act} 
+                        className="sticky top-0 z-30 bg-slate-100 px-2.5 py-3 text-center cursor-pointer hover:bg-blue-100/80 transition-colors border-r border-slate-300 select-none"
+                        onClick={() => handleToggleColumn(act)}
+                        title={`Bấm để chọn/bỏ chọn toàn bộ cột ${ACTION_LABELS[act].label}`}
+                      >
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <span className="text-blue-900 font-black tracking-tight">{ACTION_LABELS[act].label}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleColumn(act);
+                            }}
+                            className={`flex items-center gap-1 text-[9.5px] px-2 py-0.5 rounded-full border transition-all cursor-pointer font-bold ${
+                              isAllCol 
+                                ? 'bg-blue-600 text-white border-blue-700 shadow-xs' 
+                                : isSomeCol 
+                                  ? 'bg-blue-100 text-blue-800 border-blue-300' 
+                                  : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
+                            }`}
+                            title={`Bấm để ${isAllCol ? 'bỏ chọn' : 'chọn'} tất cả 18 module cho quyền ${ACTION_LABELS[act].label}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isAllCol}
+                              ref={el => { if (el) el.indeterminate = isSomeCol; }}
+                              readOnly
+                              className="w-3 h-3 text-blue-600 rounded cursor-pointer pointer-events-none"
+                            />
+                            <span>{isAllCol ? 'Đã chọn' : isSomeCol ? 'Một phần' : 'Chọn cột'}</span>
+                          </button>
+                        </div>
+                      </th>
+                    );
+                  })}
+
+                  <th className="sticky top-0 z-30 bg-slate-100 px-3 py-3 text-center w-24">
+                    Cả dòng
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100 font-medium">
@@ -1181,11 +1287,11 @@ export default function AccountManagement() {
                   const isAllRow = Object.values(modPerm).every(Boolean);
 
                   return (
-                    <tr key={mod.code} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-2.5 text-center text-slate-500 font-bold">
+                    <tr key={mod.code} className="hover:bg-blue-50/30 transition-colors group">
+                      <td className="sticky left-0 z-20 bg-white group-hover:bg-blue-50/50 px-3 py-2.5 text-center text-slate-500 font-bold border-r border-slate-200">
                         {idx + 1}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="sticky left-12 z-20 bg-white group-hover:bg-blue-50/50 px-4 py-2.5 border-r border-slate-200">
                         <p className="font-bold text-slate-800">{mod.title}</p>
                         <p className="text-[10.5px] text-slate-500">{mod.shortDesc}</p>
                       </td>
@@ -1193,7 +1299,7 @@ export default function AccountManagement() {
                       {(['view', 'create', 'edit', 'delete', 'approve', 'export', 'lock'] as PermissionAction[]).map(act => {
                         const isChecked = !!modPerm[act];
                         return (
-                          <td key={act} className="px-2 py-2.5 text-center">
+                          <td key={act} className="px-2.5 py-2.5 text-center border-r border-slate-100">
                             <input
                               type="checkbox"
                               checked={isChecked}
@@ -1209,8 +1315,8 @@ export default function AccountManagement() {
                         <button
                           type="button"
                           onClick={() => handleToggleRow(mod.code)}
-                          className={`px-2 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                            isAllRow ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            isAllRow ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                           }`}
                         >
                           {isAllRow ? 'Tất cả' : 'Bật/Tắt'}
@@ -1242,9 +1348,9 @@ export default function AccountManagement() {
             </button>
           </div>
 
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+          <div className="overflow-x-auto overflow-y-auto max-h-[640px] border border-slate-200 rounded-xl relative shadow-inner">
             <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-700 font-extrabold text-[11px] uppercase tracking-wider">
+              <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700 font-extrabold text-[11px] uppercase tracking-wider shadow-xs border-b border-slate-300">
                 <tr>
                   <th className="px-3 py-3 text-center w-12">STT</th>
                   <th className="px-4 py-3 text-left">Thời gian</th>

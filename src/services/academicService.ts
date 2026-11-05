@@ -52,27 +52,40 @@ const safeStorage = {
   }
 };
 
+const normalizeYear = (y?: string): string => {
+  if (!y) return '2026-2027';
+  return y.replace(/[\u2010-\u2015]/g, '-').trim();
+};
+
 export const academicService = {
   async getRecords(schoolYear?: string, semester?: SemesterType, classId?: string): Promise<StudentAcademicRecord[]> {
     let list: StudentAcademicRecord[] = [];
+    const cached = safeStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        list = JSON.parse(cached);
+      } catch (err) {}
+    }
+
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.ACADEMIC_RECORDS));
-      if (!snap.empty) {
-        list = snap.docs.map(d => d.data() as StudentAcademicRecord);
-        safeStorage.setItem(CACHE_KEY, JSON.stringify(list));
-      }
+      const fetchPromise = async () => {
+        const snap = await getDocs(collection(db, COLLECTIONS.ACADEMIC_RECORDS));
+        if (!snap.empty) {
+          const freshList = snap.docs.map(d => d.data() as StudentAcademicRecord);
+          safeStorage.setItem(CACHE_KEY, JSON.stringify(freshList));
+          return freshList;
+        }
+        return list;
+      };
+      const timeoutPromise = new Promise<StudentAcademicRecord[]>((resolve) => setTimeout(() => resolve(list), 1200));
+      list = await Promise.race([fetchPromise(), timeoutPromise]);
     } catch (e) {
       console.warn('Cannot fetch academic records from Firestore, using cache:', e);
-      const cached = safeStorage.getItem(CACHE_KEY);
-      if (cached) {
-        try {
-          list = JSON.parse(cached);
-        } catch (err) {}
-      }
     }
 
     if (schoolYear && schoolYear !== 'All') {
-      list = list.filter(r => r.schoolYear === schoolYear);
+      const normY = normalizeYear(schoolYear);
+      list = list.filter(r => normalizeYear(r.schoolYear) === normY);
     }
     if (semester && semester !== ('All' as any)) {
       list = list.filter(r => r.semester === semester);
