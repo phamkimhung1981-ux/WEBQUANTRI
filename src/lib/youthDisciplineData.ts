@@ -311,6 +311,19 @@ export const DEFAULT_YOUTH_CRITERIA: YouthDisciplineCriterion[] = [
     description: 'Không dọn vệ sinh khu vực sân trường, cầu thang được phân công trực nhật',
     order: 19
   },
+  {
+    id: 'crit_vs_5',
+    code: 'VS05',
+    name: 'Học sinh ăn quà vặt trong lớp',
+    category: 'VE_SINH_MOI_TRUONG',
+    categoryName: 'Vệ sinh – Môi trường',
+    severity: 'Nhẹ',
+    minusPoints: 2,
+    affectCompetition: true,
+    status: 'active',
+    description: 'Học sinh ăn quà vặt, bánh kẹo, đồ ăn nhanh hoặc nước uống trong giờ học / trong lớp học gây mất vệ sinh',
+    order: 20
+  },
 
   // E. HỌC TẬP
   {
@@ -324,7 +337,7 @@ export const DEFAULT_YOUTH_CRITERIA: YouthDisciplineCriterion[] = [
     affectCompetition: true,
     status: 'active',
     description: 'Không học bài cũ, không hoàn thành bài tập về nhà',
-    order: 20
+    order: 21
   },
   {
     id: 'crit_ht_2',

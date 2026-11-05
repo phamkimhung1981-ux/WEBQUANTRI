@@ -209,5 +209,20 @@ export const DEFAULT_SYSTEM_MODULES: SystemModule[] = [
     showOnHome: true,
     showOnSidebar: true,
     isSystem: true
+  },
+  {
+    id: 'accounts',
+    title: 'QUẢN LÝ TÀI KHOẢN',
+    desc: 'Cấp tài khoản, phân quyền ma trận 7 cấp & bảo mật hệ thống',
+    icon: 'ShieldCheck',
+    route: '/accounts',
+    gradient: 'from-blue-700 to-indigo-800',
+    shadowColor: 'shadow-blue-500/30',
+    order: 11,
+    enabled: true,
+    allowedRoles: ['admin', 'ADMIN', 'BGH'],
+    showOnHome: true,
+    showOnSidebar: true,
+    isSystem: true
   }
 ];

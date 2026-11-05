@@ -282,6 +282,15 @@ export const youthDisciplineService = {
           await setDoc(doc(db, COLLECTIONS.CRITERIA, crit.id), crit);
         }
         safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(DEFAULT_YOUTH_CRITERIA));
+      } else {
+        // Đảm bảo các tiêu chí mới bổ sung (như lỗi Học sinh ăn quà vặt trong lớp) luôn được cập nhật vào Firestore
+        const existingIds = new Set(critSnap.docs.map(d => d.id));
+        const existingCodes = new Set(critSnap.docs.map(d => (d.data() as any).code));
+        for (const crit of DEFAULT_YOUTH_CRITERIA) {
+          if (!existingIds.has(crit.id) && !existingCodes.has(crit.code)) {
+            await setDoc(doc(db, COLLECTIONS.CRITERIA, crit.id), crit).catch(() => {});
+          }
+        }
       }
 
       // 1.2 Settings
@@ -339,6 +348,17 @@ export const youthDisciplineService = {
       const snap = await getDocs(collection(db, COLLECTIONS.CRITERIA));
       if (!snap.empty) {
         const list = snap.docs.map(d => d.data() as YouthDisciplineCriterion);
+        
+        // Đảm bảo tất cả tiêu chí chuẩn (kể cả tiêu chí mới thêm) đều có mặt
+        const existingCodes = new Set(list.map(c => c.code));
+        const existingNames = new Set(list.map(c => c.name.toLowerCase().trim()));
+        for (const defCrit of DEFAULT_YOUTH_CRITERIA) {
+          if (!existingCodes.has(defCrit.code) && !existingNames.has(defCrit.name.toLowerCase().trim())) {
+            list.push(defCrit);
+            setDoc(doc(db, COLLECTIONS.CRITERIA, defCrit.id), defCrit).catch(() => {});
+          }
+        }
+
         list.sort((a, b) => (a.order || 0) - (b.order || 0));
         safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
         return list;
@@ -350,7 +370,17 @@ export const youthDisciplineService = {
     const cached = safeStorage.getItem(CACHE_KEYS.CRITERIA);
     if (cached) {
       try {
-        return JSON.parse(cached);
+        let list: YouthDisciplineCriterion[] = JSON.parse(cached);
+        const existingCodes = new Set(list.map(c => c.code));
+        const existingNames = new Set(list.map(c => c.name.toLowerCase().trim()));
+        for (const defCrit of DEFAULT_YOUTH_CRITERIA) {
+          if (!existingCodes.has(defCrit.code) && !existingNames.has(defCrit.name.toLowerCase().trim())) {
+            list.push(defCrit);
+          }
+        }
+        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+        safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
+        return list;
       } catch (err) {
         console.error(err);
       }

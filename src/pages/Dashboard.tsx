@@ -17,16 +17,23 @@ import {
   RefreshCw,
   Award,
   ShieldCheck,
+  ShieldAlert,
   UserCheck,
-  Wrench
+  Wrench,
+  UserCog,
+  Layers,
+  Plane
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
+import { usePermission } from '../hooks/usePermission';
+import { ModuleCode } from '../types/permission';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { teachers, schoolStats, students, classes } = useAppContext();
   const { user } = useAuth();
+  const { canAccessModule, isAdmin } = usePermission();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Background image state: prioritize user's uploaded image if set in localStorage,
@@ -57,7 +64,15 @@ export default function Dashboard() {
   const schoolYear = schoolStats?.schoolYear || '2026 - 2027';
 
   // Main Modules with icons, descriptions and corresponding app routes
-  const modules = [
+  const modules: {
+    id: ModuleCode;
+    title: string;
+    desc: string;
+    icon: any;
+    route: string;
+    gradient: string;
+    shadowColor: string;
+  }[] = [
     {
       id: 'calendar',
       title: 'LỊCH CÔNG TÁC',
@@ -75,6 +90,15 @@ export default function Dashboard() {
       route: '/school-work-schedule',
       gradient: 'from-blue-600 to-indigo-600',
       shadowColor: 'shadow-blue-500/30'
+    },
+    {
+      id: 'department_schedule',
+      title: 'LỊCH GIAO VIỆC TỔ CM',
+      desc: 'Kế hoạch & Nhiệm vụ tổ bộ môn',
+      icon: ClipboardCheck,
+      route: '/department-schedule',
+      gradient: 'from-sky-600 to-blue-700',
+      shadowColor: 'shadow-sky-500/30'
     },
     {
       id: 'kpi_cbql',
@@ -104,13 +128,40 @@ export default function Dashboard() {
       shadowColor: 'shadow-teal-500/30'
     },
     {
-      id: 'discipline',
-      title: 'NỀN NẾP',
-      desc: 'Nền nếp & Nội quy',
-      icon: ShieldCheck,
-      route: '/discipline',
+      id: 'kpi_catalog',
+      title: 'DANH MỤC KPI',
+      desc: 'Bảng điểm & Tiêu chí xếp loại',
+      icon: Layers,
+      route: '/kpi-catalog',
+      gradient: 'from-indigo-600 to-violet-700',
+      shadowColor: 'shadow-indigo-500/30'
+    },
+    {
+      id: 'youth_discipline',
+      title: 'ĐOÀN TN – NỀN NẾP HS',
+      desc: 'Thi đua nề nếp, xử lý vi phạm',
+      icon: ShieldAlert,
+      route: '/youth-discipline',
       gradient: 'from-amber-500 to-orange-600',
       shadowColor: 'shadow-amber-500/30'
+    },
+    {
+      id: 'homeroom',
+      title: 'CÔNG TÁC CHỦ NHIỆM',
+      desc: 'Quản lý lớp, học sinh & sổ chủ nhiệm',
+      icon: Users,
+      route: '/homeroom',
+      gradient: 'from-cyan-600 to-blue-700',
+      shadowColor: 'shadow-cyan-500/30'
+    },
+    {
+      id: 'academic_tracking',
+      title: 'THEO DÕI HỌC TẬP',
+      desc: 'Điểm số & thi đua học tập các lớp',
+      icon: BookOpen,
+      route: '/academic-tracking',
+      gradient: 'from-violet-600 to-purple-700',
+      shadowColor: 'shadow-violet-500/30'
     },
     {
       id: 'teachers',
@@ -140,6 +191,15 @@ export default function Dashboard() {
       shadowColor: 'shadow-amber-500/30'
     },
     {
+      id: 'leaves',
+      title: 'NGHỈ PHÉP',
+      desc: 'Đơn nghỉ phép & theo dõi',
+      icon: Plane,
+      route: '/leaves',
+      gradient: 'from-emerald-500 to-teal-600',
+      shadowColor: 'shadow-emerald-500/30'
+    },
+    {
       id: 'reports',
       title: 'THỐNG KÊ',
       desc: 'Báo cáo & Tổng hợp',
@@ -147,8 +207,22 @@ export default function Dashboard() {
       route: '/reports',
       gradient: 'from-teal-500 to-emerald-600',
       shadowColor: 'shadow-teal-500/30'
+    },
+    {
+      id: 'accounts',
+      title: 'TÀI KHOẢN',
+      desc: 'Phân quyền & Tài khoản',
+      icon: UserCog,
+      route: '/accounts',
+      gradient: 'from-blue-700 to-indigo-800',
+      shadowColor: 'shadow-blue-500/30'
     }
   ];
+
+  const visibleModules = modules.filter(m => {
+    if (isAdmin) return true;
+    return canAccessModule(m.id);
+  });
 
   // Handle local background image change if user wants to select a file directly
   const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -273,9 +347,9 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto">
           <div 
             id="main-modules-grid"
-            className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2 sm:gap-2.5"
+            className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-2 sm:gap-2.5"
           >
-            {modules.map((mod) => {
+            {visibleModules.map((mod) => {
               const Icon = mod.icon;
               return (
                 <button

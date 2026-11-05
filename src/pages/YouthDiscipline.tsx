@@ -842,8 +842,8 @@ export default function YouthDisciplinePage() {
     }
   };
 
-  // Open modal to record a new violation
-  const openNewViolationModal = () => {
+  // Open modal to record a new violation (hỗ trợ chọn sẵn tiêu chí nhanh)
+  const openNewViolationModal = (presetCriterionCode?: string) => {
     setEditingViolation(null);
     const todayStr = new Date().toISOString().split('T')[0];
     const computedWeek = getWeekNumberFromDate(todayStr, selectedYear);
@@ -854,8 +854,8 @@ export default function YouthDisciplinePage() {
     setFormVioPeriod('Sáng');
     setFormVioWeek(defaultWeek);
     setFormVioTargetMode('single');
-    setFormVioContent('');
-    setFormVioLocation('Cổng trường');
+    setFormVioContent(presetCriterionCode === 'VS05' ? 'Học sinh ăn quà vặt trong lớp học (-02 điểm)' : '');
+    setFormVioLocation(presetCriterionCode === 'VS05' ? 'Trong lớp học' : 'Cổng trường');
     setFormVioRecordedByName(user?.name || 'Cán bộ Đoàn / Đội Cờ đỏ');
     setFormVioNotes('');
     setFormVioEvidenceUrl('');
@@ -885,8 +885,15 @@ export default function YouthDisciplinePage() {
     }
 
     if (criteria.length > 0) {
-      setFormVioCriterionId(criteria[0].id);
-      setFormVioMinusPoints(criteria[0].minusPoints);
+      const matched = presetCriterionCode
+        ? (criteria.find(c => c.code === presetCriterionCode || c.name.toLowerCase().includes('ăn quà vặt')) || criteria[0])
+        : criteria[0];
+      setFormVioCriterionId(matched.id);
+      setFormVioMinusPoints(matched.minusPoints);
+      if (matched.code === 'VS05' || presetCriterionCode === 'VS05') {
+        setFormVioContent('Học sinh ăn quà vặt trong lớp học (-02 điểm)');
+        setFormVioLocation('Trong lớp học');
+      }
     }
 
     setIsViolationModalOpen(true);
@@ -1648,7 +1655,16 @@ export default function YouthDisciplinePage() {
           <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
             <button
               type="button"
-              onClick={openNewViolationModal}
+              onClick={() => openNewViolationModal('VS05')}
+              className="px-3.5 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer backdrop-blur-xs"
+              title="Ghi nhận nhanh lỗi: Học sinh ăn quà vặt trong lớp (bị trừ 02 điểm)"
+            >
+              <span>🍿 Ghi lỗi Ăn quà vặt (-02đ)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openNewViolationModal()}
               className="px-4 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-amber-300"
             >
               <Plus size={18} />
@@ -3531,40 +3547,99 @@ export default function YouthDisciplinePage() {
               )}
 
               {/* Row 4: Chọn Tiêu chí vi phạm & Điểm trừ */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase">
                     Tiêu chí vi phạm <span className="text-rose-500">*</span>
                   </label>
-                  <select
-                    value={formVioCriterionId}
-                    onChange={e => {
-                      setFormVioCriterionId(e.target.value);
-                      const found = criteria.find(c => c.id === e.target.value);
-                      if (found) {
-                        setFormVioMinusPoints(found.minusPoints);
-                      }
-                    }}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none cursor-pointer"
-                  >
-                    {criteria.map(c => (
-                      <option key={c.id} value={c.id}>
-                        [{c.code}] {c.name} (-{c.minusPoints}đ • {c.severity})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[11px] font-medium text-slate-500">Chọn nhanh:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const found = criteria.find(c => c.code === 'VS05' || c.name.toLowerCase().includes('ăn quà vặt'));
+                        if (found) {
+                          setFormVioCriterionId(found.id);
+                          setFormVioMinusPoints(found.minusPoints);
+                          if (!formVioContent || formVioContent.trim() === '') {
+                            setFormVioContent('Học sinh ăn quà vặt trong lớp học (-02 điểm)');
+                          }
+                          if (formVioLocation === 'Cổng trường' || !formVioLocation) {
+                            setFormVioLocation('Trong lớp học');
+                          }
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                        criteria.find(c => c.id === formVioCriterionId)?.code === 'VS05' ||
+                        criteria.find(c => c.id === formVioCriterionId)?.name.toLowerCase().includes('ăn quà vặt')
+                          ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                          : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                      }`}
+                      title="Lỗi Học sinh ăn quà vặt trong lớp - trừ 02 điểm"
+                    >
+                      🍿 Ăn quà vặt (-02đ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const found = criteria.find(c => c.code === 'CC02' || c.name.toLowerCase().includes('đi học muộn'));
+                        if (found) {
+                          setFormVioCriterionId(found.id);
+                          setFormVioMinusPoints(found.minusPoints);
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer"
+                    >
+                      ⏰ Đi muộn (-2đ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const found = criteria.find(c => c.code === 'TP01' || c.name.toLowerCase().includes('đồng phục'));
+                        if (found) {
+                          setFormVioCriterionId(found.id);
+                          setFormVioMinusPoints(found.minusPoints);
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer"
+                    >
+                      👕 Đồng phục (-2đ)
+                    </button>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Điểm trừ áp dụng <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={formVioMinusPoints}
-                    onChange={e => setFormVioMinusPoints(Number(e.target.value))}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-black text-rose-600 text-center outline-none"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <select
+                      value={formVioCriterionId}
+                      onChange={e => {
+                        setFormVioCriterionId(e.target.value);
+                        const found = criteria.find(c => c.id === e.target.value);
+                        if (found) {
+                          setFormVioMinusPoints(found.minusPoints);
+                        }
+                      }}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none cursor-pointer"
+                    >
+                      {criteria.map(c => (
+                        <option key={c.id} value={c.id}>
+                          [{c.code}] {c.name} (-{c.minusPoints}đ • {c.severity})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1 sm:hidden">
+                      Điểm trừ áp dụng <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={formVioMinusPoints}
+                      onChange={e => setFormVioMinusPoints(Number(e.target.value))}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-black text-rose-600 text-center outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 

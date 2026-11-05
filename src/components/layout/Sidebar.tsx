@@ -22,8 +22,11 @@ import {
   UserCheck,
   FileSpreadsheet,
   Briefcase,
-  Wrench
+  Wrench,
+  UserCog
 } from 'lucide-react';
+import { usePermission } from '../../hooks/usePermission';
+import { ModuleCode } from '../../types/permission';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -33,29 +36,37 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, setIsOpen, hideOnDesktop = false }: SidebarProps) {
   const location = useLocation();
+  const { canAccessModule, isAdmin } = usePermission();
 
-  const navigation = [
-    { name: 'Trang chủ', href: '/', icon: Home },
-    { name: 'Lịch công tác', href: '/calendar', icon: CalendarDays },
-    { name: 'Lịch công việc trường', href: '/school-work-schedule', icon: Calendar },
-    { name: 'Lịch giao việc tổ CM', href: '/department-schedule', icon: FileSpreadsheet },
-    { name: 'Đoàn TN - Nền nếp HS', href: '/youth-discipline', icon: ShieldAlert },
-    { name: 'Lịch trực Đoàn TN', href: '/youth-duty-schedule', icon: CalendarDays },
-    { name: 'Theo dõi học tập', href: '/academic-tracking', icon: BookOpen },
-    { name: 'KPI Cán bộ Quản lý', href: '/kpi-cbql', icon: Award },
-    { name: 'KPI Giáo viên', href: '/kpi-gvnv', icon: GraduationCap },
-    { name: 'KPI Nhân viên', href: '/kpi-nv', icon: UserCheck },
-    { name: 'Danh mục & Bảng điểm KPI', href: '/kpi-catalog', icon: Layers },
-    { name: 'Nền nếp & Nội quy CBGV', href: '/discipline', icon: ShieldCheck },
-    { name: 'Công tác chủ nhiệm', href: '/homeroom', icon: Users },
-    { name: 'Báo hỏng CSVC', href: '/facility-damage', icon: Wrench },
-    { name: 'Quản lý CBGVNV', href: '/teachers', icon: GraduationCap },
-    { name: 'Tổ chuyên môn', href: '/departments', icon: UserSquare2 },
-    { name: 'Tổ Văn phòng', href: '/van-phong', icon: Briefcase },
-    { name: 'Nghỉ phép', href: '/leaves', icon: Plane },
-    { name: 'Thống kê - Báo cáo', href: '/reports', icon: BarChart3 },
-    { name: 'Hệ thống', href: '/settings', icon: Settings },
+  const navigation: { name: string; href: string; icon: any; moduleCode?: ModuleCode }[] = [
+    { name: 'Trang chủ', href: '/', icon: Home, moduleCode: 'home' },
+    { name: 'Lịch công tác', href: '/calendar', icon: CalendarDays, moduleCode: 'calendar' },
+    { name: 'Lịch công việc trường', href: '/school-work-schedule', icon: Calendar, moduleCode: 'school_work_schedule' },
+    { name: 'Lịch giao việc tổ CM', href: '/department-schedule', icon: FileSpreadsheet, moduleCode: 'department_schedule' },
+    { name: 'Đoàn TN - Nền nếp HS', href: '/youth-discipline', icon: ShieldAlert, moduleCode: 'youth_discipline' },
+    { name: 'Lịch trực Đoàn TN', href: '/youth-duty-schedule', icon: CalendarDays, moduleCode: 'youth_duty_schedule' },
+    { name: 'Theo dõi học tập', href: '/academic-tracking', icon: BookOpen, moduleCode: 'academic_tracking' },
+    { name: 'KPI Cán bộ Quản lý', href: '/kpi-cbql', icon: Award, moduleCode: 'kpi_cbql' },
+    { name: 'KPI Giáo viên', href: '/kpi-gvnv', icon: GraduationCap, moduleCode: 'kpi_gvnv' },
+    { name: 'KPI Nhân viên', href: '/kpi-nv', icon: UserCheck, moduleCode: 'kpi_nv' },
+    { name: 'Danh mục & Bảng điểm KPI', href: '/kpi-catalog', icon: Layers, moduleCode: 'kpi_catalog' },
+    { name: 'Nền nếp & Nội quy CBGV', href: '/discipline', icon: ShieldCheck, moduleCode: 'youth_discipline' },
+    { name: 'Công tác chủ nhiệm', href: '/homeroom', icon: Users, moduleCode: 'homeroom' },
+    { name: 'Báo hỏng CSVC', href: '/facility-damage', icon: Wrench, moduleCode: 'facility_damage' },
+    { name: 'Quản lý CBGVNV', href: '/teachers', icon: GraduationCap, moduleCode: 'teachers' },
+    { name: 'Tổ chuyên môn', href: '/departments', icon: UserSquare2, moduleCode: 'departments' },
+    { name: 'Tổ Văn phòng', href: '/van-phong', icon: Briefcase, moduleCode: 'departments' },
+    { name: 'Nghỉ phép', href: '/leaves', icon: Plane, moduleCode: 'leaves' },
+    { name: 'Thống kê - Báo cáo', href: '/reports', icon: BarChart3, moduleCode: 'reports' },
+    { name: 'Quản lý tài khoản', href: '/accounts', icon: UserCog, moduleCode: 'accounts' },
+    { name: 'Hệ thống', href: '/settings', icon: Settings, moduleCode: 'accounts' },
   ];
+
+  const visibleNavigation = navigation.filter(item => {
+    if (isAdmin) return true;
+    if (!item.moduleCode) return true;
+    return canAccessModule(item.moduleCode);
+  });
 
   return (
     <>
@@ -108,7 +119,7 @@ export default function Sidebar({ isOpen, setIsOpen, hideOnDesktop = false }: Si
         </div>
 
         <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const isActive = item.href === '/' ? location.pathname === '/' : location.pathname.startsWith(item.href);
             
             return (

@@ -14,10 +14,20 @@ import {
   TrendingUp, 
   Settings as SettingsIcon,
   Camera,
-  UserCheck
+  UserCheck,
+  KeyRound,
+  ShieldCheck,
+  AlertCircle,
+  CheckCircle2,
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useAuth } from '../../store/AuthContext';
 import { useAppContext } from '../../store/AppContext';
+import { usePermission } from '../../hooks/usePermission';
+import { ModuleCode } from '../../types/permission';
+import { accountService } from '../../services/accountService';
 import Avatar from '../ui/Avatar';
 import AvatarModal from '../profile/AvatarModal';
 import BackToHomeButton from '../ui/BackToHomeButton';
@@ -33,9 +43,21 @@ interface HeaderProps {
 export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
   const { user, logout, updateUser } = useAuth();
   const { notifications, updateTeacher } = useAppContext();
+  const { canAccessModule, isAdmin } = usePermission();
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Change password modal state
+  const [isChangePassModalOpen, setIsChangePassModalOpen] = useState(false);
+  const [currentPass, setCurrentPass] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [cpLoading, setCpLoading] = useState(false);
+  const [cpError, setCpError] = useState<string | null>(null);
+  const [cpSuccess, setCpSuccess] = useState<string | null>(null);
 
   const [isQuota, setIsQuota] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -76,14 +98,57 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
     }
   };
 
-  const navMenuItems = [
-    { name: 'Trang chủ', path: '/', icon: Home, matchPaths: ['/'] },
-    { name: 'Lịch công tác', path: '/calendar', icon: CalendarDays, matchPaths: ['/calendar'] },
-    { name: 'CBGVNV', path: '/teachers', icon: Users, matchPaths: ['/teachers'] },
-    { name: 'KPI Giáo viên', path: '/kpi-gvnv', icon: GraduationCap, matchPaths: ['/kpi-gvnv'] },
-    { name: 'KPI Nhân viên', path: '/kpi-nv', icon: UserCheck, matchPaths: ['/kpi-nv', '/kpi-nhan-vien', '/kpi-staff'] },
-    { name: 'Thống kê', path: '/reports', icon: TrendingUp, matchPaths: ['/reports', '/analytics'] },
+  const navMenuItems: { name: string; path: string; icon: any; matchPaths: string[]; moduleCode: ModuleCode }[] = [
+    { name: 'Trang chủ', path: '/', icon: Home, matchPaths: ['/'], moduleCode: 'home' },
+    { name: 'Lịch công tác', path: '/calendar', icon: CalendarDays, matchPaths: ['/calendar'], moduleCode: 'calendar' },
+    { name: 'CBGVNV', path: '/teachers', icon: Users, matchPaths: ['/teachers'], moduleCode: 'teachers' },
+    { name: 'KPI Giáo viên', path: '/kpi-gvnv', icon: GraduationCap, matchPaths: ['/kpi-gvnv'], moduleCode: 'kpi_gvnv' },
+    { name: 'KPI Nhân viên', path: '/kpi-nv', icon: UserCheck, matchPaths: ['/kpi-nv', '/kpi-nhan-vien', '/kpi-staff'], moduleCode: 'kpi_nv' },
+    { name: 'Thống kê', path: '/reports', icon: TrendingUp, matchPaths: ['/reports', '/analytics'], moduleCode: 'reports' },
   ];
+
+  const visibleNavMenuItems = navMenuItems.filter(item => {
+    if (isAdmin) return true;
+    return canAccessModule(item.moduleCode);
+  });
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setCpError(null);
+    setCpSuccess(null);
+
+    if (!currentPass) {
+      setCpError('Vui lòng nhập mật khẩu hiện tại.');
+      return;
+    }
+    if (!newPass || newPass.length < 6) {
+      setCpError('Mật khẩu mới phải có ít nhất 6 ký tự.');
+      return;
+    }
+    if (newPass !== confirmPass) {
+      setCpError('Mật khẩu xác nhận không khớp.');
+      return;
+    }
+
+    setCpLoading(true);
+    try {
+      const res = await accountService.changePassword(
+        user.username,
+        currentPass,
+        newPass,
+        user.name
+      );
+      setCpSuccess(res.message || 'Đổi mật khẩu thành công!');
+      setCurrentPass('');
+      setNewPass('');
+      setConfirmPass('');
+    } catch (err: any) {
+      setCpError(err?.message || 'Lỗi khi đổi mật khẩu.');
+    } finally {
+      setCpLoading(false);
+    }
+  };
 
   const getRoleDisplayName = (role?: string) => {
     switch (role) {
@@ -172,7 +237,7 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
           id="main-nav-bar"
           className="hidden xl:flex items-center gap-1.5 bg-white/70 backdrop-blur-md p-1.5 rounded-2xl border border-white/70 shadow-sm"
         >
-          {navMenuItems.map((item) => {
+          {visibleNavMenuItems.map((item) => {
             const isActive = item.matchPaths.some(p => 
               p === '/' ? location.pathname === '/' : location.pathname.startsWith(p)
             );
@@ -261,7 +326,7 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
                       setIsUserMenuOpen(false);
                       setIsAvatarModalOpen(true);
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#1457D9] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#1457D9] transition-colors cursor-pointer"
                   >
                     <Camera size={15} className="text-slate-500" />
                     <span>Đổi ảnh đại diện</span>
@@ -270,13 +335,42 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
                   <button
                     onClick={() => {
                       setIsUserMenuOpen(false);
+                      setCurrentPass('');
+                      setNewPass('');
+                      setConfirmPass('');
+                      setCpError(null);
+                      setCpSuccess(null);
+                      setIsChangePassModalOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#1457D9] transition-colors cursor-pointer"
+                  >
+                    <KeyRound size={15} className="text-slate-500" />
+                    <span>Đổi mật khẩu</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
                       navigate('/settings');
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#1457D9] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#1457D9] transition-colors cursor-pointer"
                   >
                     <SettingsIcon size={15} className="text-slate-500" />
                     <span>Cài đặt & Hồ sơ</span>
                   </button>
+
+                  {(isAdmin || canAccessModule('accounts')) && (
+                    <button
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        navigate('/accounts');
+                      }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+                    >
+                      <Users size={15} className="text-blue-600" />
+                      <span>Quản lý tài khoản</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="border-t border-slate-100 pt-1 mt-1">
@@ -285,7 +379,7 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
                       setIsUserMenuOpen(false);
                       logout();
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors"
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                   >
                     <LogOut size={15} className="text-rose-500" />
                     <span>Đăng xuất</span>
@@ -304,6 +398,121 @@ export default function Header({ onMenuClick, isDashboard }: HeaderProps) {
         userName={user?.name || 'Nguyễn Văn A'}
         onSave={handleSaveAvatar}
       />
+
+      {/* Change Password Modal */}
+      {isChangePassModalOpen && (
+        <div className="fixed inset-0 z-500 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-blue-700 to-indigo-700 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/15 rounded-xl">
+                  <KeyRound size={18} />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm">ĐỔI MẬT KHẨU TÀI KHOẢN</h3>
+                  <p className="text-[11px] text-blue-100">Cập nhật mật khẩu cho {user?.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsChangePassModalOpen(false)}
+                className="p-1.5 hover:bg-white/20 rounded-xl transition-colors cursor-pointer text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="p-6 space-y-3.5 text-xs font-semibold">
+              {cpError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0 text-rose-600" />
+                  <span>{cpError}</span>
+                </div>
+              )}
+
+              {cpSuccess && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+                  <span>{cpSuccess}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Mật khẩu hiện tại *</label>
+                <div className="relative">
+                  <input
+                    type={showCurrentPass ? 'text' : 'password'}
+                    required
+                    value={currentPass}
+                    onChange={(e) => setCurrentPass(e.target.value)}
+                    className="w-full pl-3 pr-10 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 font-semibold"
+                    placeholder="Nhập mật khẩu hiện tại"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPass(!showCurrentPass)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showCurrentPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Mật khẩu mới (tối thiểu 6 ký tự) *</label>
+                <div className="relative">
+                  <input
+                    type={showNewPass ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={newPass}
+                    onChange={(e) => setNewPass(e.target.value)}
+                    className="w-full pl-3 pr-10 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 font-semibold"
+                    placeholder="Nhập mật khẩu mới"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPass(!showNewPass)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showNewPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Xác nhận mật khẩu mới *</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={confirmPass}
+                  onChange={(e) => setConfirmPass(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 font-semibold"
+                  placeholder="Nhập lại mật khẩu mới"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsChangePassModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors font-bold cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="submit"
+                  disabled={cpLoading}
+                  className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl shadow-md transition-all font-black flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {cpLoading ? "Đang xử lý..." : "Lưu mật khẩu"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

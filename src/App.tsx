@@ -29,6 +29,36 @@ import YouthDutySchedule from './pages/YouthDutySchedule';
 import OfficeDepartment from './pages/OfficeDepartment';
 import FacilityDamagePage from './pages/FacilityDamage';
 import AcademicTrackingPage from './pages/AcademicTracking';
+import AccountManagement from './pages/AccountManagement';
+import { usePermission } from './hooks/usePermission';
+import { ModuleCode } from './types/permission';
+import { ShieldAlert } from 'lucide-react';
+
+function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; children: React.ReactNode }) {
+  const { canAccessModule, isAdmin } = usePermission();
+  if (isAdmin || canAccessModule(moduleCode)) {
+    return <>{children}</>;
+  }
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center p-6 text-center">
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-lg max-w-md w-full">
+        <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
+          <ShieldAlert size={28} />
+        </div>
+        <h3 className="text-lg font-black text-slate-800 mb-1">Không có quyền truy cập</h3>
+        <p className="text-xs text-slate-600 mb-6 leading-relaxed font-semibold">
+          Bạn không có quyền truy cập chức năng này. Vui lòng liên hệ Quản trị hệ thống.
+        </p>
+        <a
+          href="/"
+          className="inline-flex items-center justify-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
+        >
+          Quay lại Trang chủ
+        </a>
+      </div>
+    </div>
+  );
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -53,54 +83,69 @@ function AppRoutes() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/kpi-cbql" element={<KpiCbql />} />
-        <Route path="/kpi-gvnv" element={<KpiTeacherStaff />} />
-        <Route path="/kpi-nv" element={<KpiStaff />} />
-        <Route path="/kpi-nhan-vien" element={<KpiStaff />} />
-        <Route path="/kpi-staff" element={<KpiStaff />} />
-        <Route path="/kpi-catalog" element={<KpiCatalog />} />
-        <Route path="/kpi" element={<KpiCatalog />} />
-        <Route path="/monthly-kpi" element={<KpiCatalog />} />
-        <Route path="/discipline" element={<Discipline />} />
-        <Route path="/nen-nep" element={<Discipline />} />
-        <Route path="/youth-discipline" element={<YouthDiscipline />} />
-        <Route path="/doan-tn/nen-nep-hoc-sinh" element={<YouthDiscipline />} />
-        <Route path="/nen-nep-hoc-sinh" element={<YouthDiscipline />} />
-        <Route path="/doan-thanh-nien" element={<YouthDiscipline />} />
-        <Route path="/youth-duty-schedule" element={<YouthDutySchedule />} />
-        <Route path="/lich-truc-doan" element={<YouthDutySchedule />} />
-        <Route path="/lich-truc-doan-tn" element={<YouthDutySchedule />} />
-        <Route path="/doan-tn/lich-truc" element={<YouthDutySchedule />} />
-        <Route path="/homeroom" element={<Homeroom />} />
-        <Route path="/cong-tac-chu-nhiem" element={<Homeroom />} />
-        <Route path="/chu-nhiem" element={<Homeroom />} />
-        <Route path="/facility-damage" element={<FacilityDamagePage />} />
-        <Route path="/academic-tracking" element={<AcademicTrackingPage />} />
-        <Route path="/hoc-tap" element={<AcademicTrackingPage />} />
-        <Route path="/theo-doi-hoc-tap" element={<AcademicTrackingPage />} />
-        <Route path="/bao-hong-csvc" element={<FacilityDamagePage />} />
-        <Route path="/co-so-vat-chat" element={<FacilityDamagePage />} />
+        <Route path="/" element={<PermissionGuard moduleCode="home"><Dashboard /></PermissionGuard>} />
+        
+        {/* KPI Modules */}
+        <Route path="/kpi-cbql" element={<PermissionGuard moduleCode="kpi_cbql"><KpiCbql /></PermissionGuard>} />
+        <Route path="/kpi-gvnv" element={<PermissionGuard moduleCode="kpi_gvnv"><KpiTeacherStaff /></PermissionGuard>} />
+        <Route path="/kpi-nv" element={<PermissionGuard moduleCode="kpi_nv"><KpiStaff /></PermissionGuard>} />
+        <Route path="/kpi-nhan-vien" element={<PermissionGuard moduleCode="kpi_nv"><KpiStaff /></PermissionGuard>} />
+        <Route path="/kpi-staff" element={<PermissionGuard moduleCode="kpi_nv"><KpiStaff /></PermissionGuard>} />
+        <Route path="/kpi-catalog" element={<PermissionGuard moduleCode="kpi_catalog"><KpiCatalog /></PermissionGuard>} />
+        <Route path="/kpi" element={<PermissionGuard moduleCode="kpi_catalog"><KpiCatalog /></PermissionGuard>} />
+        <Route path="/monthly-kpi" element={<PermissionGuard moduleCode="kpi_catalog"><KpiCatalog /></PermissionGuard>} />
+        
+        {/* Nền nếp & Đoàn Thanh niên */}
+        <Route path="/discipline" element={<PermissionGuard moduleCode="youth_discipline"><Discipline /></PermissionGuard>} />
+        <Route path="/nen-nep" element={<PermissionGuard moduleCode="youth_discipline"><Discipline /></PermissionGuard>} />
+        <Route path="/youth-discipline" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />
+        <Route path="/doan-tn/nen-nep-hoc-sinh" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />
+        <Route path="/nen-nep-hoc-sinh" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />
+        <Route path="/doan-thanh-nien" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />
+        <Route path="/youth-duty-schedule" element={<PermissionGuard moduleCode="youth_duty_schedule"><YouthDutySchedule /></PermissionGuard>} />
+        <Route path="/lich-truc-doan" element={<PermissionGuard moduleCode="youth_duty_schedule"><YouthDutySchedule /></PermissionGuard>} />
+        <Route path="/lich-truc-doan-tn" element={<PermissionGuard moduleCode="youth_duty_schedule"><YouthDutySchedule /></PermissionGuard>} />
+        <Route path="/doan-tn/lich-truc" element={<PermissionGuard moduleCode="youth_duty_schedule"><YouthDutySchedule /></PermissionGuard>} />
+        
+        {/* Chủ nhiệm & Học tập */}
+        <Route path="/homeroom" element={<PermissionGuard moduleCode="homeroom"><Homeroom /></PermissionGuard>} />
+        <Route path="/cong-tac-chu-nhiem" element={<PermissionGuard moduleCode="homeroom"><Homeroom /></PermissionGuard>} />
+        <Route path="/chu-nhiem" element={<PermissionGuard moduleCode="homeroom"><Homeroom /></PermissionGuard>} />
+        <Route path="/academic-tracking" element={<PermissionGuard moduleCode="academic_tracking"><AcademicTrackingPage /></PermissionGuard>} />
+        <Route path="/hoc-tap" element={<PermissionGuard moduleCode="academic_tracking"><AcademicTrackingPage /></PermissionGuard>} />
+        <Route path="/theo-doi-hoc-tap" element={<PermissionGuard moduleCode="academic_tracking"><AcademicTrackingPage /></PermissionGuard>} />
+        
+        {/* CSVC & Lịch công tác */}
+        <Route path="/facility-damage" element={<PermissionGuard moduleCode="facility_damage"><FacilityDamagePage /></PermissionGuard>} />
+        <Route path="/bao-hong-csvc" element={<PermissionGuard moduleCode="facility_damage"><FacilityDamagePage /></PermissionGuard>} />
+        <Route path="/co-so-vat-chat" element={<PermissionGuard moduleCode="facility_damage"><FacilityDamagePage /></PermissionGuard>} />
         <Route path="/tasks" element={<Navigate to="/school-work-schedule" replace />} />
         <Route path="/tasks/:deptSlug" element={<Navigate to="/school-work-schedule" replace />} />
-        <Route path="/school-work-schedule" element={<SchoolWorkSchedule />} />
-        <Route path="/lich-cong-viec" element={<SchoolWorkSchedule />} />
-        <Route path="/lich-cong-viec-truong" element={<SchoolWorkSchedule />} />
-        <Route path="/work-schedule" element={<SchoolWorkSchedule />} />
-        <Route path="/leaves" element={<LeaveTracking />} />
-        <Route path="/teachers" element={<Teachers />} />
-        <Route path="/departments" element={<Departments />} />
-        <Route path="/van-phong" element={<OfficeDepartment />} />
-        <Route path="/to-van-phong" element={<OfficeDepartment />} />
-        <Route path="/office-department" element={<OfficeDepartment />} />
-        <Route path="/office-staff" element={<OfficeDepartment />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/calendar" element={<Calendar />} />
-        <Route path="/department-schedule" element={<DepartmentSchedule />} />
-        <Route path="/department-schedules" element={<DepartmentSchedule />} />
-        <Route path="/lich-giao-viec-to" element={<DepartmentSchedule />} />
-        <Route path="/lich-to-chuyen-mon" element={<DepartmentSchedule />} />
-        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/school-work-schedule" element={<PermissionGuard moduleCode="school_work_schedule"><SchoolWorkSchedule /></PermissionGuard>} />
+        <Route path="/lich-cong-viec" element={<PermissionGuard moduleCode="school_work_schedule"><SchoolWorkSchedule /></PermissionGuard>} />
+        <Route path="/lich-cong-viec-truong" element={<PermissionGuard moduleCode="school_work_schedule"><SchoolWorkSchedule /></PermissionGuard>} />
+        <Route path="/work-schedule" element={<PermissionGuard moduleCode="school_work_schedule"><SchoolWorkSchedule /></PermissionGuard>} />
+        <Route path="/calendar" element={<PermissionGuard moduleCode="calendar"><Calendar /></PermissionGuard>} />
+        <Route path="/department-schedule" element={<PermissionGuard moduleCode="department_schedule"><DepartmentSchedule /></PermissionGuard>} />
+        <Route path="/department-schedules" element={<PermissionGuard moduleCode="department_schedule"><DepartmentSchedule /></PermissionGuard>} />
+        <Route path="/lich-giao-viec-to" element={<PermissionGuard moduleCode="department_schedule"><DepartmentSchedule /></PermissionGuard>} />
+        <Route path="/lich-to-chuyen-mon" element={<PermissionGuard moduleCode="department_schedule"><DepartmentSchedule /></PermissionGuard>} />
+        
+        {/* Nhân sự, Tổ chuyên môn & Văn phòng */}
+        <Route path="/leaves" element={<PermissionGuard moduleCode="leaves"><LeaveTracking /></PermissionGuard>} />
+        <Route path="/teachers" element={<PermissionGuard moduleCode="teachers"><Teachers /></PermissionGuard>} />
+        <Route path="/departments" element={<PermissionGuard moduleCode="departments"><Departments /></PermissionGuard>} />
+        <Route path="/van-phong" element={<PermissionGuard moduleCode="departments"><OfficeDepartment /></PermissionGuard>} />
+        <Route path="/to-van-phong" element={<PermissionGuard moduleCode="departments"><OfficeDepartment /></PermissionGuard>} />
+        <Route path="/office-department" element={<PermissionGuard moduleCode="departments"><OfficeDepartment /></PermissionGuard>} />
+        <Route path="/office-staff" element={<PermissionGuard moduleCode="departments"><OfficeDepartment /></PermissionGuard>} />
+        
+        {/* Báo cáo & Tài khoản */}
+        <Route path="/reports" element={<PermissionGuard moduleCode="reports"><Reports /></PermissionGuard>} />
+        <Route path="/analytics" element={<PermissionGuard moduleCode="reports"><Analytics /></PermissionGuard>} />
+        <Route path="/accounts" element={<PermissionGuard moduleCode="accounts"><AccountManagement /></PermissionGuard>} />
+        <Route path="/account-management" element={<PermissionGuard moduleCode="accounts"><AccountManagement /></PermissionGuard>} />
+        <Route path="/quan-ly-tai-khoan" element={<PermissionGuard moduleCode="accounts"><AccountManagement /></PermissionGuard>} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
