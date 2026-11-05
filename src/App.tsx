@@ -69,7 +69,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { user } = useAuth();
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center font-sans">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <h2 className="text-white font-black text-lg tracking-tight">Đang kiểm tra xác thực hệ thống...</h2>
+        <p className="text-xs text-slate-400 mt-1">Trường THPT Sơn Lương</p>
+      </div>
+    );
+  }
 
   if (!user) {
     return (

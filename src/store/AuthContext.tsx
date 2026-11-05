@@ -20,6 +20,7 @@ export interface AppUser extends User {
 
 interface AuthContextType {
   user: AppUser | null;
+  authLoading: boolean;
   isAdmin: boolean;
   login: (username: string, password?: string) => Promise<boolean>;
   logout: () => void;
@@ -37,6 +38,7 @@ const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const clearError = () => setError(null);
@@ -106,6 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         console.error('Error initializing auth:', e);
         setUser(null);
+      } finally {
+        setAuthLoading(false);
       }
     };
 
@@ -392,7 +396,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, login, logout, updateUser, changePassword, switchRoleForDemo, error, clearError }}>
+    <AuthContext.Provider value={{ user, authLoading, isAdmin, login, logout, updateUser, changePassword, switchRoleForDemo, error, clearError }}>
       {children}
     </AuthContext.Provider>
   );
