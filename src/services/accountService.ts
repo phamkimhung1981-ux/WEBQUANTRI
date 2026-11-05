@@ -55,14 +55,19 @@ export function detectRoleGroupByPosition(position: string = '', departmentId: s
 export async function hashPassword(password: string): Promise<string> {
   if (!password) return '';
   try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + '_thpt_son_luong_salt_2026');
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password + '_thpt_son_luong_salt_2026');
+      const hashPromise = window.crypto.subtle.digest('SHA-256', data);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500));
+      const hashBuffer = await Promise.race([hashPromise, timeoutPromise]) as ArrayBuffer;
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
   } catch (e) {
-    return 'h_' + btoa(unescape(encodeURIComponent(password)));
+    // fallback
   }
+  return 'h_' + btoa(unescape(encodeURIComponent(password)));
 }
 
 export const accountService = {
