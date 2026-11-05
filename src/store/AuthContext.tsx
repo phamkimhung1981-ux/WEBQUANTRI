@@ -4,7 +4,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { isAdminUser } from '../lib/moduleData';
 import { AccountRecord, RoleGroupCode } from '../types/permission';
-import { detectRoleGroupByPosition, hashPassword, accountService } from '../services/accountService';
+import { detectRoleGroupByPosition, hashPassword, accountService, getStoredUserPassword } from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
 export interface AppUser extends User {
@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (usernameInput: string, passwordInput?: string): Promise<boolean> => {
     setError(null);
-    const cleanUsername = usernameInput.trim();
+    const cleanUsername = usernameInput.trim().toLowerCase();
     if (!cleanUsername) {
       setError('Vui lòng nhập tên đăng nhập.');
       return false;
@@ -135,12 +135,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const inputPasswordTrim = passwordInput.trim();
+    const hashedInput = await hashPassword(inputPasswordTrim);
 
-    // 0. Instant Admin login (no blocking network calls)
-    if (cleanUsername.toLowerCase() === 'admin') {
+    // 0. Check custom changed password stored in localStorage
+    const customPass = getStoredUserPassword(cleanUsername);
+
+    if (customPass) {
+      const isCustomMatch = (
+        inputPasswordTrim === customPass.plain ||
+        inputPasswordTrim === customPass.hash ||
+        hashedInput === customPass.hash
+      );
+
+      if (!isCustomMatch) {
+        setError('Mật khẩu không chính xác. Thầy/Cô đã đổi mật khẩu, vui lòng nhập mật khẩu mới đã đăng ký.');
+        return false;
+      }
+
+      if (cleanUsername === 'admin') {
+        const adminUser: AppUser = {
+          id: 'admin',
+          name: 'Quản trị viên Hệ thống',
+          role: 'admin',
+          roleGroup: 'ADMIN',
+          username: 'admin',
+          position: 'Quản trị viên',
+          departmentName: 'Ban Quản trị',
+          accountStatus: 'Đang hoạt động'
+        };
+        const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
+        setUser(adminUser);
+        sessionStorage.setItem('authUser', JSON.stringify(adminUser));
+        sessionStorage.setItem('authSessionExpiry', String(expiryTime));
+        return true;
+      }
+
+      const foundDefaultTeacher = DEFAULT_TEACHERS.find(t => 
+        t.username && String(t.username).trim().toLowerCase() === cleanUsername
+      );
+      if (foundDefaultTeacher) {
+        if (foundDefaultTeacher.accountStatus === 'Đã khóa') {
+          setError('Tài khoản của thầy/cô đã bị khóa. Vui lòng liên hệ Ban Giám hiệu.');
+          return false;
+        }
+        const roleGroup = detectRoleGroupByPosition(foundDefaultTeacher.position, foundDefaultTeacher.departmentId);
+        const appUser: AppUser = {
+          id: foundDefaultTeacher.id,
+          name: foundDefaultTeacher.name,
+          username: foundDefaultTeacher.username || cleanUsername,
+          role: foundDefaultTeacher.role || 'GIAO_VIEN',
+          roleGroup,
+          position: foundDefaultTeacher.position || 'Giáo viên',
+          departmentId: foundDefaultTeacher.departmentId,
+          departmentName: foundDefaultTeacher.departmentName,
+          accountStatus: foundDefaultTeacher.accountStatus || 'Đang hoạt động',
+          teacherCode: foundDefaultTeacher.code,
+          email: foundDefaultTeacher.email,
+          phone: foundDefaultTeacher.phone
+        };
+        const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
+        setUser(appUser);
+        sessionStorage.setItem('authUser', JSON.stringify(appUser));
+        sessionStorage.setItem('authSessionExpiry', String(expiryTime));
+        return true;
+      }
+    }
+
+    // 1. Instant Admin login default check
+    if (cleanUsername === 'admin') {
       const isMatch = (inputPasswordTrim === 'admin' || inputPasswordTrim === '123456');
       if (!isMatch) {
-        setError('Mật khẩu quản trị không chính xác (mật khẩu mặc định: admin hoặc 123456).');
+        setError('Mật khẩu quản trị không chính xác.');
         return false;
       }
       const adminUser: AppUser = {
@@ -160,9 +225,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
-    // 1. Instant check against DEFAULT_TEACHERS (guarantees instant login without network wait)
+    // 2. Instant check against DEFAULT_TEACHERS default check
     const foundDefaultTeacher = DEFAULT_TEACHERS.find(t => 
-      t.username && String(t.username).trim().toLowerCase() === cleanUsername.toLowerCase()
+      t.username && String(t.username).trim().toLowerCase() === cleanUsername
     );
     if (foundDefaultTeacher) {
       if (foundDefaultTeacher.accountStatus === 'Đã khóa') {
@@ -197,10 +262,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
-    // 2. Fallback check for any other username in DEFAULT_TEACHERS by code or name
+    // 3. Fallback check for any other username in DEFAULT_TEACHERS by code or name
     const foundByName = DEFAULT_TEACHERS.find(t => 
-      (t.code && t.code.toLowerCase() === cleanUsername.toLowerCase()) ||
-      (t.name && t.name.toLowerCase().includes(cleanUsername.toLowerCase()))
+      (t.code && t.code.toLowerCase() === cleanUsername) ||
+      (t.name && t.name.toLowerCase().includes(cleanUsername))
     );
     if (foundByName) {
       const appUser: AppUser = {

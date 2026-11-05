@@ -75,13 +75,16 @@ export default function Login() {
 
     setCpLoading(true);
     try {
+      const newP = cpNewPass.trim();
       const res = await accountService.changePassword(
         cpUsername.trim(),
         cpCurrentPass,
-        cpNewPass,
+        newP,
         cpUsername.trim()
       );
       setCpSuccess(res.message || 'Đổi mật khẩu thành công! Bạn có thể dùng mật khẩu mới để đăng nhập.');
+      setUsername(cpUsername.trim());
+      setPassword(newP);
       setCpCurrentPass('');
       setCpNewPass('');
       setCpConfirmPass('');

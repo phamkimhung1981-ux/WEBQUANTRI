@@ -70,6 +70,39 @@ export async function hashPassword(password: string): Promise<string> {
   return 'h_' + btoa(unescape(encodeURIComponent(password)));
 }
 
+export function getStoredUserPassword(username: string): { plain?: string; hash?: string } | null {
+  if (!username) return null;
+  try {
+    const raw = localStorage.getItem('custom_user_passwords');
+    if (raw) {
+      const map = JSON.parse(raw);
+      const entry = map[username.toLowerCase().trim()];
+      if (entry) {
+        if (typeof entry === 'string') {
+          return { plain: entry, hash: entry };
+        }
+        return entry;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+export function setStoredUserPassword(username: string, plainPass: string, hashedPass?: string): void {
+  if (!username || !plainPass) return;
+  try {
+    const key = 'custom_user_passwords';
+    const raw = localStorage.getItem(key);
+    const map = raw ? JSON.parse(raw) : {};
+    map[username.toLowerCase().trim()] = {
+      plain: plainPass,
+      hash: hashedPass || plainPass,
+      updatedAt: new Date().toISOString()
+    };
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch (e) {}
+}
+
 export const accountService = {
   /**
    * Fetch all accounts. If the accounts collection is empty in Firestore,
@@ -426,104 +459,110 @@ export const accountService = {
 
     const currentPassTrim = currentPasswordInput.trim();
     const newPassTrim = newPasswordInput.trim();
+    const hashedCurrent = await hashPassword(currentPassTrim);
+    const hashedNew = await hashPassword(newPassTrim);
 
-    // Fast-path for admin
-    if (username === 'admin') {
-      if (currentPassTrim !== 'admin' && currentPassTrim !== '123456') {
-        throw new Error('Mật khẩu hiện tại của quản trị viên không chính xác.');
+    // Get any existing custom stored password for this username
+    const existingStored = getStoredUserPassword(username);
+
+    // Determine if current password matches
+    let isValidCurrent = false;
+
+    // 1. Check custom stored password if present
+    if (existingStored) {
+      if (
+        currentPassTrim === existingStored.plain ||
+        currentPassTrim === existingStored.hash ||
+        hashedCurrent === existingStored.hash
+      ) {
+        isValidCurrent = true;
       }
-      const hashedNew = await hashPassword(newPassTrim);
-      const now = new Date().toISOString();
-      try {
-        const timeoutP = new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 1500));
-        await Promise.race([
-          setDoc(doc(db, ACCOUNTS_COLLECTION, 'admin'), { password: hashedNew, updatedAt: now }, { merge: true }),
-          timeoutP
-        ]);
-      } catch (e) {
-        // ignore network/timeout
-      }
-      return { success: true, message: 'Đổi mật khẩu thành công!' };
     }
 
-    // 1. Find account in user_accounts or teachers with timeout protection
-    let targetAccId = username;
-    let targetTeacherId = username;
-    let targetFullName = username;
-    let storedPassword = '123456';
+    // 2. Check default passwords if custom password is not present or didn't match
+    if (!isValidCurrent) {
+      if (username === 'admin') {
+        if (currentPassTrim === 'admin' || currentPassTrim === '123456') {
+          isValidCurrent = true;
+        }
+      } else {
+        if (currentPassTrim === '123456' || currentPassTrim === 'admin') {
+          isValidCurrent = true;
+        }
+      }
+    }
 
-    try {
-      const queryP = async () => {
+    // 3. If still not validated, check Firestore user_accounts / teachers
+    if (!isValidCurrent) {
+      try {
+        const checkDocPromise = async () => {
+          const qAcc = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', username));
+          const snapAcc = await getDocs(qAcc);
+          if (!snapAcc.empty) {
+            const p = snapAcc.docs[0].data().password;
+            if (p && (currentPassTrim === p || hashedCurrent === p)) return true;
+          }
+          const qTea = query(collection(db, 'teachers'), where('username', '==', username));
+          const snapTea = await getDocs(qTea);
+          if (!snapTea.empty) {
+            const p = snapTea.docs[0].data().accountPassword || snapTea.docs[0].data().password;
+            if (p && (currentPassTrim === p || hashedCurrent === p)) return true;
+          }
+          return false;
+        };
+        const timeoutP = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500));
+        isValidCurrent = await Promise.race([checkDocPromise(), timeoutP]);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (!isValidCurrent) {
+      throw new Error('Mật khẩu hiện tại không chính xác. Vui lòng kiểm tra lại.');
+    }
+
+    // Save NEW password locally instantly so login reads it immediately
+    setStoredUserPassword(username, newPassTrim, hashedNew);
+
+    // Save NEW password in Firestore in background
+    const now = new Date().toISOString();
+    const updateFirestorePromise = async () => {
+      let accId = username;
+      if (username === 'admin') {
+        accId = 'admin';
+      } else {
         const qAcc = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', username));
         const snapAcc = await getDocs(qAcc);
-        if (!snapAcc.empty) {
-          const d = snapAcc.docs[0].data();
-          targetAccId = snapAcc.docs[0].id;
-          targetTeacherId = d.teacherId || snapAcc.docs[0].id;
-          targetFullName = d.fullName || username;
-          storedPassword = d.password || '123456';
-          return;
-        }
-        const qTea = query(collection(db, 'teachers'), where('username', '==', username));
-        const snapTea = await getDocs(qTea);
-        if (!snapTea.empty) {
-          const d = snapTea.docs[0].data();
-          targetTeacherId = snapTea.docs[0].id;
-          targetAccId = targetTeacherId;
-          targetFullName = d.name || username;
-          storedPassword = d.accountPassword || d.password || '123456';
-        }
-      };
-      const timeoutP = new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 1500));
-      await Promise.race([queryP(), timeoutP]);
-    } catch (e) {
-      // ignore timeout, use defaults
-    }
+        if (!snapAcc.empty) accId = snapAcc.docs[0].id;
+      }
 
-    // Verify current password
-    const hashedCurrent = await hashPassword(currentPassTrim);
-    const isCurrentValid = (
-      storedPassword === currentPassTrim ||
-      storedPassword === hashedCurrent ||
-      currentPassTrim === '123456' ||
-      currentPassTrim === 'admin'
-    );
+      await setDoc(doc(db, ACCOUNTS_COLLECTION, accId), {
+        password: hashedNew,
+        updatedAt: now
+      }, { merge: true });
 
-    if (!isCurrentValid) {
-      throw new Error('Mật khẩu hiện tại không chính xác.');
-    }
-
-    const hashedNew = await hashPassword(newPassTrim);
-    const now = new Date().toISOString();
-
-    // Update in user_accounts / teachers with timeout protection
-    try {
-      const writeP = async () => {
-        await setDoc(doc(db, ACCOUNTS_COLLECTION, targetAccId), {
-          password: hashedNew,
-          updatedAt: now
-        }, { merge: true });
-
-        if (targetTeacherId && targetTeacherId !== targetAccId) {
-          await setDoc(doc(db, 'teachers', targetTeacherId), {
+      if (username !== 'admin') {
+        try {
+          await setDoc(doc(db, 'teachers', accId), {
             accountPassword: hashedNew,
             password: hashedNew,
             accountUpdatedAt: now
           }, { merge: true });
-        }
-      };
-      const timeoutP = new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 1500));
-      await Promise.race([writeP(), timeoutP]);
-    } catch (e) {
-      // ignore
-    }
+        } catch (e) {}
+      }
+    };
 
-    // Update sessionStorage / localStorage
+    try {
+      const timeoutP = new Promise((resolve) => setTimeout(resolve, 1500));
+      await Promise.race([updateFirestorePromise(), timeoutP]);
+    } catch (e) {}
+
+    // Update sessionStorage / localStorage active session if logged in
     try {
       const stored = sessionStorage.getItem('authUser') || localStorage.getItem('authUser');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.id === targetAccId || parsed.username === username) {
+        if (parsed.username && String(parsed.username).toLowerCase() === username) {
           parsed.password = hashedNew;
           sessionStorage.setItem('authUser', JSON.stringify(parsed));
           localStorage.setItem('authUser', JSON.stringify(parsed));
@@ -531,7 +570,10 @@ export const accountService = {
       }
     } catch (e) {}
 
-    return { success: true, message: 'Đổi mật khẩu thành công! Bạn có thể dùng mật khẩu mới để đăng nhập.' };
+    return {
+      success: true,
+      message: 'Đổi mật khẩu thành công! Bạn có thể sử dụng mật khẩu mới để đăng nhập.'
+    };
   },
 
   /**
