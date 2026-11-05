@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
+import { usePermission } from '../hooks/usePermission';
 import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
 import BackButton from '../components/ui/BackButton';
 import { 
@@ -98,14 +99,32 @@ export default function KpiTeacherStaff() {
   const { user } = useAuth();
 
   // Permissions
-  const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
-  const showAdminCheckbox = isAdmin && !isProductionWeb();
+  const { 
+    canCreate, 
+    canEdit, 
+    canDelete, 
+    canApprove, 
+    canExport, 
+    canLock, 
+    isAdmin: isSystemAdmin 
+  } = usePermission();
+
+  const moduleCanCreate = canCreate('kpi_gvnv');
+  const moduleCanEdit = canEdit('kpi_gvnv');
+  const moduleCanDelete = canDelete('kpi_gvnv');
+  const moduleCanApprove = canApprove('kpi_gvnv');
+  const moduleCanExport = canExport('kpi_gvnv');
+  const moduleCanLock = canLock('kpi_gvnv');
+
+  const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const showAdminCheckbox = (isAdmin || moduleCanDelete) && !isProductionWeb();
 
   const canDeleteForm = (form: KpiVcForm) => {
     // Ẩn hoàn toàn chức năng xóa phiếu KPI trên website đã xuất bản (production) để bảo vệ dữ liệu
     if (isProductionWeb()) return false;
     if (!canEditOrDelete()) return false;
     if (!user) return false;
+    if (!moduleCanDelete && !isSystemAdmin) return false;
     if (user.id === 'admin' || user.role === 'admin' || user.role === 'BGH' || user.role === 'TTCM' || user.role === 'CBQL' || user.role === 'manager') return true;
     const pos = (user.position || '').toLowerCase();
     if (pos.includes('hiệu trưởng') || pos.includes('tổ trưởng') || pos.includes('quản lý') || pos.includes('bgh')) return true;
@@ -851,26 +870,30 @@ export default function KpiTeacherStaff() {
             </button>
           )}
 
-          {/* Đồng bộ dữ liệu chuẩn từ Google Studio */}
-          <button
-            type="button"
-            disabled={isSyncingCanonical}
-            onClick={handleSyncCanonicalData}
-            title="Đồng bộ lại toàn bộ điểm đã chấm và trạng thái 51 phiếu KPI từ môi trường Google AI Studio"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md disabled:opacity-50 ml-auto"
-          >
-            <RefreshCw size={15} className={isSyncingCanonical ? 'animate-spin' : ''} />
-            {isSyncingCanonical ? 'Đang đồng bộ...' : 'Đồng bộ dữ liệu từ Google Studio'}
-          </button>
+          {/* Đồng bộ dữ liệu chuẩn từ Google Studio (Admin only) */}
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={isSyncingCanonical}
+              onClick={handleSyncCanonicalData}
+              title="Đồng bộ lại toàn bộ điểm đã chấm và trạng thái 51 phiếu KPI từ môi trường Google AI Studio"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md disabled:opacity-50 ml-auto"
+            >
+              <RefreshCw size={15} className={isSyncingCanonical ? 'animate-spin' : ''} />
+              {isSyncingCanonical ? 'Đang đồng bộ...' : 'Đồng bộ dữ liệu từ Google Studio'}
+            </button>
+          )}
 
-          {/* Xuất Excel */}
-          <button
-            type="button"
-            onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear, ratingConfigs)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md"
-          >
-            <FileSpreadsheet size={15} /> Xuất Excel tổng hợp
-          </button>
+          {/* Xuất Excel (chỉ hiển thị khi có quyền XUẤT BÁO CÁO) */}
+          {(moduleCanExport || isAdmin) && (
+            <button
+              type="button"
+              onClick={() => exportVcSummaryToExcel(filteredForms, activePeriodObj?.name, activePeriodObj?.academicYear, ratingConfigs)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md ml-auto"
+            >
+              <FileSpreadsheet size={15} /> Xuất Excel tổng hợp
+            </button>
+          )}
         </div>
 
         {/* Trang trí background */}
@@ -1207,7 +1230,7 @@ export default function KpiTeacherStaff() {
             const isSelected = selectedFormIds.includes(form.id);
 
             const isMyForm = user?.id === form.employeeId || (user as any)?.code === form.employeeCode;
-            const canSelfScore = isMyForm && (!effStatus || effStatus === 'draft' || effStatus === 'returned') && !isLocked;
+            const canSelfScore = isMyForm && (moduleCanEdit || isAdmin) && (!effStatus || effStatus === 'draft' || effStatus === 'returned') && !isLocked;
 
             const isTtcmUser = isAdmin || 
               isTeacherTtcm(user, departments) || 
@@ -1216,14 +1239,8 @@ export default function KpiTeacherStaff() {
               (user?.position || '').toLowerCase().includes('tổ trưởng') ||
               form.ttcmEvaluatorId === user?.id;
 
-            const canTtcmScore = !isLocked && effStatus !== 'completed' && effStatus !== 'locked' && (
-              effStatus === 'submitted' || 
-              effStatus === 'self_evaluated' || 
-              effStatus === 'pending_evaluator' || 
-              effStatus === 'evaluating' ||
-              isTtcmUser ||
-              isAdmin
-            );
+            // Chấm TTCM: Yêu cầu có quyền PHÊ DUYỆT (approve) và là Tổ trưởng chuyên môn
+            const canTtcmScore = !isLocked && (moduleCanApprove || isAdmin) && isTtcmUser && effStatus !== 'completed' && effStatus !== 'locked';
 
             const isBghUser = isAdmin || 
               isTeacherBgh(user) || 
@@ -1233,12 +1250,8 @@ export default function KpiTeacherStaff() {
               form.bghEvaluatorId === user?.id || 
               form.evaluatorId === user?.id;
 
-            const canBghScore = !isLocked && effStatus !== 'locked' && (
-              effStatus === 'ttcm_evaluated' || 
-              effStatus === 'pending_bgh' || 
-              effStatus === 'bgh_evaluating' ||
-              ((isBghUser || isAdmin) && effStatus !== 'completed')
-            );
+            // Chấm BGH: Yêu cầu có quyền PHÊ DUYỆT (approve) và là Ban Giám hiệu
+            const canBghScore = !isLocked && (moduleCanApprove || isAdmin) && isBghUser && effStatus !== 'completed' && effStatus !== 'locked';
 
             const sttStickyClass = showAdminCheckbox ? 'left-10' : 'left-0';
             const nameStickyClass = showAdminCheckbox ? 'left-[88px]' : 'left-12';
@@ -1392,7 +1405,7 @@ export default function KpiTeacherStaff() {
                 {/* Thao tác */}
                 <td className="p-3 text-center min-w-[200px]">
                   <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                    {/* Nút Tự chấm nổi bật */}
+                    {/* Nút Tự chấm (chỉ hiển thị khi có quyền CHỈNH SỬA) */}
                     {canSelfScore && (
                       <button
                         type="button"
@@ -1404,7 +1417,7 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* Nút Chấm TTCM */}
+                    {/* Nút Chấm TTCM (chỉ hiển thị khi có quyền PHÊ DUYỆT) */}
                     {canTtcmScore && (
                       <button
                         type="button"
@@ -1416,7 +1429,7 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* Nút Chấm BGH */}
+                    {/* Nút Chấm BGH (chỉ hiển thị khi có quyền PHÊ DUYỆT) */}
                     {canBghScore && (
                       <button
                         type="button"
@@ -1428,7 +1441,7 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* Xem chi tiết */}
+                    {/* Xem chi tiết (luôn khả dụng khi có quyền Xem module) */}
                     <button
                       type="button"
                       onClick={() => handleOpenDoc(form, 'view')}
@@ -1438,8 +1451,8 @@ export default function KpiTeacherStaff() {
                       <Eye size={15} />
                     </button>
 
-                    {/* Chỉnh sửa */}
-                    {(!isLocked || isAdmin) && !canSelfScore && !canTtcmScore && !canBghScore && (
+                    {/* Chỉnh sửa (chỉ khi có quyền CHỈNH SỬA) */}
+                    {(!isLocked || isAdmin) && (moduleCanEdit || isAdmin) && !canSelfScore && !canTtcmScore && !canBghScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'edit')}
@@ -1450,33 +1463,37 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* In */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenPrint(form)}
-                      title="In phiếu A4 chuẩn"
-                      className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                    >
-                      <Printer size={15} />
-                    </button>
+                    {/* In (chỉ khi có quyền XUẤT BÁO CÁO) */}
+                    {(moduleCanExport || isAdmin) && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPrint(form)}
+                        title="In phiếu A4 chuẩn"
+                        className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Printer size={15} />
+                      </button>
+                    )}
 
-                    {/* Word */}
-                    <button
-                      type="button"
-                      onClick={() => handleExportWord(form)}
-                      disabled={exportingWordId === form.id}
-                      title="Xuất Word (.doc)"
-                      className="p-1.5 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {exportingWordId === form.id ? (
-                        <Loader2 size={15} className="animate-spin text-blue-600" />
-                      ) : (
-                        <FileText size={15} />
-                      )}
-                    </button>
+                    {/* Word (chỉ khi có quyền XUẤT BÁO CÁO) */}
+                    {(moduleCanExport || isAdmin) && (
+                      <button
+                        type="button"
+                        onClick={() => handleExportWord(form)}
+                        disabled={exportingWordId === form.id}
+                        title="Xuất Word (.doc)"
+                        className="p-1.5 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {exportingWordId === form.id ? (
+                          <Loader2 size={15} className="animate-spin text-blue-600" />
+                        ) : (
+                          <FileText size={15} />
+                        )}
+                      </button>
+                    )}
 
-                    {/* Khóa/Mở khóa */}
-                    {isAdmin && (
+                    {/* Khóa/Mở khóa (chỉ khi có quyền KHÓA DỮ LIỆU) */}
+                    {(moduleCanLock || isAdmin) && (
                       <button
                         type="button"
                         onClick={() => handleToggleLock(form)}
@@ -1494,8 +1511,8 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* Xóa */}
-                    {!isProductionWeb() && canDeleteForm(form) && (
+                    {/* Xóa (chỉ khi có quyền XÓA) */}
+                    {!isProductionWeb() && (moduleCanDelete || isAdmin) && canDeleteForm(form) && (
                       <button
                         type="button"
                         onClick={() => handleRequestDeleteForm(form)}

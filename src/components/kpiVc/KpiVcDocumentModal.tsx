@@ -86,6 +86,7 @@ import {
   cleanFirestoreData 
 } from '../../services/kpiVcService';
 import { useAuth } from '../../store/AuthContext';
+import { usePermission } from '../../hooks/usePermission';
 import { exportVcFormToWord } from '../../utils/kpiWordExport';
 
 interface KpiVcDocumentModalProps {
@@ -116,9 +117,15 @@ export default function KpiVcDocumentModal({
   onPrintRequest
 }: KpiVcDocumentModalProps) {
   const { user } = useAuth();
+  const { canExport, canLock, canEdit, canApprove, isAdmin: isSystemAdmin } = usePermission();
+
+  const moduleCanExport = isSystemAdmin || canExport('kpi_gvnv');
+  const moduleCanLock = isSystemAdmin || canLock('kpi_gvnv');
+  const moduleCanEdit = isSystemAdmin || canEdit('kpi_gvnv');
+  const moduleCanApprove = isSystemAdmin || canApprove('kpi_gvnv');
 
   // Admin permission
-  const isAdmin = user?.id === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
 
   // Eligible teacher list (Teachers and Staff, NOT BGH)
   const eligibleTeachers = useMemo(() => {
@@ -2238,7 +2245,7 @@ export default function KpiVcDocumentModal({
               >+</button>
             </div>
 
-            {form && (
+            {form && (moduleCanExport || isAdmin) && (
               <button
                 type="button"
                 onClick={() => exportVcFormToWord(form)}
@@ -2249,7 +2256,7 @@ export default function KpiVcDocumentModal({
               </button>
             )}
 
-            {form && onPrintRequest && (
+            {form && onPrintRequest && (moduleCanExport || isAdmin) && (
               <button
                 type="button"
                 onClick={() => onPrintRequest(form)}
@@ -2259,7 +2266,7 @@ export default function KpiVcDocumentModal({
               </button>
             )}
 
-            {isAdmin && form && (
+            {(moduleCanLock || isAdmin) && form && (
               <button
                 type="button"
                 onClick={async () => {

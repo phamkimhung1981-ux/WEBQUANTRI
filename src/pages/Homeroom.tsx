@@ -91,10 +91,29 @@ import ResetConductModal from '../components/homeroom/ResetConductModal';
 import TeacherAssessmentModal from '../components/homeroom/TeacherAssessmentModal';
 import BulkGoodAssessmentModal from '../components/homeroom/BulkGoodAssessmentModal';
 import EvaluationRatingConfigModal from '../components/homeroom/EvaluationRatingConfigModal';
+import { usePermission } from '../hooks/usePermission';
 
 export default function Homeroom() {
   const { user } = useAuth();
-  const isBgh = user?.role?.toUpperCase() === 'BGH' || user?.role?.toUpperCase() === 'ADMIN' || user?.username === 'admin';
+  const { 
+    canCreate, 
+    canEdit, 
+    canDelete, 
+    canApprove, 
+    canExport, 
+    canLock, 
+    isAdmin: isSystemAdmin 
+  } = usePermission();
+
+  const moduleCanCreate = canCreate('homeroom');
+  const moduleCanEdit = canEdit('homeroom');
+  const moduleCanDelete = canDelete('homeroom');
+  const moduleCanApprove = canApprove('homeroom');
+  const moduleCanExport = canExport('homeroom');
+  const moduleCanLock = canLock('homeroom');
+
+  const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const isBgh = isAdmin || user?.role?.toUpperCase() === 'BGH';
   const { teachers } = useAppContext();
 
   // State loaded from Firestore
@@ -1149,13 +1168,15 @@ export default function Homeroom() {
                   <option key={c.id} value={c.id}>{c.name} ({getClassStudentCount(c)} học sinh)</option>
                 ))}
               </select>
-              <button
-                onClick={() => setIsClassManagerOpen(true)}
-                className="ml-1 p-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all shadow-sm"
-                title="Thêm hoặc quản lý danh sách lớp học"
-              >
-                <PlusCircle size={13} /> Thêm lớp
-              </button>
+              {(isAdmin || moduleCanCreate) && (
+                <button
+                  onClick={() => setIsClassManagerOpen(true)}
+                  className="ml-1 p-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all shadow-sm"
+                  title="Thêm hoặc quản lý danh sách lớp học"
+                >
+                  <PlusCircle size={13} /> Thêm lớp
+                </button>
+              )}
             </div>
 
             {/* Week Selector */}
@@ -1799,31 +1820,37 @@ export default function Homeroom() {
                 </button>
               )}
 
-              <button
-                onClick={() => {
-                  setStudentManagerInitialTab('excel');
-                  setIsStudentManagerOpen(true);
-                }}
-                className="px-3 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <UserPlus size={14} /> + THÊM / NHẬP EXCEL
-              </button>
-              <button
-                type="button"
-                onClick={() => exportStudentListToExcel(selectedClass?.name || '', selectedSchoolYear, classStudents)}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                title="Xuất danh sách học sinh ra file Excel theo đúng thứ tự đang hiển thị"
-              >
-                <Download size={14} /> XUẤT FILE EXCEL
-              </button>
-              <button
-                type="button"
-                onClick={handleExportClassificationResults}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                title={`Xuất kết quả xếp loại học sinh lớp ${selectedClass?.name || ''} - ${studentTableScope === 'month' ? selectedMonth : studentTableScope === 'week' ? `Tuần ${String(selectedWeek).padStart(2, '0')}` : 'Cả năm học'}`}
-              >
-                <FileSpreadsheet size={14} /> 📊 XUẤT KẾT QUẢ XẾP LOẠI HS
-              </button>
+              {(isAdmin || moduleCanCreate) && (
+                <button
+                  onClick={() => {
+                    setStudentManagerInitialTab('excel');
+                    setIsStudentManagerOpen(true);
+                  }}
+                  className="px-3 py-1.5 bg-[#1457D9] hover:bg-[#123B78] text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <UserPlus size={14} /> + THÊM / NHẬP EXCEL
+                </button>
+              )}
+              {(isAdmin || moduleCanExport) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => exportStudentListToExcel(selectedClass?.name || '', selectedSchoolYear, classStudents)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Xuất danh sách học sinh ra file Excel theo đúng thứ tự đang hiển thị"
+                  >
+                    <Download size={14} /> XUẤT FILE EXCEL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportClassificationResults}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                    title={`Xuất kết quả xếp loại học sinh lớp ${selectedClass?.name || ''} - ${studentTableScope === 'month' ? selectedMonth : studentTableScope === 'week' ? `Tuần ${String(selectedWeek).padStart(2, '0')}` : 'Cả năm học'}`}
+                  >
+                    <FileSpreadsheet size={14} /> 📊 XUẤT KẾT QUẢ XẾP LOẠI HS
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -1862,7 +1889,7 @@ export default function Homeroom() {
                   <FileText size={13} />
                   <span>💾 Xếp loại của GVCN ({selectedStudentIds.length})</span>
                 </button>
-                {canEditOrDelete() && (
+                {canEditOrDelete() && (isAdmin || moduleCanDelete) && (
                   <button
                     type="button"
                     onClick={() => setShowBulkDeleteConfirm(true)}
@@ -2181,23 +2208,25 @@ export default function Homeroom() {
             <h3 className="text-base font-bold text-slate-800">
               TỔNG HỢP NỀN NẾP {selectedMonth.toUpperCase()} - LỚP {selectedClass?.name}
             </h3>
-            <button
-              onClick={() => exportHomeroomToExcel({
-                className: selectedClass?.name || '10A1',
-                schoolYear: selectedSchoolYear,
-                periodLabel: selectedMonth,
-                homeroomTeacherName,
-                students: classStudents,
-                records: monthClassRecords,
-                youthViolations,
-                criteria,
-                baseScore: settings.baseScore || 100,
-                ratingConfig: activeMonthRatingConfig
-              })}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition-colors flex items-center gap-1.5"
-            >
-              <FileSpreadsheet size={15} /> Xuất bảng Excel tháng
-            </button>
+            {(isAdmin || moduleCanExport) && (
+              <button
+                onClick={() => exportHomeroomToExcel({
+                  className: selectedClass?.name || '10A1',
+                  schoolYear: selectedSchoolYear,
+                  periodLabel: selectedMonth,
+                  homeroomTeacherName,
+                  students: classStudents,
+                  records: monthClassRecords,
+                  youthViolations,
+                  criteria,
+                  baseScore: settings.baseScore || 100,
+                  ratingConfig: activeMonthRatingConfig
+                })}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition-colors flex items-center gap-1.5"
+              >
+                <FileSpreadsheet size={15} /> Xuất bảng Excel tháng
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

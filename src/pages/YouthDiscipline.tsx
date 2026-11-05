@@ -42,6 +42,7 @@ import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
 import { useAuth } from '../store/AuthContext';
 import { useAppContext } from '../store/AppContext';
+import { usePermission } from '../hooks/usePermission';
 import {
   YouthDisciplineCategory,
   YouthDisciplineCriterion,

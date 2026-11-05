@@ -32,6 +32,7 @@ import {
 import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
 import { useAuth } from '../store/AuthContext';
+import { usePermission } from '../hooks/usePermission';
 import { homeroomService } from '../services/homeroomService';
 import { academicService, DEFAULT_SUBJECTS } from '../services/academicService';
 import { academicEmulationService } from '../services/academicEmulationService';
@@ -93,6 +94,25 @@ const TableNumberInput: React.FC<TableNumberInputProps> = ({ value, disabled, cl
 
 export default function AcademicTrackingPage() {
   const { user } = useAuth();
+  const { 
+    canCreate, 
+    canEdit, 
+    canDelete, 
+    canApprove, 
+    canExport, 
+    canLock, 
+    isAdmin: isSystemAdmin 
+  } = usePermission();
+
+  const moduleCanCreate = canCreate('academic_tracking');
+  const moduleCanEdit = canEdit('academic_tracking');
+  const moduleCanDelete = canDelete('academic_tracking');
+  const moduleCanApprove = canApprove('academic_tracking');
+  const moduleCanExport = canExport('academic_tracking');
+  const moduleCanLock = canLock('academic_tracking');
+
+  const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'student_grades' | 'class_summary' | 'emulation_table' | 'monthly_emulation'>('emulation_table');
 
   // Month options for Vietnam academic calendar (HK1: 9-1, HK2: 1-5)
@@ -850,31 +870,37 @@ export default function AcademicTrackingPage() {
                 <Calculator size={14} />
                 <span>Kiểm thử công thức (98đ)</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setIsConfigModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                title="Cấu hình thang điểm và ngưỡng xếp loại"
-              >
-                <Settings size={14} />
-                <span>Cấu hình điểm</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleExportEmulationWord}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileText size={14} />
-                <span>Xuất Word</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleExportEmulationExcel}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileSpreadsheet size={14} />
-                <span>Xuất Excel</span>
-              </button>
+              {(isAdmin || moduleCanEdit) && (
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Cấu hình thang điểm và ngưỡng xếp loại"
+                >
+                  <Settings size={14} />
+                  <span>Cấu hình điểm</span>
+                </button>
+              )}
+              {(isAdmin || moduleCanExport) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleExportEmulationWord}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText size={14} />
+                    <span>Xuất Word</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportEmulationExcel}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet size={14} />
+                    <span>Xuất Excel</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -891,14 +917,16 @@ export default function AcademicTrackingPage() {
                     <p className="text-[11px] font-normal text-amber-900">Dữ liệu thi đua của tuần này đang được cố định và bảo vệ an toàn. Các ô nhập liệu bị khóa.</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleUnlockWeek}
-                  className="px-4 py-2 bg-white hover:bg-amber-100 text-amber-900 font-bold rounded-xl border border-amber-400 shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
-                >
-                  <Unlock size={14} />
-                  <span>Mở khóa tuần</span>
-                </button>
+                {(isAdmin || moduleCanLock) && (
+                  <button
+                    type="button"
+                    onClick={handleUnlockWeek}
+                    className="px-4 py-2 bg-white hover:bg-amber-100 text-amber-900 font-bold rounded-xl border border-amber-400 shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
+                  >
+                    <Unlock size={14} />
+                    <span>Mở khóa tuần</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="p-3.5 bg-emerald-50/80 border border-emerald-300 rounded-2xl flex items-center justify-between text-xs text-emerald-950">
@@ -911,14 +939,16 @@ export default function AcademicTrackingPage() {
                     <p className="text-[11px] text-emerald-900">Sau khi hoàn tất nhập điểm các lớp cho tuần này, hãy bấm nút bên phải để lưu và khóa dữ liệu.</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSaveAndLockWeek}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 transition-all"
-                >
-                  <Lock size={15} />
-                  <span>Lưu và Khóa Tuần {selectedWeek}</span>
-                </button>
+                {(isAdmin || moduleCanLock) && (
+                  <button
+                    type="button"
+                    onClick={handleSaveAndLockWeek}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 transition-all"
+                  >
+                    <Lock size={15} />
+                    <span>Lưu và Khóa Tuần {selectedWeek}</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -969,7 +999,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.goodLessons}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'goodLessons', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -978,7 +1008,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.fairLessons}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'fairLessons', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 border border-slate-200 rounded py-1 outline-none text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -987,7 +1017,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.avgLessons}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'avgLessons', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-amber-500 border border-slate-200 rounded py-1 outline-none text-xs text-amber-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -996,7 +1026,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.weakLessons}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'weakLessons', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-rose-500 border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -1006,7 +1036,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.goodDays || 0}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'goodDays', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-500 border border-slate-200 rounded py-1 outline-none text-xs text-indigo-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -1015,7 +1045,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.goodWeeks ?? 0}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'goodWeeks', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 border border-slate-200 rounded py-1 outline-none text-xs text-blue-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -1024,7 +1054,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.goodMarks}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'goodMarks', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-emerald-500 border border-slate-200 rounded py-1 outline-none text-xs text-emerald-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -1033,7 +1063,7 @@ export default function AcademicTrackingPage() {
                       <td className="py-2 px-1 border-r border-slate-300">
                         <TableNumberInput
                           value={r.badMarks}
-                          disabled={isWeekLocked}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
                           onChange={val => handleUpdateEmulationField(r.classId, 'badMarks', val)}
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-rose-500 border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
@@ -1159,32 +1189,36 @@ export default function AcademicTrackingPage() {
                   <Calculator size={14} />
                   <span>Công thức tính</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleExportMonthlyWord}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  title="Xuất bảng thống kê tháng ra file Word (.doc)"
-                >
-                  <FileText size={14} />
-                  <span>Xuất Word</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportMonthlyExcel}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  title="Xuất bảng thống kê tháng ra file Excel (.csv)"
-                >
-                  <FileSpreadsheet size={14} />
-                  <span>Xuất Excel</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
-                  title="In bảng thống kê tháng"
-                >
-                  <Printer size={16} />
-                </button>
+                {(isAdmin || moduleCanExport) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleExportMonthlyWord}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Xuất bảng thống kê tháng ra file Word (.doc)"
+                    >
+                      <FileText size={14} />
+                      <span>Xuất Word</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportMonthlyExcel}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Xuất bảng thống kê tháng ra file Excel (.csv)"
+                    >
+                      <FileSpreadsheet size={14} />
+                      <span>Xuất Excel</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                      title="In bảng thống kê tháng"
+                    >
+                      <Printer size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

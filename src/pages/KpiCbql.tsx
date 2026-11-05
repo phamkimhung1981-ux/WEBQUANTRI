@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { canEditOrDelete, isProductionWeb } from '../utils/envUtils';
+import { usePermission } from '../hooks/usePermission';
 import { 
   Users, 
   Search, 
@@ -152,11 +153,29 @@ export default function KpiCbql() {
   }, [forms, selectedPeriodId, statusFilter, gradeFilter, searchQuery]);
 
   // Permission flags
-  const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const { 
+    canCreate, 
+    canEdit, 
+    canDelete, 
+    canApprove, 
+    canExport, 
+    canLock, 
+    isAdmin: isSystemAdmin 
+  } = usePermission();
+
+  const moduleCanCreate = canCreate('kpi_cbql');
+  const moduleCanEdit = canEdit('kpi_cbql');
+  const moduleCanDelete = canDelete('kpi_cbql');
+  const moduleCanApprove = canApprove('kpi_cbql');
+  const moduleCanExport = canExport('kpi_cbql');
+  const moduleCanLock = canLock('kpi_cbql');
+
+  const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
 
   const canDeleteForm = (form: KpiCbqlForm) => {
     if (isProductionWeb()) return false;
     if (!user) return false;
+    if (!moduleCanDelete && !isSystemAdmin) return false;
     if (user.id === 'admin' || user.role === 'admin' || user.role === 'BGH' || user.role === 'TTCM' || user.role === 'CBQL' || user.role === 'manager') return true;
     const pos = (user.position || '').toLowerCase();
     if (pos.includes('hiệu trưởng') || pos.includes('tổ trưởng') || pos.includes('quản lý') || pos.includes('bgh')) return true;
@@ -263,25 +282,29 @@ export default function KpiCbql() {
               <span>Trang chủ</span>
             </button>
 
-            <button
-              onClick={handleOpenCreateModal}
-              className="px-3.5 py-2 text-xs sm:text-sm font-bold bg-white text-blue-950 hover:bg-blue-50 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus size={16} className="text-blue-600" />
-              <span>Tạo Phiếu Đánh Giá Mới</span>
-            </button>
+            {(moduleCanCreate || isAdmin) && (
+              <button
+                onClick={handleOpenCreateModal}
+                className="px-3.5 py-2 text-xs sm:text-sm font-bold bg-white text-blue-950 hover:bg-blue-50 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus size={16} className="text-blue-600" />
+                <span>Tạo Phiếu Đánh Giá Mới</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => {
-                const pName = currentSelectedPeriod?.name || 'Tat_ca_ky';
-                const yName = currentSelectedPeriod?.academicYear || '2026-2027';
-                exportCbqlSummaryListToExcel(filteredForms, pName, yName);
-              }}
-              className="px-3 py-2 text-xs sm:text-sm font-semibold bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-400/30 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <FileSpreadsheet size={15} />
-              <span>Xuất Báo Cáo Excel</span>
-            </button>
+            {(moduleCanExport || isAdmin) && (
+              <button
+                onClick={() => {
+                  const pName = currentSelectedPeriod?.name || 'Tat_ca_ky';
+                  const yName = currentSelectedPeriod?.academicYear || '2026-2027';
+                  exportCbqlSummaryListToExcel(filteredForms, pName, yName);
+                }}
+                className="px-3 py-2 text-xs sm:text-sm font-semibold bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-400/30 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet size={15} />
+                <span>Xuất Báo Cáo Excel</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -524,7 +547,7 @@ export default function KpiCbql() {
                               </button>
 
                               {/* Nút Chỉnh sửa phiếu */}
-                              {((isCurrentEvaluatee || isCurrentEvaluator || isAdmin) && f.status !== 'locked') && (
+                              {((isCurrentEvaluatee || isCurrentEvaluator || isAdmin) && f.status !== 'locked' && (moduleCanEdit || isAdmin)) && (
                                 <button
                                   onClick={() => handleOpenDocumentModal(f, (isCurrentEvaluator && f.status !== 'draft') ? 'evaluator' : 'edit')}
                                   className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 transition-colors cursor-pointer"
@@ -535,48 +558,56 @@ export default function KpiCbql() {
                               )}
 
                               {/* Nút In phiếu */}
-                              <button
-                                onClick={() => handleOpenPrintModal(f)}
-                                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                                title="In phiếu A4"
-                              >
-                                <Printer size={15} />
-                              </button>
+                              {(moduleCanExport || isAdmin) && (
+                                <button
+                                  onClick={() => handleOpenPrintModal(f)}
+                                  className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                                  title="In phiếu A4"
+                                >
+                                  <Printer size={15} />
+                                </button>
+                              )}
 
                               {/* Nút Xuất PDF */}
-                              <button
-                                onClick={() => handleOpenPrintModal(f)}
-                                className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors cursor-pointer"
-                                title="Xuất PDF"
-                              >
-                                <Download size={15} />
-                              </button>
+                              {(moduleCanExport || isAdmin) && (
+                                <button
+                                  onClick={() => handleOpenPrintModal(f)}
+                                  className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors cursor-pointer"
+                                  title="Xuất PDF"
+                                >
+                                  <Download size={15} />
+                                </button>
+                              )}
 
                               {/* Nút Xuất Excel */}
-                              <button
-                                onClick={() => exportSingleCbqlFormToExcel(f)}
-                                className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors cursor-pointer"
-                                title="Xuất Excel phiếu này"
-                              >
-                                <FileSpreadsheet size={15} />
-                              </button>
+                              {(moduleCanExport || isAdmin) && (
+                                <button
+                                  onClick={() => exportSingleCbqlFormToExcel(f)}
+                                  className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors cursor-pointer"
+                                  title="Xuất Excel phiếu này"
+                                >
+                                  <FileSpreadsheet size={15} />
+                                </button>
+                              )}
 
                               {/* Nút Xuất Word */}
-                              <button
-                                onClick={() => handleExportWord(f)}
-                                disabled={exportingWordId === f.id}
-                                className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 transition-colors cursor-pointer disabled:opacity-50"
-                                title="Xuất Word (.doc)"
-                              >
-                                {exportingWordId === f.id ? (
-                                  <Loader2 size={15} className="animate-spin text-blue-600" />
-                                ) : (
-                                  <FileText size={15} />
-                                )}
-                              </button>
+                              {(moduleCanExport || isAdmin) && (
+                                <button
+                                  onClick={() => handleExportWord(f)}
+                                  disabled={exportingWordId === f.id}
+                                  className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Xuất Word (.doc)"
+                                >
+                                  {exportingWordId === f.id ? (
+                                    <Loader2 size={15} className="animate-spin text-blue-600" />
+                                  ) : (
+                                    <FileText size={15} />
+                                  )}
+                                </button>
+                              )}
 
                               {/* Nút Mở khóa (Admin) nếu đã khóa */}
-                              {isAdmin && f.status === 'locked' && (
+                              {isAdmin && f.status === 'locked' && (moduleCanLock || isAdmin) && (
                                 <button
                                   onClick={() => handleOpenDocumentModal(f, 'view')}
                                   className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors cursor-pointer"
@@ -626,17 +657,19 @@ export default function KpiCbql() {
                 </p>
               </div>
 
-              <button
-                onClick={() => {
-                  const pName = currentSelectedPeriod?.name || 'Tat_ca';
-                  const yName = currentSelectedPeriod?.academicYear || '2026-2027';
-                  exportCbqlSummaryListToExcel(filteredForms, pName, yName);
-                }}
-                className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <Download size={15} />
-                <span>Tải Báo Cáo Excel</span>
-              </button>
+              {(moduleCanExport || isAdmin) && (
+                <button
+                  onClick={() => {
+                    const pName = currentSelectedPeriod?.name || 'Tat_ca';
+                    const yName = currentSelectedPeriod?.academicYear || '2026-2027';
+                    exportCbqlSummaryListToExcel(filteredForms, pName, yName);
+                  }}
+                  className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <Download size={15} />
+                  <span>Tải Báo Cáo Excel</span>
+                </button>
+              )}
             </div>
 
             {/* Bảng báo cáo tổng hợp */}

@@ -94,9 +94,28 @@ const getBghEvaluationBadge = (f: KpiStaffForm) => {
   );
 };
 
+import { usePermission } from '../hooks/usePermission';
+
 export default function KpiStaff() {
   const { user } = useAuth();
-  const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const { 
+    canCreate, 
+    canEdit, 
+    canDelete, 
+    canApprove, 
+    canExport, 
+    canLock, 
+    isAdmin: isSystemAdmin 
+  } = usePermission();
+
+  const moduleCanCreate = canCreate('kpi_nv');
+  const moduleCanEdit = canEdit('kpi_nv');
+  const moduleCanDelete = canDelete('kpi_nv');
+  const moduleCanApprove = canApprove('kpi_nv');
+  const moduleCanExport = canExport('kpi_nv');
+  const moduleCanLock = canLock('kpi_nv');
+
+  const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
   const { teachers, kpiStaffForms, setKpiStaffForms, kpiStaffPeriods, setKpiStaffPeriods } = useAppContext();
 
   // Active period state
@@ -287,28 +306,34 @@ export default function KpiStaff() {
 
           {/* Action Buttons Header */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => setIsDocumentModalOpen(true)}
-              className="px-4 py-2.5 bg-white text-emerald-900 hover:bg-emerald-50 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
-            >
-              <Plus size={16} /> Khởi tạo phiếu KPI
-            </button>
+            {(moduleCanCreate || isAdmin) && (
+              <button
+                onClick={() => setIsDocumentModalOpen(true)}
+                className="px-4 py-2.5 bg-white text-emerald-900 hover:bg-emerald-50 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+              >
+                <Plus size={16} /> Khởi tạo phiếu KPI
+              </button>
+            )}
 
-            <button
-              onClick={() => setIsPeriodModalOpen(true)}
-              className="px-3.5 py-2.5 bg-emerald-700/60 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2"
-            >
-              <Calendar size={15} /> Kỳ đánh giá
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setIsPeriodModalOpen(true)}
+                className="px-3.5 py-2.5 bg-emerald-700/60 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2"
+              >
+                <Calendar size={15} /> Kỳ đánh giá
+              </button>
+            )}
 
-            <button
-              onClick={() => exportStaffSummaryToExcel(activePeriodForms, activePeriod?.name, activePeriod?.academicYear)}
-              className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
-            >
-              <FileSpreadsheet size={15} /> Xuất Excel
-            </button>
+            {(moduleCanExport || isAdmin) && (
+              <button
+                onClick={() => exportStaffSummaryToExcel(activePeriodForms, activePeriod?.name, activePeriod?.academicYear)}
+                className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+              >
+                <FileSpreadsheet size={15} /> Xuất Excel
+              </button>
+            )}
 
-            {isAdmin && canEditOrDelete() && !isProductionWeb() && (
+            {(moduleCanDelete || isAdmin) && isAdmin && canEditOrDelete() && !isProductionWeb() && (
               <button
                 onClick={() => {
                   setDeleteAllScope('period');
@@ -540,31 +565,37 @@ export default function KpiStaff() {
 
                       <td className="p-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => setSelectedFormForEdit(f)}
-                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1"
-                            title="Chấm điểm / Đánh giá"
-                          >
-                            <Edit3 size={14} /> Chấm điểm
-                          </button>
+                          {(moduleCanEdit || isAdmin) && (
+                            <button
+                              onClick={() => setSelectedFormForEdit(f)}
+                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1"
+                              title="Chấm điểm / Đánh giá"
+                            >
+                              <Edit3 size={14} /> Chấm điểm
+                            </button>
+                          )}
 
-                          <button
-                            onClick={() => exportStaffFormToWord(f)}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors"
-                            title="Xuất phiếu Word (.docx)"
-                          >
-                            Word
-                          </button>
+                          {(moduleCanExport || isAdmin) && (
+                            <button
+                              onClick={() => exportStaffFormToWord(f)}
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors"
+                              title="Xuất phiếu Word (.docx)"
+                            >
+                              Word
+                            </button>
+                          )}
 
-                          <button
-                            onClick={() => setSelectedFormForPrint(f)}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
-                            title="In phiếu"
-                          >
-                            <Printer size={14} />
-                          </button>
+                          {(moduleCanExport || isAdmin) && (
+                            <button
+                              onClick={() => setSelectedFormForPrint(f)}
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                              title="In phiếu"
+                            >
+                              <Printer size={14} />
+                            </button>
+                          )}
 
-                          {!isProductionWeb() && user && (
+                          {(moduleCanDelete || isAdmin) && !isProductionWeb() && user && (
                             <button
                               onClick={() => handleDeleteForm(f)}
                               className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
