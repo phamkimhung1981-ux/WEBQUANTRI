@@ -43,12 +43,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearError = () => setError(null);
 
-  // Restore user from localStorage if exists, enforce session expiration, and refresh live permissions
+  // Restore user from sessionStorage if exists, enforce session expiration, and refresh live permissions
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const stored = localStorage.getItem('authUser');
-        const sessionExpiryStr = localStorage.getItem('authSessionExpiry');
+        // Clear any legacy localStorage to prevent unauthorized persistent auto-login across sessions/Vercel
+        localStorage.removeItem('authUser');
+        localStorage.removeItem('authSessionExpiry');
+
+        const stored = sessionStorage.getItem('authUser');
+        const sessionExpiryStr = sessionStorage.getItem('authSessionExpiry');
         
         if (!stored) {
           // Mandatory login: User is null when not authenticated
@@ -61,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const expiry = parseInt(sessionExpiryStr, 10);
           if (Date.now() > expiry) {
             console.warn('User session expired. Logging out.');
-            localStorage.removeItem('authUser');
-            localStorage.removeItem('authSessionExpiry');
+            sessionStorage.removeItem('authUser');
+            sessionStorage.removeItem('authSessionExpiry');
             setUser(null);
             setError('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
             return;
@@ -82,8 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (d.status === 'Đã khóa' || d.status === 'Vô hiệu hóa') {
                 console.warn(`Tài khoản ${d.username} đang ở trạng thái ${d.status}. Chấm dứt phiên.`);
                 setUser(null);
-                localStorage.removeItem('authUser');
-                localStorage.removeItem('authSessionExpiry');
+                sessionStorage.removeItem('authUser');
+                sessionStorage.removeItem('authSessionExpiry');
                 setError(`Tài khoản "${d.username}" đã bị ${d.status.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`);
                 return;
               }
@@ -99,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 departmentName: d.departmentName || initialUser.departmentName
               };
               setUser(freshUser);
-              localStorage.setItem('authUser', JSON.stringify(freshUser));
+              sessionStorage.setItem('authUser', JSON.stringify(freshUser));
             }
           } catch (fetchErr) {
             console.warn('Could not refresh user permissions from Firestore:', fetchErr);
@@ -201,8 +205,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
         setUser(appUser);
-        localStorage.setItem('authUser', JSON.stringify(appUser));
-        localStorage.setItem('authSessionExpiry', String(expiryTime));
+        sessionStorage.setItem('authUser', JSON.stringify(appUser));
+        sessionStorage.setItem('authSessionExpiry', String(expiryTime));
         return true;
       }
 
@@ -267,8 +271,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
         setUser(appUser);
-        localStorage.setItem('authUser', JSON.stringify(appUser));
-        localStorage.setItem('authSessionExpiry', String(expiryTime));
+        sessionStorage.setItem('authUser', JSON.stringify(appUser));
+        sessionStorage.setItem('authSessionExpiry', String(expiryTime));
         return true;
       }
 
@@ -321,8 +325,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
         setUser(adminUser);
-        localStorage.setItem('authUser', JSON.stringify(adminUser));
-        localStorage.setItem('authSessionExpiry', String(expiryTime));
+        sessionStorage.setItem('authUser', JSON.stringify(adminUser));
+        sessionStorage.setItem('authSessionExpiry', String(expiryTime));
         return true;
       }
 
@@ -339,7 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     const updatedUser = { ...user, ...data };
     setUser(updatedUser);
-    localStorage.setItem('authUser', JSON.stringify(updatedUser));
+    sessionStorage.setItem('authUser', JSON.stringify(updatedUser));
 
     try {
       if (user.id === 'admin') {
@@ -377,11 +381,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleGroup: rg
     };
     setUser(updated);
-    localStorage.setItem('authUser', JSON.stringify(updated));
+    sessionStorage.setItem('authUser', JSON.stringify(updated));
   };
 
   const logout = () => {
     setUser(null);
+    sessionStorage.removeItem('authUser');
+    sessionStorage.removeItem('authSessionExpiry');
     localStorage.removeItem('authUser');
     localStorage.removeItem('authSessionExpiry');
     sessionStorage.clear();
