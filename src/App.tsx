@@ -41,17 +41,19 @@ function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; chi
   }
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-6 text-center">
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-lg max-w-md w-full">
-        <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
-          <ShieldAlert size={28} />
+      <div className="bg-white p-8 sm:p-10 rounded-2xl border border-rose-200 shadow-xl max-w-lg w-full">
+        <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 border border-rose-200 shadow-xs">
+          <ShieldAlert size={34} />
         </div>
-        <h3 className="text-lg font-black text-slate-800 mb-1">Không có quyền truy cập</h3>
-        <p className="text-xs text-slate-600 mb-6 leading-relaxed font-semibold">
-          Bạn không có quyền truy cập chức năng này. Vui lòng liên hệ Quản trị hệ thống.
+        <h3 className="text-base sm:text-lg font-black text-rose-700 mb-2 uppercase tracking-wide leading-snug">
+          TÀI KHOẢN CỦA BẠN KHÔNG ĐƯỢC PHÂN QUYỀN TRUY CẬP CHỨC NĂNG NÀY
+        </h3>
+        <p className="text-xs sm:text-sm text-slate-600 mb-6 leading-relaxed font-medium">
+          Bạn không có quyền truy cập vào chức năng hoặc đường dẫn này. Vui lòng liên hệ Ban Giám hiệu hoặc Quản trị viên hệ thống để được phân quyền.
         </p>
         <a
           href="/"
-          className="inline-flex items-center justify-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
+          className="inline-flex items-center justify-center px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-md hover:shadow-lg"
         >
           Quay lại Trang chủ
         </a>

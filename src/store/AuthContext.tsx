@@ -12,7 +12,8 @@ import {
   setStoredUserPassword,
   getStoredUserCustomPermissions,
   setStoredUserCustomPermissions,
-  syncPermissionsFromServer
+  syncPermissionsFromServer,
+  getLiveUserPermissionsFromFirestore
 } from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
@@ -108,6 +109,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Live refresh from Firestore in background (so F5 never uses stale status or permissions)
         if (initialUser && initialUser.id) {
           try {
+            // First check live permissions directly
+            const livePerms = await getLiveUserPermissionsFromFirestore(
+              initialUser.id,
+              initialUser.username,
+              initialUser.teacherCode
+            );
+
             let d: any = null;
             const accDoc = await getDoc(doc(db, 'user_accounts', initialUser.id));
             if (accDoc.exists()) {
@@ -130,35 +138,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setError(`Tài khoản "${d.username}" đã bị ${d.status.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`);
                 return;
               }
-
-              const customMap = getStoredUserCustomPermissions();
-              const uId = (initialUser.id || '').toLowerCase().trim();
-              const uName = (initialUser.username || '').toLowerCase().trim();
-              const uCode = (initialUser.teacherCode || '').toLowerCase().trim();
-              const localOrSyncedPerms = (uId && customMap[uId]) || (uName && customMap[uName]) || (uCode && customMap[uCode]) || initialUser.customPermissions || null;
-
-              const custPerm = (d.customPermissions && Object.keys(d.customPermissions).length > 0) ? d.customPermissions : localOrSyncedPerms;
-              const hasCust = !!(d.hasCustomPermissions || (custPerm && Object.keys(custPerm).length > 0));
-
-              if (hasCust && custPerm) {
-                setStoredUserCustomPermissions(initialUser.id, custPerm);
-                if (initialUser.username) setStoredUserCustomPermissions(initialUser.username, custPerm);
-                if (initialUser.teacherCode) setStoredUserCustomPermissions(initialUser.teacherCode, custPerm);
-              }
-
-              const freshUser: AppUser = {
-                ...initialUser,
-                name: d.fullName || initialUser.name,
-                roleGroup: d.roleGroup || initialUser.roleGroup,
-                accountStatus: d.status || initialUser.accountStatus,
-                hasCustomPermissions: hasCust,
-                customPermissions: custPerm,
-                position: d.position || initialUser.position,
-                departmentName: d.departmentName || initialUser.departmentName
-              };
-              setUser(freshUser);
-              sessionStorage.setItem('authUser', JSON.stringify(freshUser));
             }
+
+            const hasCust = livePerms.hasCustom || !!(d?.hasCustomPermissions || (d?.customPermissions && Object.keys(d.customPermissions).length > 0));
+            const custPerm = livePerms.permissions || d?.customPermissions || initialUser.customPermissions || null;
+
+            const freshUser: AppUser = {
+              ...initialUser,
+              name: d?.fullName || initialUser.name,
+              roleGroup: d?.roleGroup || initialUser.roleGroup,
+              accountStatus: d?.status || initialUser.accountStatus,
+              hasCustomPermissions: hasCust,
+              customPermissions: hasCust ? custPerm : undefined,
+              position: d?.position || initialUser.position,
+              departmentName: d?.departmentName || initialUser.departmentName
+            };
+            setUser(freshUser);
+            sessionStorage.setItem('authUser', JSON.stringify(freshUser));
           } catch (fetchErr) {
             console.warn('Could not refresh user permissions from Firestore:', fetchErr);
           }
@@ -174,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
-  const doSuccessfulLogin = (cleanUsername: string, extraDocData?: any): boolean => {
+  const doSuccessfulLogin = async (cleanUsername: string, extraDocData?: any): Promise<boolean> => {
     if (cleanUsername === 'admin') {
       const adminUser: AppUser = {
         id: 'admin',
@@ -193,46 +189,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
-    const customMap = getStoredUserCustomPermissions();
-
     const foundDefaultTeacher = DEFAULT_TEACHERS.find(t => 
       t.username && String(t.username).trim().toLowerCase() === cleanUsername
     );
-    if (foundDefaultTeacher) {
-      if (foundDefaultTeacher.accountStatus === 'Đã khóa') {
+    const foundByName = !foundDefaultTeacher ? DEFAULT_TEACHERS.find(t => 
+      (t.code && t.code.toLowerCase() === cleanUsername) ||
+      (t.name && t.name.toLowerCase().includes(cleanUsername))
+    ) : null;
+
+    const teacher = foundDefaultTeacher || foundByName;
+
+    if (teacher) {
+      if (teacher.accountStatus === 'Đã khóa') {
         setError('Tài khoản của thầy/cô đã bị khóa. Vui lòng liên hệ Ban Giám hiệu.');
         return false;
       }
-      const roleGroup = detectRoleGroupByPosition(foundDefaultTeacher.position, foundDefaultTeacher.departmentId);
+      const roleGroup = detectRoleGroupByPosition(teacher.position, teacher.departmentId);
       
-      const tId = foundDefaultTeacher.id?.toLowerCase().trim();
-      const tUser = (foundDefaultTeacher.username || cleanUsername).toLowerCase().trim();
-      const tCode = foundDefaultTeacher.code ? foundDefaultTeacher.code.toLowerCase().trim() : '';
+      const tId = teacher.id;
+      const tUser = (teacher.username || cleanUsername).toLowerCase().trim();
+      const tCode = teacher.code ? teacher.code.toLowerCase().trim() : '';
 
+      // Direct Firestore fetch of user permissions
+      const livePerms = await getLiveUserPermissionsFromFirestore(tId, tUser, tCode);
       const customPermsFromDoc = extraDocData?.customPermissions || null;
-      const customPermsFromMap = (tId && customMap[tId]) || (tUser && customMap[tUser]) || (tCode && customMap[tCode]) || null;
-      const finalCustomPerms = customPermsFromDoc || customPermsFromMap;
-      const hasCustom = !!(extraDocData?.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
-
-      if (finalCustomPerms) {
-        if (tId) setStoredUserCustomPermissions(tId, finalCustomPerms);
-        if (tUser) setStoredUserCustomPermissions(tUser, finalCustomPerms);
-        if (tCode) setStoredUserCustomPermissions(tCode, finalCustomPerms);
-      }
+      const finalCustomPerms = livePerms.permissions || customPermsFromDoc || null;
+      const hasCustom = livePerms.hasCustom || !!(extraDocData?.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
 
       const appUser: AppUser = {
-        id: foundDefaultTeacher.id,
-        name: foundDefaultTeacher.name,
-        username: foundDefaultTeacher.username || cleanUsername,
-        role: foundDefaultTeacher.role || 'GIAO_VIEN',
+        id: teacher.id,
+        name: teacher.name,
+        username: teacher.username || cleanUsername,
+        role: teacher.role || 'GIAO_VIEN',
         roleGroup,
-        position: foundDefaultTeacher.position || 'Giáo viên',
-        departmentId: foundDefaultTeacher.departmentId,
-        departmentName: foundDefaultTeacher.departmentName,
-        accountStatus: foundDefaultTeacher.accountStatus || 'Đang hoạt động',
-        teacherCode: foundDefaultTeacher.code,
-        email: foundDefaultTeacher.email,
-        phone: foundDefaultTeacher.phone,
+        position: teacher.position || 'Giáo viên',
+        departmentId: teacher.departmentId,
+        departmentName: teacher.departmentName,
+        accountStatus: teacher.accountStatus || 'Đang hoạt động',
+        teacherCode: teacher.code,
+        email: teacher.email,
+        phone: teacher.phone,
         hasCustomPermissions: hasCustom,
         customPermissions: hasCustom ? finalCustomPerms : undefined
       };
@@ -243,37 +239,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
-    const foundByName = DEFAULT_TEACHERS.find(t => 
-      (t.code && t.code.toLowerCase() === cleanUsername) ||
-      (t.name && t.name.toLowerCase().includes(cleanUsername))
-    );
-    if (foundByName) {
-      const tId = foundByName.id?.toLowerCase().trim();
-      const tUser = (foundByName.username || cleanUsername).toLowerCase().trim();
-      const tCode = foundByName.code ? foundByName.code.toLowerCase().trim() : '';
-
-      const customPermsFromDoc = extraDocData?.customPermissions || null;
-      const customPermsFromMap = (tId && customMap[tId]) || (tUser && customMap[tUser]) || (tCode && customMap[tCode]) || null;
-      const finalCustomPerms = customPermsFromDoc || customPermsFromMap;
-      const hasCustom = !!(extraDocData?.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
-
-      if (finalCustomPerms) {
-        if (tId) setStoredUserCustomPermissions(tId, finalCustomPerms);
-        if (tUser) setStoredUserCustomPermissions(tUser, finalCustomPerms);
-        if (tCode) setStoredUserCustomPermissions(tCode, finalCustomPerms);
-      }
+    if (extraDocData) {
+      const eId = extraDocData.id || cleanUsername;
+      const livePerms = await getLiveUserPermissionsFromFirestore(eId, cleanUsername, extraDocData.teacherCode);
+      const finalCustomPerms = livePerms.permissions || extraDocData.customPermissions || null;
+      const hasCustom = livePerms.hasCustom || !!(extraDocData.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
 
       const appUser: AppUser = {
-        id: foundByName.id,
-        name: foundByName.name,
-        username: foundByName.username || cleanUsername,
-        role: foundByName.role || 'GIAO_VIEN',
-        roleGroup: detectRoleGroupByPosition(foundByName.position, foundByName.departmentId),
-        position: foundByName.position || 'Giáo viên',
-        departmentId: foundByName.departmentId,
-        departmentName: foundByName.departmentName,
-        accountStatus: foundByName.accountStatus || 'Đang hoạt động',
-        teacherCode: foundByName.code,
+        id: eId,
+        name: extraDocData.fullName || extraDocData.name || cleanUsername,
+        username: cleanUsername,
+        role: extraDocData.role || 'GIAO_VIEN',
+        roleGroup: extraDocData.roleGroup || detectRoleGroupByPosition(extraDocData.position, extraDocData.departmentId),
+        position: extraDocData.position || 'Giáo viên',
+        departmentId: extraDocData.departmentId,
+        departmentName: extraDocData.departmentName,
+        accountStatus: extraDocData.status || extraDocData.accountStatus || 'Đang hoạt động',
+        teacherCode: extraDocData.teacherCode,
         hasCustomPermissions: hasCustom,
         customPermissions: hasCustom ? finalCustomPerms : undefined
       };
@@ -319,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (isCustomMatch) {
-        return doSuccessfulLogin(cleanUsername);
+        return await doSuccessfulLogin(cleanUsername);
       }
     }
 
@@ -372,7 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const timeoutP = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1200));
       const isFirestoreMatched = await Promise.race([checkFirestoreAuthPromise(), timeoutP]);
       if (isFirestoreMatched) {
-        return doSuccessfulLogin(cleanUsername, matchedDocData);
+        return await doSuccessfulLogin(cleanUsername, matchedDocData);
       }
     } catch (e) {
       console.warn('Firestore password check warning:', e);
@@ -410,7 +392,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError('Mật khẩu không chính xác. Thầy/Cô đã thay đổi mật khẩu, vui lòng nhập mật khẩu mới.');
         return false;
       }
-      return doSuccessfulLogin(cleanUsername, matchedDocData);
+      return await doSuccessfulLogin(cleanUsername, matchedDocData);
     }
 
     // 4. If nothing matched

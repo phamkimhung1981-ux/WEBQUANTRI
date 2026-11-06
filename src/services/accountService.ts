@@ -27,6 +27,105 @@ import * as XLSX from 'xlsx';
 const ACCOUNTS_COLLECTION = 'user_accounts';
 const AUDIT_COLLECTION = 'account_audit_logs';
 const ROLE_GROUPS_COLLECTION = 'role_group_configs';
+export const CUSTOM_PERMISSIONS_COLLECTION = 'user_custom_permissions';
+
+/**
+ * Direct real-time fetch of user permissions from Firebase Firestore.
+ * Prioritizes Firestore document, updates local caches, and ensures no stale defaults are used.
+ */
+export async function getLiveUserPermissionsFromFirestore(
+  userId: string,
+  username?: string,
+  teacherCode?: string
+): Promise<{ hasCustom: boolean; permissions: Partial<ModulePermissionsMap> | null }> {
+  const cleanId = (userId || '').trim();
+  const cleanUser = (username || '').toLowerCase().trim();
+  const cleanCode = (teacherCode || '').toLowerCase().trim();
+
+  const keysToTry = Array.from(new Set([cleanUser, cleanId, cleanCode].filter(Boolean)));
+
+  // 1. Try dedicated 'user_custom_permissions' collection
+  for (const k of keysToTry) {
+    try {
+      const pDoc = await getDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, k));
+      if (pDoc.exists()) {
+        const data = pDoc.data();
+        if (data && data.permissions && Object.keys(data.permissions).length > 0) {
+          const perms = data.permissions as Partial<ModulePermissionsMap>;
+          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
+          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
+          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          return { hasCustom: true, permissions: perms };
+        } else if (data && data.hasCustomPermissions === false) {
+          return { hasCustom: false, permissions: null };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Try 'user_accounts' collection
+  for (const k of keysToTry) {
+    try {
+      const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, k));
+      if (accDoc.exists()) {
+        const data = accDoc.data();
+        if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
+          const perms = data.customPermissions as Partial<ModulePermissionsMap>;
+          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
+          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
+          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          return { hasCustom: true, permissions: perms };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 3. Query user_accounts by username if not found yet
+  if (cleanUser) {
+    try {
+      const q = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', cleanUser));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
+          const perms = data.customPermissions as Partial<ModulePermissionsMap>;
+          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
+          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
+          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          return { hasCustom: true, permissions: perms };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 4. Try 'teachers' collection
+  if (cleanId) {
+    try {
+      const tDoc = await getDoc(doc(db, 'teachers', cleanId));
+      if (tDoc.exists()) {
+        const data = tDoc.data();
+        if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
+          const perms = data.customPermissions as Partial<ModulePermissionsMap>;
+          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
+          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
+          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          return { hasCustom: true, permissions: perms };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 5. Fallback: check stored custom permissions map synced from server / custom_permissions.json
+  const localMap = getStoredUserCustomPermissions();
+  for (const k of keysToTry) {
+    const matched = localMap[k.toLowerCase()];
+    if (matched && Object.keys(matched).length > 0) {
+      return { hasCustom: true, permissions: matched };
+    }
+  }
+
+  return { hasCustom: false, permissions: null };
+}
 
 // Determine initial role group based on teacher's position
 export function detectRoleGroupByPosition(position: string = '', departmentId: string = ''): RoleGroupCode {
@@ -879,46 +978,100 @@ export const accountService = {
       }).catch(() => {});
     } catch (e) {}
 
-    // 5. Persist to Firestore with non-blocking timeout race (1200ms)
-    const firestoreSyncPromise = (async () => {
-      try {
-        await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
+    // 5. Persist to Firestore across all relevant collections (awaiting allSettled)
+    const firestoreWriteTasks: Promise<any>[] = [];
+
+    // 5a. Save to dedicated CUSTOM_PERMISSIONS_COLLECTION
+    firestoreWriteTasks.push(
+      setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, id), {
+        userId: id,
+        username: targetUser,
+        teacherCode: teacherCode,
+        fullName: targetName,
+        hasCustomPermissions: true,
+        permissions,
+        updatedAt: now,
+        updatedBy: performedBy
+      }, { merge: true })
+    );
+
+    if (targetUser && targetUser !== id) {
+      firestoreWriteTasks.push(
+        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, targetUser), {
+          userId: id,
+          username: targetUser,
+          teacherCode: teacherCode,
+          fullName: targetName,
+          hasCustomPermissions: true,
+          permissions,
+          updatedAt: now,
+          updatedBy: performedBy
+        }, { merge: true })
+      );
+    }
+
+    if (teacherCode && teacherCode !== id && teacherCode !== targetUser) {
+      firestoreWriteTasks.push(
+        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, teacherCode), {
+          userId: id,
+          username: targetUser,
+          teacherCode: teacherCode,
+          fullName: targetName,
+          hasCustomPermissions: true,
+          permissions,
+          updatedAt: now,
+          updatedBy: performedBy
+        }, { merge: true })
+      );
+    }
+
+    // 5b. Save to ACCOUNTS_COLLECTION
+    firestoreWriteTasks.push(
+      setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
+        hasCustomPermissions: true,
+        customPermissions: permissions,
+        updatedAt: now
+      }, { merge: true })
+    );
+
+    if (targetUser && targetUser !== id) {
+      firestoreWriteTasks.push(
+        setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
           hasCustomPermissions: true,
           customPermissions: permissions,
           updatedAt: now
-        }, { merge: true });
+        }, { merge: true })
+      );
+    }
 
-        if (targetUser && targetUser !== id) {
-          try {
-            await setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
-              hasCustomPermissions: true,
-              customPermissions: permissions,
-              updatedAt: now
-            }, { merge: true });
-          } catch (e) {}
-        }
+    // 5c. Save to teachers collection
+    const tId = teacherId || id;
+    firestoreWriteTasks.push(
+      setDoc(doc(db, 'teachers', tId), {
+        hasCustomPermissions: true,
+        customPermissions: permissions,
+        accountUpdatedAt: now
+      }, { merge: true })
+    );
 
-        const tId = teacherId || id;
-        await setDoc(doc(db, 'teachers', tId), {
-          hasCustomPermissions: true,
-          customPermissions: permissions,
-          accountUpdatedAt: now
-        }, { merge: true });
+    // 5d. Add audit log
+    firestoreWriteTasks.push(
+      this.addAuditLog({
+        action: 'UPDATE_PERMISSIONS',
+        targetUsername: targetUser || id,
+        targetFullName: targetName,
+        performedBy,
+        details: `Thiết lập ma trận phân quyền tùy biến riêng (18 modules)`
+      })
+    );
 
-        await this.addAuditLog({
-          action: 'UPDATE_PERMISSIONS',
-          targetUsername: targetUser || id,
-          targetFullName: targetName,
-          performedBy,
-          details: `Thiết lập ma trận phân quyền tùy biến riêng (18 modules)`
-        });
-      } catch (err) {
-        console.warn('Background Firestore sync for permissions:', err);
-      }
-    })();
-
-    const timeoutSync = new Promise<void>(res => setTimeout(res, 1200));
-    await Promise.race([firestoreSyncPromise, timeoutSync]);
+    try {
+      const waitWritePromise = Promise.allSettled(firestoreWriteTasks);
+      const timeoutSync = new Promise<void>(res => setTimeout(res, 3500));
+      await Promise.race([waitWritePromise, timeoutSync]);
+    } catch (err) {
+      console.warn('Firestore sync for permissions error:', err);
+    }
   },
 
   /**
@@ -953,65 +1106,85 @@ export const accountService = {
       }).catch(() => {});
     } catch (e) {}
 
-    const firestoreSyncPromise = (async () => {
-      try {
-        if (!targetUser) {
-          const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, id));
-          if (accDoc.exists()) {
-            const d = accDoc.data();
-            if (d.fullName) targetName = d.fullName;
-            if (d.username) {
-              targetUser = d.username.toLowerCase().trim();
-              setStoredUserCustomPermissions(d.username, null);
-            }
-            if (d.teacherCode) {
-              teacherCode = d.teacherCode.toLowerCase().trim();
-              setStoredUserCustomPermissions(d.teacherCode, null);
-            }
-            if (d.teacherId) teacherId = d.teacherId;
-          }
-        }
+    const firestoreResetTasks: Promise<any>[] = [];
 
-        await setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
+    // Reset in CUSTOM_PERMISSIONS_COLLECTION
+    firestoreResetTasks.push(
+      setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, id), {
+        hasCustomPermissions: false,
+        permissions: null,
+        updatedAt: now,
+        updatedBy: performedBy
+      }, { merge: true })
+    );
+
+    if (targetUser && targetUser !== id) {
+      firestoreResetTasks.push(
+        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, targetUser), {
+          hasCustomPermissions: false,
+          permissions: null,
+          updatedAt: now,
+          updatedBy: performedBy
+        }, { merge: true })
+      );
+    }
+
+    if (teacherCode && teacherCode !== id && teacherCode !== targetUser) {
+      firestoreResetTasks.push(
+        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, teacherCode), {
+          hasCustomPermissions: false,
+          permissions: null,
+          updatedAt: now,
+          updatedBy: performedBy
+        }, { merge: true })
+      );
+    }
+
+    // Reset in ACCOUNTS_COLLECTION
+    firestoreResetTasks.push(
+      setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
+        hasCustomPermissions: false,
+        customPermissions: null,
+        updatedAt: now
+      }, { merge: true })
+    );
+
+    if (targetUser && targetUser !== id) {
+      firestoreResetTasks.push(
+        setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
           hasCustomPermissions: false,
           customPermissions: null,
           updatedAt: now
-        }, { merge: true });
+        }, { merge: true })
+      );
+    }
 
-        if (targetUser && targetUser !== id) {
-          try {
-            await setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
-              hasCustomPermissions: false,
-              customPermissions: null,
-              updatedAt: now
-            }, { merge: true });
-          } catch (e) {}
-        }
+    const tId = teacherId || id;
+    firestoreResetTasks.push(
+      setDoc(doc(db, 'teachers', tId), {
+        hasCustomPermissions: false,
+        customPermissions: null,
+        accountUpdatedAt: now
+      }, { merge: true })
+    );
 
-        const tId = teacherId || id;
-        const tDoc = await getDoc(doc(db, 'teachers', tId));
-        if (tDoc.exists()) {
-          await setDoc(doc(db, 'teachers', tId), {
-            hasCustomPermissions: false,
-            customPermissions: null,
-            accountUpdatedAt: now
-          }, { merge: true });
-        }
+    firestoreResetTasks.push(
+      this.addAuditLog({
+        action: 'UPDATE_PERMISSIONS',
+        targetUsername: targetUser || id,
+        targetFullName: targetName,
+        performedBy,
+        details: `Khôi phục phân quyền về mặc định theo nhóm quyền`
+      })
+    );
 
-        await this.addAuditLog({
-          action: 'UPDATE_PERMISSIONS',
-          targetUsername: targetUser || id,
-          targetFullName: targetName,
-          performedBy,
-          details: `Khôi phục phân quyền về mặc định theo nhóm quyền`
-        });
-      } catch (e) {
-        console.warn('Background reset sync error:', e);
-      }
-    })();
-
-    const timeoutP = new Promise<void>(res => setTimeout(res, 1200));
-    await Promise.race([firestoreSyncPromise, timeoutP]);
+    try {
+      const waitResetPromise = Promise.allSettled(firestoreResetTasks);
+      const timeoutP = new Promise<void>(res => setTimeout(res, 3500));
+      await Promise.race([waitResetPromise, timeoutP]);
+    } catch (e) {
+      console.warn('Reset sync error:', e);
+    }
 
     try {
       ['sessionStorage', 'localStorage'].forEach(storageType => {

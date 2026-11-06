@@ -60,6 +60,69 @@ async function startServer() {
     };
   }
 
+  // Permissions API: synchronize matrix permissions to public/custom_permissions.json and dist/custom_permissions.json
+  const permissionsFilePath = path.join(__dirname, 'public', 'custom_permissions.json');
+  const distPermissionsFilePath = path.join(__dirname, 'dist', 'custom_permissions.json');
+
+  app.get('/api/permissions', (req, res) => {
+    try {
+      if (fs.existsSync(permissionsFilePath)) {
+        const content = fs.readFileSync(permissionsFilePath, 'utf-8');
+        return res.json(JSON.parse(content));
+      }
+      return res.json({ roleGroups: {}, userCustom: {} });
+    } catch (e: any) {
+      return res.json({ roleGroups: {}, userCustom: {} });
+    }
+  });
+
+  app.post('/api/permissions', (req, res) => {
+    try {
+      let currentData: any = { roleGroups: {}, userCustom: {} };
+      if (fs.existsSync(permissionsFilePath)) {
+        try {
+          currentData = JSON.parse(fs.readFileSync(permissionsFilePath, 'utf-8'));
+        } catch (e) {}
+      }
+      if (!currentData.userCustom) currentData.userCustom = {};
+      if (!currentData.roleGroups) currentData.roleGroups = {};
+
+      if (req.body.userCustom && typeof req.body.userCustom === 'object') {
+        Object.entries(req.body.userCustom).forEach(([k, v]) => {
+          const cleanK = k.toLowerCase().trim();
+          if (v === null) {
+            delete currentData.userCustom[cleanK];
+          } else if (v) {
+            currentData.userCustom[cleanK] = v;
+          }
+        });
+      }
+
+      if (req.body.roleGroups && typeof req.body.roleGroups === 'object') {
+        Object.entries(req.body.roleGroups).forEach(([k, v]) => {
+          if (v === null) {
+            delete currentData.roleGroups[k];
+          } else if (v) {
+            currentData.roleGroups[k] = v;
+          }
+        });
+      }
+
+      const updatedStr = JSON.stringify(currentData, null, 2);
+      fs.writeFileSync(permissionsFilePath, updatedStr, 'utf-8');
+      if (fs.existsSync(path.dirname(distPermissionsFilePath))) {
+        try {
+          fs.writeFileSync(distPermissionsFilePath, updatedStr, 'utf-8');
+        } catch (e) {}
+      }
+
+      return res.json({ success: true, data: currentData });
+    } catch (err: any) {
+      console.error('Error saving permissions:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // API Endpoint to check OCR config and lightweight text check (Requirement 10 & 17)
   app.get('/api/ocr-status', async (req, res) => {
     const config = validateOCRConfig();
