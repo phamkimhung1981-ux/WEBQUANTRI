@@ -8,7 +8,7 @@ import {
   ModuleActionPermissions,
   SYSTEM_MODULES_LIST 
 } from '../types/permission';
-import { detectRoleGroupByPosition, getStoredUserCustomPermissions } from '../services/accountService';
+import { detectRoleGroupByPosition, getStoredUserCustomPermissions, getTeacherKeyAliases } from '../services/accountService';
 
 export function usePermission() {
   const { user } = useAuth();
@@ -48,16 +48,31 @@ export function usePermission() {
     let hasCustom = !!anyUser?.hasCustomPermissions;
     let customPerms = anyUser?.customPermissions as Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
 
-    // Fallback: check stored custom permissions map if user object in memory lacks it
-    if (!hasCustom || !customPerms || Object.keys(customPerms).length === 0) {
-      const storedMap = getStoredUserCustomPermissions();
-      const uId = (user?.id || '').toLowerCase().trim();
-      const uName = (user?.username || '').toLowerCase().trim();
-      const uCode = (anyUser?.teacherCode || '').toLowerCase().trim();
-      const matched = (uId && storedMap[uId]) || (uName && storedMap[uName]) || (uCode && storedMap[uCode]);
-      if (matched && Object.keys(matched).length > 0) {
-        hasCustom = true;
-        customPerms = matched;
+    // Build comprehensive candidate keys for stored custom permissions map lookup
+    const uId = (user?.id || '').toLowerCase().trim();
+    const uName = (user?.username || '').toLowerCase().trim();
+    const uCode = (anyUser?.teacherCode || '').toLowerCase().trim();
+
+    const candidateKeysSet = new Set<string>();
+    [uId, uName, uCode].filter(Boolean).forEach(k => {
+      candidateKeysSet.add(k);
+      getTeacherKeyAliases(k).forEach(a => candidateKeysSet.add(a));
+    });
+
+    const storedMap = getStoredUserCustomPermissions();
+    let matchedFromMap: Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
+
+    for (const key of Array.from(candidateKeysSet)) {
+      if (storedMap[key] && Object.keys(storedMap[key]).length > 0) {
+        matchedFromMap = storedMap[key];
+        break;
+      }
+    }
+
+    if (matchedFromMap) {
+      hasCustom = true;
+      if (!customPerms || Object.keys(customPerms).length === 0) {
+        customPerms = matchedFromMap;
       }
     }
 

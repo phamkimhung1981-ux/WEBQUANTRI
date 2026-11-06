@@ -30,6 +30,53 @@ const ROLE_GROUPS_COLLECTION = 'role_group_configs';
 export const CUSTOM_PERMISSIONS_COLLECTION = 'user_custom_permissions';
 
 /**
+ * Returns all key aliases (id, lowercased id, code, username, fullName) for a given identifier
+ */
+export function getTeacherKeyAliases(idOrUserOrCode?: string): string[] {
+  if (!idOrUserOrCode) return [];
+  const clean = idOrUserOrCode.toLowerCase().trim();
+  if (!clean) return [];
+
+  const aliases = new Set<string>([clean]);
+
+  // Check DEFAULT_TEACHERS
+  for (const t of DEFAULT_TEACHERS) {
+    const tId = (t.id || '').toLowerCase().trim();
+    const tCode = (t.code || '').toLowerCase().trim();
+    const tUser = (t.username || '').toLowerCase().trim();
+    const tName = (t.name || '').toLowerCase().trim();
+
+    if (clean === tId || clean === tCode || clean === tUser || clean === tName) {
+      if (tId) aliases.add(tId);
+      if (tCode) aliases.add(tCode);
+      if (tUser) aliases.add(tUser);
+    }
+  }
+
+  // Check cached accounts in localStorage
+  try {
+    const rawCached = typeof window !== 'undefined' ? localStorage.getItem('cached_user_accounts') : null;
+    if (rawCached) {
+      const cachedAccounts: AccountRecord[] = JSON.parse(rawCached);
+      for (const a of cachedAccounts) {
+        const aId = (a.id || '').toLowerCase().trim();
+        const aCode = (a.teacherCode || '').toLowerCase().trim();
+        const aUser = (a.username || '').toLowerCase().trim();
+        const aName = (a.fullName || '').toLowerCase().trim();
+
+        if (clean === aId || clean === aCode || clean === aUser || clean === aName) {
+          if (aId) aliases.add(aId);
+          if (aCode) aliases.add(aCode);
+          if (aUser) aliases.add(aUser);
+        }
+      }
+    }
+  } catch (e) {}
+
+  return Array.from(aliases);
+}
+
+/**
  * Direct real-time fetch of user permissions from Firebase Firestore.
  * Prioritizes Firestore document, updates local caches, and ensures no stale defaults are used.
  */
@@ -42,7 +89,17 @@ export async function getLiveUserPermissionsFromFirestore(
   const cleanUser = (username || '').toLowerCase().trim();
   const cleanCode = (teacherCode || '').toLowerCase().trim();
 
-  const keysToTry = Array.from(new Set([cleanUser, cleanId, cleanCode].filter(Boolean)));
+  const rawKeys = [cleanUser, cleanId, cleanCode].filter(Boolean);
+  const allAliasesSet = new Set<string>();
+  rawKeys.forEach(k => {
+    getTeacherKeyAliases(k).forEach(alias => allAliasesSet.add(alias));
+  });
+  const keysToTry = Array.from(allAliasesSet);
+
+  // Helper to persist custom perms locally under all key aliases
+  const persistAliasesLocally = (perms: Partial<ModulePermissionsMap>) => {
+    keysToTry.forEach(alias => setStoredUserCustomPermissions(alias, perms));
+  };
 
   // 1. Try dedicated 'user_custom_permissions' collection
   for (const k of keysToTry) {
@@ -52,9 +109,7 @@ export async function getLiveUserPermissionsFromFirestore(
         const data = pDoc.data();
         if (data && data.permissions && Object.keys(data.permissions).length > 0) {
           const perms = data.permissions as Partial<ModulePermissionsMap>;
-          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
-          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
-          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          persistAliasesLocally(perms);
           return { hasCustom: true, permissions: perms };
         } else if (data && data.hasCustomPermissions === false) {
           return { hasCustom: false, permissions: null };
@@ -71,9 +126,7 @@ export async function getLiveUserPermissionsFromFirestore(
         const data = accDoc.data();
         if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
           const perms = data.customPermissions as Partial<ModulePermissionsMap>;
-          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
-          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
-          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          persistAliasesLocally(perms);
           return { hasCustom: true, permissions: perms };
         }
       }
@@ -89,26 +142,22 @@ export async function getLiveUserPermissionsFromFirestore(
         const data = snap.docs[0].data();
         if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
           const perms = data.customPermissions as Partial<ModulePermissionsMap>;
-          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
-          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
-          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          persistAliasesLocally(perms);
           return { hasCustom: true, permissions: perms };
         }
       }
     } catch (e) {}
   }
 
-  // 4. Try 'teachers' collection
-  if (cleanId) {
+  // 4. Try 'teachers' collection for all key aliases
+  for (const k of keysToTry) {
     try {
-      const tDoc = await getDoc(doc(db, 'teachers', cleanId));
+      const tDoc = await getDoc(doc(db, 'teachers', k));
       if (tDoc.exists()) {
         const data = tDoc.data();
         if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
           const perms = data.customPermissions as Partial<ModulePermissionsMap>;
-          if (cleanId) setStoredUserCustomPermissions(cleanId, perms);
-          if (cleanUser) setStoredUserCustomPermissions(cleanUser, perms);
-          if (cleanCode) setStoredUserCustomPermissions(cleanCode, perms);
+          persistAliasesLocally(perms);
           return { hasCustom: true, permissions: perms };
         }
       }
@@ -302,33 +351,48 @@ export const accountService = {
       // Sync latest permissions from server disk / static JSON before reading accounts
       await syncPermissionsFromServer();
 
-      const fetchPromise = getDocs(collection(db, ACCOUNTS_COLLECTION));
-      const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 1800));
-      const snap: any = await Promise.race([fetchPromise, timeoutP]);
+      // Check cached_user_accounts first for instant availability
+      let cachedAccounts: AccountRecord[] = [];
+      try {
+        const rawCached = localStorage.getItem('cached_user_accounts');
+        if (rawCached) {
+          cachedAccounts = JSON.parse(rawCached);
+        }
+      } catch (e) {}
+
+      let snap: any = null;
+      try {
+        const fetchPromise = getDocs(collection(db, ACCOUNTS_COLLECTION));
+        const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 5000));
+        snap = await Promise.race([fetchPromise, timeoutP]);
+      } catch (e) {
+        console.warn('Firestore getAccounts error:', e);
+      }
 
       if (snap && !snap.empty) {
         const customMap = getStoredUserCustomPermissions();
         const accounts = snap.docs.map((d: any) => {
           const acc = { id: d.id, ...d.data() } as AccountRecord;
-          const uId = acc.id?.toLowerCase().trim();
-          const uName = acc.username ? acc.username.toLowerCase().trim() : '';
-          const uCode = acc.teacherCode ? acc.teacherCode.toLowerCase().trim() : '';
+          const aliases = getTeacherKeyAliases(acc.id);
+          if (acc.username) getTeacherKeyAliases(acc.username).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
+          if (acc.teacherCode) getTeacherKeyAliases(acc.teacherCode).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
 
-          const customPerm = 
-            acc.customPermissions ||
-            (uId && customMap[uId]) || 
-            (uName && customMap[uName]) || 
-            (uCode && customMap[uCode]) ||
-            null;
+          let customPerm: any = acc.customPermissions || null;
+          if (!customPerm) {
+            for (const alias of aliases) {
+              if (customMap[alias] && Object.keys(customMap[alias]).length > 0) {
+                customPerm = customMap[alias];
+                break;
+              }
+            }
+          }
 
           const hasCustom = !!(acc.hasCustomPermissions || (customPerm && Object.keys(customPerm).length > 0));
 
           if (hasCustom && customPerm) {
             acc.hasCustomPermissions = true;
             acc.customPermissions = customPerm;
-            if (uId) setStoredUserCustomPermissions(uId, customPerm);
-            if (uName) setStoredUserCustomPermissions(uName, customPerm);
-            if (uCode) setStoredUserCustomPermissions(uCode, customPerm);
+            aliases.forEach(a => setStoredUserCustomPermissions(a, customPerm));
           }
           return acc;
         });
@@ -338,18 +402,26 @@ export const accountService = {
         return accounts;
       }
 
-      // Check if teachers collection has data
-      const teachersPromise = getDocs(collection(db, 'teachers'));
-      const teachersTimeout = new Promise<null>(res => setTimeout(() => res(null), 1500));
-      const teachersSnap: any = await Promise.race([teachersPromise, teachersTimeout]);
+      // If Firestore fetch returned empty or timed out, but we have cached accounts, return cached!
+      if (cachedAccounts && cachedAccounts.length > 0) {
+        return cachedAccounts;
+      }
+
+      // Otherwise seed default accounts list from DEFAULT_TEACHERS
       let teachersList: Teacher[] = [];
-      if (teachersSnap && !teachersSnap.empty) {
-        teachersList = teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher));
-      } else {
+      try {
+        const teachersPromise = getDocs(collection(db, 'teachers'));
+        const teachersTimeout = new Promise<null>(res => setTimeout(() => res(null), 3000));
+        const teachersSnap: any = await Promise.race([teachersPromise, teachersTimeout]);
+        if (teachersSnap && !teachersSnap.empty) {
+          teachersList = teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher));
+        }
+      } catch (e) {}
+
+      if (!teachersList || teachersList.length === 0) {
         teachersList = DEFAULT_TEACHERS;
       }
 
-      // Initialize default accounts list
       const initialAccounts: AccountRecord[] = [];
       const customMap = getStoredUserCustomPermissions();
 
@@ -376,16 +448,20 @@ export const accountService = {
         const username = (t.username || t.code?.toLowerCase() || `gv_${t.id.slice(0, 6)}`).toLowerCase().trim();
         const roleGroup = detectRoleGroupByPosition(t.position, t.departmentId);
         const status: AccountStatus = t.accountStatus === 'Đã khóa' ? 'Đã khóa' : 'Đang hoạt động';
-        
-        const tId = t.id?.toLowerCase().trim();
-        const tCode = t.code ? t.code.toLowerCase().trim() : '';
 
-        const customPerm = 
-          (t as any).customPermissions ||
-          (tId && customMap[tId]) ||
-          (username && customMap[username]) ||
-          (tCode && customMap[tCode]) ||
-          null;
+        const aliases = getTeacherKeyAliases(t.id);
+        if (t.code) getTeacherKeyAliases(t.code).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
+        if (username) getTeacherKeyAliases(username).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
+
+        let customPerm: any = (t as any).customPermissions || null;
+        if (!customPerm) {
+          for (const alias of aliases) {
+            if (customMap[alias] && Object.keys(customMap[alias]).length > 0) {
+              customPerm = customMap[alias];
+              break;
+            }
+          }
+        }
 
         const hasCustom = !!((t as any).hasCustomPermissions || (customPerm && Object.keys(customPerm).length > 0));
 
@@ -394,13 +470,13 @@ export const accountService = {
           teacherId: t.id,
           teacherCode: t.code,
           fullName: t.name,
-          username: username,
+          username,
           password: t.accountPassword || t.password || '123456',
           position: t.position || 'Giáo viên',
           departmentId: t.departmentId,
           departmentName: t.departmentName,
-          roleGroup: roleGroup,
-          status: status,
+          roleGroup,
+          status,
           hasCustomPermissions: hasCustom,
           customPermissions: hasCustom ? customPerm : undefined,
           createdAt: t.joinDate || '2026-10-16T00:00:00.000Z',
@@ -411,20 +487,17 @@ export const accountService = {
         initialAccounts.push(account);
       }
 
-      // Persist in background (batch/parallel sets)
       try {
-        await Promise.all(
+        localStorage.setItem('cached_user_accounts', JSON.stringify(initialAccounts));
+        Promise.all(
           initialAccounts.map(acc => setDoc(doc(db, ACCOUNTS_COLLECTION, acc.id), acc, { merge: true }))
-        );
-      } catch (err) {
-        console.warn('Could not persist all accounts to Firestore directly, returning seeded list:', err);
-      }
+        ).catch(() => {});
+      } catch (err) {}
 
       return initialAccounts;
     } catch (e) {
-      console.error('Error fetching accounts, fallback to generated defaults:', e);
-      // Fallback in-memory
-      const fallbackList: AccountRecord[] = [
+      console.error('Error in getAccounts:', e);
+      return [
         {
           id: 'admin',
           teacherCode: 'ADMIN',
@@ -456,7 +529,6 @@ export const accountService = {
           updatedAt: '2026-10-16T00:00:00.000Z'
         }))
       ];
-      return fallbackList;
     }
   },
 
@@ -890,10 +962,12 @@ export const accountService = {
     let teacherCode = extraInfo?.teacherCode ? extraInfo.teacherCode.toLowerCase().trim() : '';
     let teacherId = id;
 
-    // 0. Instant local persistence (0ms) under all known identifiers
-    setStoredUserCustomPermissions(id, permissions);
-    if (targetUser) setStoredUserCustomPermissions(targetUser, permissions);
-    if (teacherCode) setStoredUserCustomPermissions(teacherCode, permissions);
+    // 0. Instant local persistence under ALL key aliases
+    const allAliases = new Set<string>();
+    getTeacherKeyAliases(id).forEach(a => allAliases.add(a));
+    if (targetUser) getTeacherKeyAliases(targetUser).forEach(a => allAliases.add(a));
+    if (teacherCode) getTeacherKeyAliases(teacherCode).forEach(a => allAliases.add(a));
+    allAliases.forEach(alias => setStoredUserCustomPermissions(alias, permissions));
 
     // 1. Fetch current account info for logging and sync if not provided (with timeout)
     if (!targetUser) {
@@ -906,13 +980,17 @@ export const accountService = {
           if (d.fullName) targetName = d.fullName;
           if (d.username) {
             targetUser = d.username.toLowerCase().trim();
-            setStoredUserCustomPermissions(d.username, permissions);
+            getTeacherKeyAliases(d.username).forEach(a => allAliases.add(a));
           }
           if (d.teacherCode) {
             teacherCode = d.teacherCode.toLowerCase().trim();
-            setStoredUserCustomPermissions(d.teacherCode, permissions);
+            getTeacherKeyAliases(d.teacherCode).forEach(a => allAliases.add(a));
           }
-          if (d.teacherId) teacherId = d.teacherId;
+          if (d.teacherId) {
+            teacherId = d.teacherId;
+            getTeacherKeyAliases(d.teacherId).forEach(a => allAliases.add(a));
+          }
+          allAliases.forEach(alias => setStoredUserCustomPermissions(alias, permissions));
         }
       } catch (e) {
         console.warn('Could not read existing account doc:', e);

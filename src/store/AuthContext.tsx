@@ -13,7 +13,8 @@ import {
   getStoredUserCustomPermissions,
   setStoredUserCustomPermissions,
   syncPermissionsFromServer,
-  getLiveUserPermissionsFromFirestore
+  getLiveUserPermissionsFromFirestore,
+  getTeacherKeyAliases
 } from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
@@ -95,7 +96,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const uId = (initialUser.id || '').toLowerCase().trim();
           const uName = (initialUser.username || '').toLowerCase().trim();
           const uCode = (initialUser.teacherCode || '').toLowerCase().trim();
-          const p = (uId && customMap[uId]) || (uName && customMap[uName]) || (uCode && customMap[uCode]);
+          
+          const aliases = new Set<string>([uId, uName, uCode].filter(Boolean));
+          [uId, uName, uCode].filter(Boolean).forEach(k => getTeacherKeyAliases(k).forEach(a => aliases.add(a)));
+
+          let p: any = null;
+          for (const alias of Array.from(aliases)) {
+            if (customMap[alias] && Object.keys(customMap[alias]).length > 0) {
+              p = customMap[alias];
+              break;
+            }
+          }
+
           if (p && Object.keys(p).length > 0) {
             initialUser.hasCustomPermissions = true;
             initialUser.customPermissions = p;

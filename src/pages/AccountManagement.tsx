@@ -48,6 +48,7 @@ import {
 import { accountService } from '../services/accountService';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
+import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { Teacher } from '../types';
 
 export default function AccountManagement() {
@@ -113,29 +114,41 @@ export default function AccountManagement() {
   // Load accounts and teachers
   const loadData = async () => {
     setLoading(true);
+
+    // Instant local cache load so interface is never empty
     try {
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
-      const fetchPromise = Promise.all([
+      const cached = localStorage.getItem('cached_user_accounts');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAccounts(parsed);
+          setSelectedUserId(parsed[0].id);
+        }
+      }
+    } catch (e) {}
+
+    try {
+      const [accList, teachersSnap, logs] = await Promise.all([
         accountService.getAccounts(),
-        getDocs(collection(db, 'teachers')),
-        accountService.getAuditLogs(30)
+        getDocs(collection(db, 'teachers')).catch(() => null),
+        accountService.getAuditLogs(30).catch(() => [])
       ]);
 
-      const res: any = await Promise.race([fetchPromise, timeoutPromise]);
-      if (res) {
-        const [accList, teachersSnap, logs] = res;
+      if (accList && accList.length > 0) {
         setAccounts(accList);
-        if (accList.length > 0) {
-          setSelectedUserId(prev => {
-            if (prev && accList.some((a: any) => a.id === prev)) return prev;
-            return accList[0].id;
-          });
-        }
-        if (teachersSnap && !teachersSnap.empty) {
-          setTeachers(teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher)));
-        }
-        if (logs) setAuditLogs(logs);
+        setSelectedUserId(prev => {
+          if (prev && accList.some((a: any) => a.id === prev)) return prev;
+          return accList[0].id;
+        });
       }
+
+      if (teachersSnap && !teachersSnap.empty) {
+        setTeachers(teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher)));
+      } else {
+        setTeachers(DEFAULT_TEACHERS);
+      }
+
+      if (logs) setAuditLogs(logs);
     } catch (e: any) {
       console.error('Error loading account data:', e);
       showToast('Lỗi khi tải dữ liệu tài khoản: ' + e?.message, 'error');
