@@ -82,6 +82,17 @@ export default function YouthDisciplinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { departments, teachers, workAssignments } = useAppContext();
+  const {
+    canAccessModule,
+    canCreate,
+    canEdit,
+    canDelete,
+    canApprove,
+    canExport,
+    canLock,
+    isAdmin,
+    isSystemAdmin
+  } = usePermission();
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<
@@ -304,13 +315,78 @@ export default function YouthDisciplinePage() {
     return 'CAN_BO_DOAN';
   }, [activeRoleOverride, user]);
 
-  const canManageCriteria = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN';
-  const canConfirmViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN';
-  const canLockWeek = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'BAN_GIAM_HIEU';
-  const canEditViolations = effectiveRole === 'ADMIN' || effectiveRole === 'BI_THU_DOAN' || effectiveRole === 'CAN_BO_DOAN' || effectiveRole === 'GVCN';
-  // Quyền xóa danh sách học sinh vi phạm: Giữ nguyên trong Google AI Studio (Dev), ẩn hoàn toàn trên Website đã xuất bản (Production / Xuất web)
-  const canDeleteViolations = !isProductionWeb() && canEditOrDelete() && canEditViolations;
+  // Action-Based Permissions mapped directly to RBAC matrix (Firestore / Account Management)
+  const canAccessYouthDiscipline = useMemo(() => {
+    if (activeRoleOverride) return true;
+    return canAccessModule('youth_discipline');
+  }, [activeRoleOverride, canAccessModule]);
+
+  const canCreateDiscipline = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride === 'ADMIN' || activeRoleOverride === 'BI_THU_DOAN' || activeRoleOverride === 'CAN_BO_DOAN';
+    }
+    return canCreate('youth_discipline');
+  }, [activeRoleOverride, canCreate]);
+
+  const canEditDiscipline = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride === 'ADMIN' || activeRoleOverride === 'BI_THU_DOAN' || activeRoleOverride === 'CAN_BO_DOAN';
+    }
+    return canEdit('youth_discipline');
+  }, [activeRoleOverride, canEdit]);
+
+  const canDeleteDiscipline = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride === 'ADMIN' || activeRoleOverride === 'BI_THU_DOAN';
+    }
+    return canDelete('youth_discipline');
+  }, [activeRoleOverride, canDelete]);
+
+  const canApproveDiscipline = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride === 'ADMIN' || activeRoleOverride === 'BAN_GIAM_HIEU' || activeRoleOverride === 'BI_THU_DOAN';
+    }
+    return canApprove('youth_discipline');
+  }, [activeRoleOverride, canApprove]);
+
+  const canExportDiscipline = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride === 'ADMIN' || activeRoleOverride === 'BAN_GIAM_HIEU' || activeRoleOverride === 'BI_THU_DOAN' || activeRoleOverride === 'CAN_BO_DOAN';
+    }
+    return canExport('youth_discipline');
+  }, [activeRoleOverride, canExport]);
+
+  const canLockDiscipline = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride === 'ADMIN' || activeRoleOverride === 'BI_THU_DOAN' || activeRoleOverride === 'BAN_GIAM_HIEU';
+    }
+    return canLock('youth_discipline');
+  }, [activeRoleOverride, canLock]);
+
+  const canAccessDutySchedule = useMemo(() => {
+    if (activeRoleOverride) {
+      return activeRoleOverride !== 'GVCN' && activeRoleOverride !== 'HOC_SINH';
+    }
+    return canAccessModule('youth_duty_schedule');
+  }, [activeRoleOverride, canAccessModule]);
+
+  const canManageCriteria = canCreateDiscipline || canEditDiscipline || isAdmin;
+  const canConfirmViolations = canApproveDiscipline;
+  const canLockWeek = canLockDiscipline;
+  const canEditViolations = canEditDiscipline;
+  const canDeleteViolations = canDeleteDiscipline;
   const showViolationCheckbox = canDeleteViolations;
+  const showActionColumn = canConfirmViolations || canEditViolations || canDeleteViolations || ((canLockDiscipline || isAdmin) && violations.some(v => v.isLocked !== false));
+
+  // Fallback activeTab if user lacks permission for that tab
+  useEffect(() => {
+    if (activeTab === 'reports' && !canExportDiscipline && !isAdmin) {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'settings_audit' && !canLockDiscipline && !isAdmin) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, canExportDiscipline, canLockDiscipline, isAdmin]);
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMessage(msg);
@@ -845,6 +921,10 @@ export default function YouthDisciplinePage() {
 
   // Open modal to record a new violation (hỗ trợ chọn sẵn tiêu chí nhanh)
   const openNewViolationModal = (presetCriterionCode?: string) => {
+    if (!canCreateDiscipline) {
+      showToast('Bạn không có quyền ghi nhận vi phạm nền nếp.', 'error');
+      return;
+    }
     setEditingViolation(null);
     const todayStr = new Date().toISOString().split('T')[0];
     const computedWeek = getWeekNumberFromDate(todayStr, selectedYear);
@@ -902,6 +982,10 @@ export default function YouthDisciplinePage() {
 
   // Open modal to edit existing violation
   const openEditViolationModal = (vio: YouthViolationRecord) => {
+    if (!canEditDiscipline) {
+      showToast('Bạn không có quyền chỉnh sửa vi phạm.', 'error');
+      return;
+    }
     setEditingViolation(vio);
     setFormVioDate(vio.violationDate);
     setFormVioTime(vio.violationTime || '07:15');
@@ -923,6 +1007,10 @@ export default function YouthDisciplinePage() {
 
   // Handle saving violation form
   const handleSaveViolation = async () => {
+    if (editingViolation ? !canEditDiscipline : !canCreateDiscipline) {
+      showToast('Bạn không có quyền thực hiện thao tác này.', 'error');
+      return;
+    }
     const selectedCriterion = criteria.find(c => c.id === formVioCriterionId);
     const targetClass = classes.find(c => c.id === formVioClassId || c.name === formVioClassId);
 
@@ -1122,6 +1210,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleUnlockViolation = async (vio: YouthViolationRecord) => {
+    if (!canLockDiscipline && !isAdmin) {
+      showToast('Bạn không có quyền mở khóa bản ghi vi phạm.', 'error');
+      return;
+    }
     try {
       const updated: YouthViolationRecord = {
         ...vio,
@@ -1138,6 +1230,10 @@ export default function YouthDisciplinePage() {
 
   // --- CRITERIA MANAGEMENT HANDLERS ---
   const openNewCriterionModal = () => {
+    if (!canManageCriteria) {
+      showToast('Bạn không có quyền quản lý danh mục tiêu chí.', 'error');
+      return;
+    }
     setEditingCriterion(null);
     setFormCritCode('');
     setFormCritName('');
@@ -1152,6 +1248,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleEditCriterion = (criterion: YouthDisciplineCriterion) => {
+    if (!canManageCriteria) {
+      showToast('Bạn không có quyền chỉnh sửa tiêu chí.', 'error');
+      return;
+    }
     if (!criterion) return;
     setEditingCriterion(criterion);
     setFormCritCode(criterion.code || '');
@@ -1175,6 +1275,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleSaveCriterion = async () => {
+    if (!canManageCriteria) {
+      showToast('Bạn không có quyền lưu tiêu chí.', 'error');
+      return;
+    }
     const code = formCritCode.trim().toUpperCase();
     const name = formCritName.trim();
     if (!code) {
@@ -1242,7 +1346,10 @@ export default function YouthDisciplinePage() {
 
   // Handle delete single violation modal
   const handleDeleteViolation = (id: string) => {
-    if (isProductionWeb()) return;
+    if (!canDeleteDiscipline) {
+      showToast('Bạn không có quyền xóa bản ghi vi phạm.', 'error');
+      return;
+    }
     const target = violations.find(v => v.id === id);
     if (target) {
       setTargetViolationToDelete(target);
@@ -1252,7 +1359,10 @@ export default function YouthDisciplinePage() {
 
   // Confirm delete single violation
   const handleConfirmDeleteSingleViolation = async () => {
-    if (isProductionWeb()) return;
+    if (!canDeleteDiscipline) {
+      showToast('Bạn không có quyền xóa bản ghi vi phạm.', 'error');
+      return;
+    }
     if (!targetViolationToDelete) return;
     try {
       await youthDisciplineService.deleteViolation(
@@ -1286,7 +1396,10 @@ export default function YouthDisciplinePage() {
 
   // Batch delete selected violations
   const handleConfirmBatchDeleteViolations = async () => {
-    if (isProductionWeb()) return;
+    if (!canDeleteDiscipline) {
+      showToast('Bạn không có quyền xóa bản ghi vi phạm.', 'error');
+      return;
+    }
     if (selectedViolationIds.length === 0) return;
     try {
       const count = await youthDisciplineService.deleteMultipleViolations(
@@ -1306,7 +1419,10 @@ export default function YouthDisciplinePage() {
 
   // Clear violations by scope
   const handleConfirmClearViolationScope = async () => {
-    if (isProductionWeb()) return;
+    if (!canDeleteDiscipline) {
+      showToast('Bạn không có quyền xóa bản ghi vi phạm.', 'error');
+      return;
+    }
     try {
       let idsToDelete: string[] = [];
       if (clearViolationScope === 'filtered') {
@@ -1342,6 +1458,10 @@ export default function YouthDisciplinePage() {
 
   // Handle confirm / unconfirm violation status
   const handleToggleConfirmViolation = async (vio: YouthViolationRecord) => {
+    if (!canApproveDiscipline) {
+      showToast('Bạn không có quyền phê duyệt / xác nhận vi phạm.', 'error');
+      return;
+    }
     const nextStatus: ViolationStatus = vio.status === 'DA_XAC_NHAN' ? 'CHO_XAC_NHAN' : 'DA_XAC_NHAN';
     try {
       await youthDisciplineService.updateViolationStatus(
@@ -1360,6 +1480,10 @@ export default function YouthDisciplinePage() {
 
   // Save Daily Check Sheet
   const handleSaveDailyCheckSheet = async () => {
+    if (!canCreateDiscipline) {
+      showToast('Bạn không có quyền lưu sổ kiểm tra nền nếp.', 'error');
+      return;
+    }
     try {
       const sheet: YouthDailyCheckSheet = {
         id: `check_${selectedYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${selectedWeek}_${dailyCheckDate}_${dailyCheckSession}`,
@@ -1382,6 +1506,10 @@ export default function YouthDisciplinePage() {
 
   // Lock / Unlock Week
   const handleToggleLockWeek = async () => {
+    if (!canLockDiscipline && !isAdmin) {
+      showToast('Bạn không có quyền khóa hoặc mở khóa kết quả tuần.', 'error');
+      return;
+    }
     if (selectedWeek === 0) {
       setTargetLockWeekNumber(1);
       setIsWeekLockModalOpen(true);
@@ -1414,6 +1542,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleLockSpecificWeek = async (wNum: number) => {
+    if (!canLockDiscipline && !isAdmin) {
+      showToast('Bạn không có quyền chốt kết quả tuần.', 'error');
+      return;
+    }
     if (!window.confirm(`Bạn có chắc chắn muốn CHỐT KẾT QUẢ NỀ NẾP TUẦN ${wNum}? Sau khi chốt, dữ liệu vi phạm Tuần ${wNum} sẽ được khóa.`)) return;
     try {
       await youthDisciplineService.lockWeek(
@@ -1433,6 +1565,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleUnlockSpecificWeek = async (wNum: number, reasonStr?: string) => {
+    if (!canLockDiscipline && !isAdmin) {
+      showToast('Bạn không có quyền mở khóa kết quả tuần.', 'error');
+      return;
+    }
     const r = reasonStr || prompt(`Nhập lý do mở khóa Tuần ${wNum}:`);
     if (!r || !r.trim()) {
       if (reasonStr !== undefined) showToast('Vui lòng nhập lý do mở khóa tuần');
@@ -1457,6 +1593,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleConfirmUnlockWeek = async () => {
+    if (!canLockDiscipline && !isAdmin) {
+      showToast('Bạn không có quyền mở khóa kết quả tuần.', 'error');
+      return;
+    }
     if (!unlockReason.trim()) {
       showToast('Vui lòng nhập lý do mở khóa tuần');
       return;
@@ -1481,6 +1621,10 @@ export default function YouthDisciplinePage() {
 
   // Export handlers
   const handleExportExcel = () => {
+    if (!canExportDiscipline) {
+      showToast('Bạn không có quyền xuất dữ liệu.', 'error');
+      return;
+    }
     let title = `Năm học ${selectedYear}`;
     if (selectedMonth > 0 && selectedWeek === 0) {
       const mRange = getMonthDateRange(selectedMonth, selectedYear);
@@ -1493,6 +1637,10 @@ export default function YouthDisciplinePage() {
   };
 
   const handleExportWord = async () => {
+    if (!canExportDiscipline) {
+      showToast('Bạn không có quyền xuất dữ liệu.', 'error');
+      return;
+    }
     let title = `Năm học ${selectedYear}`;
     if (selectedMonth > 0 && selectedWeek === 0) {
       const mRange = getMonthDateRange(selectedMonth, selectedYear);
@@ -1506,6 +1654,10 @@ export default function YouthDisciplinePage() {
 
   // Export actual list of student violations directly to Word (.docx) based on current filters
   const handleExportViolationsWord = async () => {
+    if (!canExportDiscipline) {
+      showToast('Bạn không có quyền xuất dữ liệu.', 'error');
+      return;
+    }
     if (!filteredViolations || filteredViolations.length === 0) {
       showToast('Không có học sinh vi phạm phù hợp với điều kiện lọc.', 'error');
       return;
@@ -1549,6 +1701,10 @@ export default function YouthDisciplinePage() {
 
   // Export actual list of student violations directly to Excel (.xlsx) based on current filters
   const handleExportViolationsExcel = () => {
+    if (!canExportDiscipline) {
+      showToast('Bạn không có quyền xuất dữ liệu.', 'error');
+      return;
+    }
     if (!filteredViolations || filteredViolations.length === 0) {
       showToast('Không có học sinh vi phạm phù hợp với điều kiện lọc.', 'error');
       return;
@@ -1580,6 +1736,23 @@ export default function YouthDisciplinePage() {
     }
   };
 
+  if (!canAccessYouthDiscipline && !isAdmin) {
+    return (
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 font-sans">
+        <BackButton />
+        <Card className="p-8 sm:p-12 bg-white border border-rose-200 rounded-3xl shadow-sm text-center space-y-4 max-w-lg mx-auto mt-12">
+          <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+            <Lock size={32} />
+          </div>
+          <h2 className="text-xl font-black text-slate-900">Không có quyền truy cập module</h2>
+          <p className="text-sm text-slate-600">
+            Tài khoản của bạn chưa được cấp quyền truy cập module <strong>Đoàn TN – Nền nếp học sinh</strong>. Vui lòng liên hệ Quản trị viên để được phân quyền.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 pb-24 font-sans text-slate-900">
       {/* 1. TOP HEADER & BACK BUTTON */}
@@ -1595,24 +1768,26 @@ export default function YouthDisciplinePage() {
           </div>
         </div>
 
-        {/* ROLE TESTING SWITCHER */}
-        <div className="flex items-center gap-2 flex-wrap text-xs bg-white p-1.5 rounded-2xl border border-slate-200 shadow-2xs">
-          <span className="font-bold text-slate-600 pl-2">Quyền thao tác:</span>
-          <span className="px-2.5 py-1 rounded-xl font-black bg-blue-600 text-white shadow-xs">
-            {effectiveRole === 'ADMIN' ? '🛡️ Quản trị viên' : effectiveRole === 'BAN_GIAM_HIEU' ? '👑 Ban Giám Hiệu' : effectiveRole === 'BI_THU_DOAN' ? '🚩 Bí thư Đoàn' : effectiveRole === 'CAN_BO_DOAN' ? '⚡ Cán bộ Đoàn / Cờ đỏ' : '👨‍🏫 GVCN'}
-          </span>
-          <select
-            value={activeRoleOverride || effectiveRole}
-            onChange={e => setActiveRoleOverride(e.target.value as any)}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-2 py-1 rounded-xl outline-none cursor-pointer text-xs"
-          >
-            <option value="BI_THU_DOAN">Bí thư Đoàn trường</option>
-            <option value="CAN_BO_DOAN">Cán bộ Đoàn / Đội Cờ đỏ</option>
-            <option value="BAN_GIAM_HIEU">Ban Giám Hiệu</option>
-            <option value="ADMIN">Quản trị viên (Admin)</option>
-            <option value="GVCN">Giáo viên chủ nhiệm</option>
-          </select>
-        </div>
+        {/* ROLE TESTING SWITCHER - ONLY VISIBLE TO SYSTEM ADMIN IN DEVELOPMENT */}
+        {!isProductionWeb() && isSystemAdmin && (
+          <div className="flex items-center gap-2 flex-wrap text-xs bg-white p-1.5 rounded-2xl border border-slate-200 shadow-2xs">
+            <span className="font-bold text-slate-600 pl-2">Quyền thao tác:</span>
+            <span className="px-2.5 py-1 rounded-xl font-black bg-blue-600 text-white shadow-xs">
+              {effectiveRole === 'ADMIN' ? '🛡️ Quản trị viên' : effectiveRole === 'BAN_GIAM_HIEU' ? '👑 Ban Giám Hiệu' : effectiveRole === 'BI_THU_DOAN' ? '🚩 Bí thư Đoàn' : effectiveRole === 'CAN_BO_DOAN' ? '⚡ Cán bộ Đoàn / Cờ đỏ' : '👨‍🏫 GVCN'}
+            </span>
+            <select
+              value={activeRoleOverride || effectiveRole}
+              onChange={e => setActiveRoleOverride(e.target.value as any)}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-2 py-1 rounded-xl outline-none cursor-pointer text-xs"
+            >
+              <option value="BI_THU_DOAN">Bí thư Đoàn trường</option>
+              <option value="CAN_BO_DOAN">Cán bộ Đoàn / Đội Cờ đỏ</option>
+              <option value="BAN_GIAM_HIEU">Ban Giám Hiệu</option>
+              <option value="ADMIN">Quản trị viên (Admin)</option>
+              <option value="GVCN">Giáo viên chủ nhiệm</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* TOAST ALERT */}
@@ -1652,25 +1827,29 @@ export default function YouthDisciplinePage() {
             </div>
           </div>
 
-          {/* ACTION BUTTONS */}
+          {/* ACTION BUTTONS - STRICT ACTION-BASED PERMISSIONS */}
           <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
-            <button
-              type="button"
-              onClick={() => openNewViolationModal('VS05')}
-              className="px-3.5 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer backdrop-blur-xs"
-              title="Ghi nhận nhanh lỗi: Học sinh ăn quà vặt trong lớp (bị trừ 02 điểm)"
-            >
-              <span>🍿 Ghi lỗi Ăn quà vặt (-02đ)</span>
-            </button>
+            {canCreateDiscipline && (
+              <button
+                type="button"
+                onClick={() => openNewViolationModal('VS05')}
+                className="px-3.5 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer backdrop-blur-xs"
+                title="Ghi nhận nhanh lỗi: Học sinh ăn quà vặt trong lớp (bị trừ 02 điểm)"
+              >
+                <span>🍿 Ghi lỗi Ăn quà vặt (-02đ)</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => openNewViolationModal()}
-              className="px-4 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-amber-300"
-            >
-              <Plus size={18} />
-              <span>+ GHI NHẬN VI PHẠM</span>
-            </button>
+            {canCreateDiscipline && (
+              <button
+                type="button"
+                onClick={() => openNewViolationModal()}
+                className="px-4 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-amber-300"
+              >
+                <Plus size={18} />
+                <span>+ GHI NHẬN VI PHẠM</span>
+              </button>
+            )}
 
             {canLockWeek && (
               <button
@@ -1688,76 +1867,86 @@ export default function YouthDisciplinePage() {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => {
-                if (activeTab === 'violations') {
-                  handleExportViolationsWord();
-                } else {
-                  handleExportWord();
+            {canExportDiscipline && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab === 'violations') {
+                    handleExportViolationsWord();
+                  } else {
+                    handleExportWord();
+                  }
+                }}
+                className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-400/40"
+                title={
+                  activeTab === 'violations'
+                    ? 'Xuất danh sách học sinh vi phạm ra file Word (.docx)'
+                    : 'Xuất bảng tổng hợp nề nếp ra file Word (.docx)'
                 }
-              }}
-              className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-400/40"
-              title={
-                activeTab === 'violations'
-                  ? 'Xuất danh sách học sinh vi phạm ra file Word (.docx)'
-                  : 'Xuất bảng tổng hợp nề nếp ra file Word (.docx)'
-              }
-            >
-              <FileText size={16} />
-              <span className="hidden sm:inline">Xuất Word</span>
-            </button>
+              >
+                <FileText size={16} />
+                <span className="hidden sm:inline">Xuất Word</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => {
-                if (activeTab === 'violations') {
-                  handleExportViolationsExcel();
-                } else {
-                  handleExportExcel();
+            {canExportDiscipline && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab === 'violations') {
+                    handleExportViolationsExcel();
+                  } else {
+                    handleExportExcel();
+                  }
+                }}
+                className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-400/40"
+                title={
+                  activeTab === 'violations'
+                    ? 'Xuất danh sách học sinh vi phạm ra file Excel (.xlsx)'
+                    : 'Xuất dữ liệu nề nếp ra Excel (.xlsx)'
                 }
-              }}
-              className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-400/40"
-              title={
-                activeTab === 'violations'
-                  ? 'Xuất danh sách học sinh vi phạm ra file Excel (.xlsx)'
-                  : 'Xuất dữ liệu nề nếp ra Excel (.xlsx)'
-              }
-            >
-              <FileSpreadsheet size={16} />
-              <span className="hidden sm:inline">Xuất Excel</span>
-            </button>
+              >
+                <FileSpreadsheet size={16} />
+                <span className="hidden sm:inline">Xuất Excel</span>
+              </button>
+            )}
 
-            <Link
-              to="/youth-duty-schedule"
-              className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-400/40"
-              title="Chuyển sang module Lịch trực Đoàn thanh niên"
-            >
-              <Calendar size={16} />
-              <span>Lịch trực Đoàn</span>
-            </Link>
+            {canAccessDutySchedule && (
+              <Link
+                to="/youth-duty-schedule"
+                className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-400/40"
+                title="Chuyển sang module Lịch trực Đoàn thanh niên"
+              >
+                <Calendar size={16} />
+                <span>Lịch trực Đoàn</span>
+              </Link>
+            )}
 
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('settings_audit');
-                handleOpenNewClassifModal();
-              }}
-              className="px-3.5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-violet-400/40"
-              title="Cấu hình khoảng điểm xếp loại nền nếp học sinh"
-            >
-              <Settings size={16} />
-              <span className="hidden sm:inline">Cấu hình điểm</span>
-            </button>
+            {(canLockDiscipline || isAdmin) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('settings_audit');
+                  handleOpenNewClassifModal();
+                }}
+                className="px-3.5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-violet-400/40"
+                title="Cấu hình khoảng điểm xếp loại nền nếp học sinh"
+              >
+                <Settings size={16} />
+                <span className="hidden sm:inline">Cấu hình điểm</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl border border-slate-600 transition-colors cursor-pointer"
-              title="In báo cáo"
-            >
-              <Printer size={18} />
-            </button>
+            {canExportDiscipline && (
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl border border-slate-600 transition-colors cursor-pointer"
+                title="In báo cáo"
+              >
+                <Printer size={18} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1892,14 +2081,14 @@ export default function YouthDisciplinePage() {
       {/* 3. NAVIGATION TABS BAR */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200 no-print">
         {[
-          { id: 'dashboard', label: '📊 Tổng quan & Thống kê', icon: BarChart3 },
-          { id: 'violations', label: '📋 Danh sách vi phạm', icon: ShieldAlert, badge: filteredViolations.length },
-          { id: 'class_tracking', label: '🏫 Theo dõi theo Lớp', icon: Building },
-          { id: 'weekly_summary', label: '📅 Tổng hợp Tuần & Chốt điểm', icon: Award },
-          { id: 'criteria', label: '⚙️ Danh mục tiêu chí', icon: Layers },
-          { id: 'reports', label: '📑 Báo cáo & Xuất file', icon: FileText },
-          { id: 'settings_audit', label: '🛡️ Cấu hình & Audit Log', icon: History }
-        ].map(tab => {
+          { id: 'dashboard', label: '📊 Tổng quan & Thống kê', icon: BarChart3, show: true },
+          { id: 'violations', label: '📋 Danh sách vi phạm', icon: ShieldAlert, badge: filteredViolations.length, show: true },
+          { id: 'class_tracking', label: '🏫 Theo dõi theo Lớp', icon: Building, show: true },
+          { id: 'weekly_summary', label: '📅 Tổng hợp Tuần & Chốt điểm', icon: Award, show: true },
+          { id: 'criteria', label: '⚙️ Danh mục tiêu chí', icon: Layers, show: true },
+          { id: 'reports', label: '📑 Báo cáo & Xuất file', icon: FileText, show: canExportDiscipline || isAdmin },
+          { id: 'settings_audit', label: '🛡️ Cấu hình & Audit Log', icon: History, show: canLockDiscipline || isAdmin }
+        ].filter(t => t.show).map(tab => {
           const isActive = activeTab === tab.id;
           return (
             <button
@@ -2184,35 +2373,41 @@ export default function YouthDisciplinePage() {
               )}
 
               {/* XUẤT WORD DANH SÁCH HỌC SINH VI PHẠM */}
-              <button
-                type="button"
-                onClick={handleExportViolationsWord}
-                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-500/40"
-                title="Xuất danh sách học sinh vi phạm ra file Word (.docx) theo bộ lọc hiện tại"
-              >
-                <FileText size={14} />
-                <span>Xuất Word</span>
-              </button>
+              {canExportDiscipline && (
+                <button
+                  type="button"
+                  onClick={handleExportViolationsWord}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-blue-500/40"
+                  title="Xuất danh sách học sinh vi phạm ra file Word (.docx) theo bộ lọc hiện tại"
+                >
+                  <FileText size={14} />
+                  <span>Xuất Word</span>
+                </button>
+              )}
 
               {/* XUẤT EXCEL DANH SÁCH HỌC SINH VI PHẠM */}
-              <button
-                type="button"
-                onClick={handleExportViolationsExcel}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-500/40"
-                title="Xuất danh sách học sinh vi phạm ra file Excel (.xlsx) theo bộ lọc hiện tại"
-              >
-                <FileSpreadsheet size={14} />
-                <span>Xuất Excel</span>
-              </button>
+              {canExportDiscipline && (
+                <button
+                  type="button"
+                  onClick={handleExportViolationsExcel}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-500/40"
+                  title="Xuất danh sách học sinh vi phạm ra file Excel (.xlsx) theo bộ lọc hiện tại"
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>Xuất Excel</span>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={openNewViolationModal}
-                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Plus size={14} />
-                <span>+ Thêm vi phạm</span>
-              </button>
+              {canCreateDiscipline && (
+                <button
+                  type="button"
+                  onClick={openNewViolationModal}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>+ Thêm vi phạm</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -2240,13 +2435,13 @@ export default function YouthDisciplinePage() {
                   <th className="py-3 px-3.5 text-center min-w-[90px]">Điểm trừ</th>
                   <th className="py-3 px-3.5 min-w-[130px]">Người ghi nhận</th>
                   <th className="py-3 px-3.5 text-center min-w-[120px]">Trạng thái</th>
-                  <th className="py-3 px-3.5 text-center min-w-[130px]">Thao tác</th>
+                  {showActionColumn && <th className="py-3 px-3.5 text-center min-w-[130px]">Thao tác</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredViolations.length === 0 ? (
                   <tr>
-                    <td colSpan={showViolationCheckbox ? 11 : 10} className="py-12 text-center text-slate-500">
+                    <td colSpan={showViolationCheckbox ? (showActionColumn ? 11 : 10) : (showActionColumn ? 10 : 9)} className="py-12 text-center text-slate-500">
                       <p className="font-semibold text-sm mb-2">Không tìm thấy bản ghi vi phạm nào phù hợp với bộ lọc hiện tại.</p>
                       <button
                         type="button"
@@ -2345,58 +2540,60 @@ export default function YouthDisciplinePage() {
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {canConfirmViolations && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleConfirmViolation(vio)}
-                              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                                vio.status === 'DA_XAC_NHAN'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                              }`}
-                              title={vio.status === 'DA_XAC_NHAN' ? 'Hủy xác nhận vi phạm' : 'Xác nhận vi phạm'}
-                            >
-                              {vio.status === 'DA_XAC_NHAN' ? <X size={13} /> : <Check size={13} />}
-                            </button>
-                          )}
+                      {showActionColumn && (
+                        <td className="py-3 px-3.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {canConfirmViolations && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleConfirmViolation(vio)}
+                                className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                  vio.status === 'DA_XAC_NHAN'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                }`}
+                                title={vio.status === 'DA_XAC_NHAN' ? 'Hủy xác nhận vi phạm' : 'Xác nhận vi phạm'}
+                              >
+                                {vio.status === 'DA_XAC_NHAN' ? <X size={13} /> : <Check size={13} />}
+                              </button>
+                            )}
 
-                          {/* UNLOCK BUTTON FOR ADMIN/BGH/BI_THU_DOAN IF LOCKED */}
-                          {vio.isLocked !== false && (effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN') && (
-                            <button
-                              type="button"
-                              onClick={() => handleUnlockViolation(vio)}
-                              className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg border border-amber-300 transition-colors cursor-pointer"
-                              title="Mở khóa bản ghi vi phạm (Quản trị / BGH / Bí thư Đoàn)"
-                            >
-                              <Unlock size={13} />
-                            </button>
-                          )}
+                            {/* UNLOCK BUTTON FOR ADMIN/LOCK HOLDER IF LOCKED */}
+                            {vio.isLocked !== false && (canLockDiscipline || isAdmin) && (
+                              <button
+                                type="button"
+                                onClick={() => handleUnlockViolation(vio)}
+                                className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg border border-amber-300 transition-colors cursor-pointer"
+                                title="Mở khóa bản ghi vi phạm (Quản trị / BGH / Bí thư Đoàn)"
+                              >
+                                <Unlock size={13} />
+                              </button>
+                            )}
 
-                          {canEditOrDelete() && canEditViolations && (vio.isLocked === false || effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN') && (
-                            <button
-                              type="button"
-                              onClick={() => openEditViolationModal(vio)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors cursor-pointer"
-                              title="Sửa bản ghi vi phạm"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                          )}
+                            {canEditViolations && (vio.isLocked === false || canLockDiscipline || isAdmin) && (
+                              <button
+                                type="button"
+                                onClick={() => openEditViolationModal(vio)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors cursor-pointer"
+                                title="Sửa bản ghi vi phạm"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                            )}
 
-                          {canDeleteViolations && (vio.isLocked === false || effectiveRole === 'ADMIN' || effectiveRole === 'BAN_GIAM_HIEU' || effectiveRole === 'BI_THU_DOAN') && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteViolation(vio.id)}
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                              title="Xóa vi phạm"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                            {canDeleteViolations && (vio.isLocked === false || canLockDiscipline || isAdmin) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteViolation(vio.id)}
+                                className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
+                                title="Xóa vi phạm"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -2431,27 +2628,29 @@ export default function YouthDisciplinePage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleExportWord}
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  title="Xuất bảng tổng hợp nề nếp theo lớp ra file Word (.docx)"
-                >
-                  <FileText size={14} />
-                  <span>Xuất Word</span>
-                </button>
+              {canExportDiscipline && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleExportWord}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Xuất bảng tổng hợp nề nếp theo lớp ra file Word (.docx)"
+                  >
+                    <FileText size={14} />
+                    <span>Xuất Word</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  title="Xuất bảng tổng hợp nề nếp theo lớp ra file Excel (.xlsx)"
-                >
-                  <FileSpreadsheet size={14} />
-                  <span>Xuất Excel</span>
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Xuất bảng tổng hợp nề nếp theo lớp ra file Excel (.xlsx)"
+                  >
+                    <FileSpreadsheet size={14} />
+                    <span>Xuất Excel</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* QUICK PERIOD SELECTOR (THÁNG / TUẦN / CẢ NĂM) */}
@@ -2954,30 +3153,34 @@ export default function YouthDisciplinePage() {
                     {canManageCriteria && (
                       <td className="py-3 px-3 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleEditCriterion(crit)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors cursor-pointer"
-                            title="Chỉnh sửa tiêu chí"
-                          >
-                            <Edit2 size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await youthDisciplineService.deleteCriterion(crit.id, effectiveRole);
-                                showToast(`Đã xóa tiêu chí ${crit.name}!`);
-                                loadAllData();
-                              } catch (e: any) {
-                                showToast(e.message || 'Lỗi khi xóa tiêu chí');
-                              }
-                            }}
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                            title="Xóa tiêu chí"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          {(canEditDiscipline || isAdmin) && (
+                            <button
+                              type="button"
+                              onClick={() => handleEditCriterion(crit)}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors cursor-pointer"
+                              title="Chỉnh sửa tiêu chí"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+                          {(canDeleteDiscipline || isAdmin) && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await youthDisciplineService.deleteCriterion(crit.id, effectiveRole);
+                                  showToast(`Đã xóa tiêu chí ${crit.name}!`);
+                                  loadAllData();
+                                } catch (e: any) {
+                                  showToast(e.message || 'Lỗi khi xóa tiêu chí');
+                                }
+                              }}
+                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
+                              title="Xóa tiêu chí"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     )}
@@ -3329,7 +3532,7 @@ export default function YouthDisciplinePage() {
       )}
 
       {/* 5. MODAL GHI NHẬN / CHỈNH SỬA VI PHẠM */}
-      {isViolationModalOpen && (
+      {isViolationModalOpen && (editingViolation ? canEditDiscipline : canCreateDiscipline) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-[28px] shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-6">
             <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white flex items-center justify-between">
@@ -3703,7 +3906,7 @@ export default function YouthDisciplinePage() {
       )}
 
       {/* 6. MODAL MỞ KHÓA TUẦN (UNLOCK WEEK MODAL) */}
-      {isUnlockModalOpen && (
+      {isUnlockModalOpen && (canLockDiscipline || isAdmin) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden p-5 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-2.5 text-rose-600">
@@ -3965,7 +4168,7 @@ export default function YouthDisciplinePage() {
       )}
 
       {/* 9. MODAL THÊM / CHỈNH SỬA TIÊU CHÍ VI PHẠM (CRITERION MODAL) */}
-      {isCriterionModalOpen && (
+      {isCriterionModalOpen && canManageCriteria && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 flex flex-col max-h-[90vh]">
             {/* Modal Header */}
@@ -4157,7 +4360,7 @@ export default function YouthDisciplinePage() {
         </div>
       )}
       {/* MODAL CẤU HÌNH MỨC XẾP LOẠI */}
-      {isClassifModalOpen && (
+      {isClassifModalOpen && (canLockDiscipline || isAdmin) && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150">
             {/* Header */}
@@ -4306,7 +4509,7 @@ export default function YouthDisciplinePage() {
         </div>
       )}
       {/* MODAL QUẢN LÝ CHỐT TUẦN */}
-      {isWeekLockModalOpen && (
+      {isWeekLockModalOpen && (canLockDiscipline || isAdmin) && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150">
             <div className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
