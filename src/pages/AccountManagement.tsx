@@ -923,7 +923,7 @@ export default function AccountManagement() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-xs shrink-0">
-                              {acc.fullName.charAt(0)}
+                              {(acc.fullName || 'A').charAt(0)}
                             </div>
                             <div>
                               <p className="font-bold text-slate-800">{acc.fullName}</p>

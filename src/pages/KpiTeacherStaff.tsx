@@ -1281,7 +1281,7 @@ export default function KpiTeacherStaff() {
                 <td className={`p-3 sticky ${nameStickyClass} z-20 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.08)] transition-colors min-w-[220px] max-w-[260px]`}>
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs">
-                      {form.employeeName.charAt(0)}
+                      {(form.employeeName || 'C').charAt(0)}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p 

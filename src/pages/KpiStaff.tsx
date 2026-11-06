@@ -501,7 +501,7 @@ export default function KpiStaff() {
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center shrink-0 border border-emerald-200">
-                            {f.employeeName.charAt(0)}
+                            {(f.employeeName || 'N').charAt(0)}
                           </div>
                           <div>
                             <p className="font-bold text-slate-900">{f.employeeName}</p>

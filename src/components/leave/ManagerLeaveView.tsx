@@ -37,7 +37,7 @@ export default function ManagerLeaveView({ activeTab }: { activeTab: string }) {
   const getTeacherName = (id: string, leave?: LeaveRecord) => {
     if (leave?.employee_name) return leave.employee_name;
     const found = teachers.find(t => t.id === id);
-    return found ? found.name : id;
+    return (found ? found.name : (leave?.teacherId || id || 'CBGVNV')) || 'CBGVNV';
   };
   const getDeptName = (id: string, leave?: LeaveRecord) => {
     if (leave?.department_name) return leave.department_name;
@@ -387,7 +387,7 @@ export default function ManagerLeaveView({ activeTab }: { activeTab: string }) {
             <div className="p-6 space-y-4 text-sm">
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
                 <div className="w-11 h-11 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-                  {getTeacherName(viewingLeave.teacherId, viewingLeave).charAt(0).toUpperCase()}
+                  {((getTeacherName(viewingLeave.teacherId, viewingLeave) || 'C')).charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <div className="font-bold text-slate-900 text-base">{getTeacherName(viewingLeave.teacherId, viewingLeave)}</div>
