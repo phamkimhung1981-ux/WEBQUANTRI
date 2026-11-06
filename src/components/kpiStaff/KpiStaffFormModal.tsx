@@ -6,6 +6,9 @@ import {
   FileCheck, Award, Save, Send, Lock, Printer, X, MessageSquare, AlertCircle, Sparkles 
 } from 'lucide-react';
 
+import { useAuth } from '../../store/AuthContext';
+import { isFormOwner } from '../../lib/kpiTargetAudienceUtils';
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -21,6 +24,7 @@ export default function KpiStaffFormModal({
   onSaveForm,
   onPrintForm
 }: Props) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<KpiStaffForm | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
 
@@ -35,6 +39,15 @@ export default function KpiStaffFormModal({
   if (!isOpen || !formData) return null;
 
   const isLocked = formData.status === 'locked' || formData.status === 'completed';
+  const isAdmin = user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+  const isOwner = isFormOwner(user, formData);
+  const isTtcmUser = isAdmin || String(user?.role || '').toUpperCase() === 'TTCM' || (user?.position || '').toLowerCase().includes('tổ trưởng');
+  const isBghUser = isAdmin || String(user?.role || '').toUpperCase() === 'BGH' || String(user?.role || '').toUpperCase() === 'CBQL' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+
+  const canSelfScore = !isLocked && (isOwner || isAdmin);
+  const canTtcmScore = !isLocked && isTtcmUser;
+  const canBghScore = !isLocked && isBghUser;
+
   const posConfig = POSITION_CONFIGS[formData.positionKey] || POSITION_CONFIGS.KE_TOAN;
 
   const handlePositionChange = (newKey: StaffPositionKey) => {
@@ -79,7 +92,7 @@ export default function KpiStaffFormModal({
   };
 
   const handleGeneralScoreChange = (index: number, score: number) => {
-    if (isLocked) return;
+    if (isLocked || !canSelfScore) return;
     const items = [...formData.generalItems];
     const max = items[index].maxScore;
     items[index].selfScore = Math.min(max, Math.max(0, score || 0));
@@ -99,7 +112,7 @@ export default function KpiStaffFormModal({
   };
 
   const handleGeneralTtcmScoreChange = (index: number, score: number) => {
-    if (isLocked) return;
+    if (isLocked || !canTtcmScore) return;
     const items = [...formData.generalItems];
     const max = items[index].maxScore;
     items[index].ttcmScore = Math.min(max, Math.max(0, score));
@@ -117,7 +130,7 @@ export default function KpiStaffFormModal({
   };
 
   const handleGeneralManagerScoreChange = (index: number, score: number) => {
-    if (isLocked) return;
+    if (isLocked || !canBghScore) return;
     const items = [...formData.generalItems];
     const max = items[index].maxScore;
     items[index].managerScore = Math.min(max, Math.max(0, score));
@@ -136,7 +149,7 @@ export default function KpiStaffFormModal({
   };
 
   const handlePositionScoreChange = (index: number, score: number) => {
-    if (isLocked) return;
+    if (isLocked || !canSelfScore) return;
     const items = [...formData.positionItems];
     const max = items[index].maxScore;
     items[index].selfScore = Math.min(max, Math.max(0, score || 0));
@@ -156,7 +169,7 @@ export default function KpiStaffFormModal({
   };
 
   const handlePositionTtcmScoreChange = (index: number, score: number) => {
-    if (isLocked) return;
+    if (isLocked || !canTtcmScore) return;
     const items = [...formData.positionItems];
     const max = items[index].maxScore;
     items[index].ttcmScore = Math.min(max, Math.max(0, score));
@@ -174,7 +187,7 @@ export default function KpiStaffFormModal({
   };
 
   const handlePositionManagerScoreChange = (index: number, score: number) => {
-    if (isLocked) return;
+    if (isLocked || !canBghScore) return;
     const items = [...formData.positionItems];
     const max = items[index].maxScore;
     items[index].managerScore = Math.min(max, Math.max(0, score));
@@ -193,7 +206,7 @@ export default function KpiStaffFormModal({
   };
 
   const handleEvidenceChange = (category: 'A_CHUNG' | 'B_VI_TRI', index: number, evidence: string) => {
-    if (isLocked) return;
+    if (isLocked || !canSelfScore) return;
     if (category === 'A_CHUNG') {
       const items = [...formData.generalItems];
       items[index].evidence = evidence;
@@ -338,14 +351,14 @@ export default function KpiStaffFormModal({
                         step="0.5"
                         min="0"
                         max={item.maxScore}
-                        disabled={isLocked}
+                        disabled={!canSelfScore}
                         value={item.selfScore !== null && item.selfScore !== undefined ? item.selfScore : 0}
                         onChange={e => {
                           const v = e.target.value;
                           handleGeneralScoreChange(idx, v === '' ? 0 : (parseFloat(v) || 0));
                         }}
                         placeholder="0"
-                        className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                       />
                     </td>
 
@@ -356,11 +369,11 @@ export default function KpiStaffFormModal({
                         step="0.5"
                         min="0"
                         max={item.maxScore}
-                        disabled={isLocked}
+                        disabled={!canTtcmScore}
                         value={item.ttcmScore ?? ''}
                         onChange={e => handleGeneralTtcmScoreChange(idx, parseFloat(e.target.value) || 0)}
                         placeholder="---"
-                        className="w-16 px-2 py-1 bg-white border border-purple-300 rounded-lg text-center font-bold text-purple-950 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                        className="w-16 px-2 py-1 bg-white border border-purple-300 rounded-lg text-center font-bold text-purple-950 focus:ring-2 focus:ring-purple-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                       />
                     </td>
 
@@ -371,22 +384,22 @@ export default function KpiStaffFormModal({
                         step="0.5"
                         min="0"
                         max={item.maxScore}
-                        disabled={isLocked}
+                        disabled={!canBghScore}
                         value={item.managerScore ?? ''}
                         onChange={e => handleGeneralManagerScoreChange(idx, parseFloat(e.target.value) || 0)}
                         placeholder="---"
-                        className="w-16 px-2 py-1 bg-white border border-amber-300 rounded-lg text-center font-bold text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        className="w-16 px-2 py-1 bg-white border border-amber-300 rounded-lg text-center font-bold text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                       />
                     </td>
 
                     <td className="p-3">
                       <input
                         type="text"
-                        disabled={isLocked}
+                        disabled={!canSelfScore}
                         value={item.evidence || ''}
                         onChange={e => handleEvidenceChange('A_CHUNG', idx, e.target.value)}
                         placeholder="Nhập minh chứng..."
-                        className="w-full px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        className="w-full px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:opacity-60"
                       />
                     </td>
                   </tr>
@@ -434,14 +447,14 @@ export default function KpiStaffFormModal({
                         step="0.5"
                         min="0"
                         max={item.maxScore}
-                        disabled={isLocked}
+                        disabled={!canSelfScore}
                         value={item.selfScore !== null && item.selfScore !== undefined ? item.selfScore : 0}
                         onChange={e => {
                           const v = e.target.value;
                           handlePositionScoreChange(idx, v === '' ? 0 : (parseFloat(v) || 0));
                         }}
                         placeholder="0"
-                        className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-teal-900 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center font-bold text-teal-900 focus:ring-2 focus:ring-teal-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                       />
                     </td>
 
@@ -452,11 +465,11 @@ export default function KpiStaffFormModal({
                         step="0.5"
                         min="0"
                         max={item.maxScore}
-                        disabled={isLocked}
+                        disabled={!canTtcmScore}
                         value={item.ttcmScore ?? ''}
                         onChange={e => handlePositionTtcmScoreChange(idx, parseFloat(e.target.value) || 0)}
                         placeholder="---"
-                        className="w-16 px-2 py-1 bg-white border border-purple-300 rounded-lg text-center font-bold text-purple-950 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                        className="w-16 px-2 py-1 bg-white border border-purple-300 rounded-lg text-center font-bold text-purple-950 focus:ring-2 focus:ring-purple-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                       />
                     </td>
 
@@ -467,22 +480,22 @@ export default function KpiStaffFormModal({
                         step="0.5"
                         min="0"
                         max={item.maxScore}
-                        disabled={isLocked}
+                        disabled={!canBghScore}
                         value={item.managerScore ?? ''}
                         onChange={e => handlePositionManagerScoreChange(idx, parseFloat(e.target.value) || 0)}
                         placeholder="---"
-                        className="w-16 px-2 py-1 bg-white border border-amber-300 rounded-lg text-center font-bold text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        className="w-16 px-2 py-1 bg-white border border-amber-300 rounded-lg text-center font-bold text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                       />
                     </td>
 
                     <td className="p-3">
                       <input
                         type="text"
-                        disabled={isLocked}
+                        disabled={!canSelfScore}
                         value={item.evidence || ''}
                         onChange={e => handleEvidenceChange('B_VI_TRI', idx, e.target.value)}
                         placeholder="Nhập minh chứng..."
-                        className="w-full px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-none"
+                        className="w-full px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-none disabled:opacity-60"
                       />
                     </td>
                   </tr>
@@ -530,11 +543,11 @@ export default function KpiStaffFormModal({
                   <label className="text-[11px] font-bold text-purple-900 block mb-1">Nhận xét của Tổ trưởng Văn phòng:</label>
                   <input
                     type="text"
-                    disabled={isLocked}
+                    disabled={!canTtcmScore}
                     value={formData.ttcmComment || ''}
                     onChange={e => setFormData({ ...formData, ttcmComment: e.target.value })}
                     placeholder="Nhập nhận xét / nhận định của TT Văn phòng..."
-                    className="w-full p-2 bg-white border border-purple-200 rounded-lg text-xs font-normal text-slate-800 focus:ring-1 focus:ring-purple-500 focus:outline-none"
+                    className="w-full p-2 bg-white border border-purple-200 rounded-lg text-xs font-normal text-slate-800 focus:ring-1 focus:ring-purple-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
 
@@ -542,11 +555,11 @@ export default function KpiStaffFormModal({
                   <label className="text-[11px] font-bold text-amber-900 block mb-1">Ý kiến / Chỉ đạo của Ban Giám hiệu:</label>
                   <input
                     type="text"
-                    disabled={isLocked}
+                    disabled={!canBghScore}
                     value={formData.managerGeneralComment || ''}
                     onChange={e => setFormData({ ...formData, managerGeneralComment: e.target.value })}
                     placeholder="Nhập ý kiến phê duyệt của BGH..."
-                    className="w-full p-2 bg-white border border-amber-200 rounded-lg text-xs font-normal text-slate-800 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                    className="w-full p-2 bg-white border border-amber-200 rounded-lg text-xs font-normal text-slate-800 focus:ring-1 focus:ring-amber-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
               </div>
@@ -575,49 +588,55 @@ export default function KpiStaffFormModal({
 
             {!isLocked && (
               <>
-                <button
-                  onClick={() => handleSave('draft')}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
-                >
-                  <Save size={15} /> Lưu nháp
-                </button>
+                {(canSelfScore || canTtcmScore || canBghScore) && (
+                  <button
+                    onClick={() => handleSave('draft')}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                  >
+                    <Save size={15} /> Lưu nháp
+                  </button>
+                )}
 
-                <button
-                  onClick={() => {
-                    const updated = {
-                      ...formData,
-                      ttcmStatus: 'Đã xác nhận' as const,
-                      status: 'submitted' as const,
-                      updatedAt: new Date().toISOString()
-                    };
-                    setFormData(updated);
-                    onSaveForm(updated);
-                    setSaveSuccessMsg('Tổ trưởng Văn phòng đã xác nhận đánh giá thành công!');
-                    setTimeout(() => setSaveSuccessMsg(''), 2000);
-                  }}
-                  className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  <FileCheck size={15} /> TT Văn phòng xác nhận
-                </button>
+                {canTtcmScore && (
+                  <button
+                    onClick={() => {
+                      const updated = {
+                        ...formData,
+                        ttcmStatus: 'Đã xác nhận' as const,
+                        status: 'submitted' as const,
+                        updatedAt: new Date().toISOString()
+                      };
+                      setFormData(updated);
+                      onSaveForm(updated);
+                      setSaveSuccessMsg('Tổ trưởng Văn phòng đã xác nhận đánh giá thành công!');
+                      setTimeout(() => setSaveSuccessMsg(''), 2000);
+                    }}
+                    className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+                  >
+                    <FileCheck size={15} /> TT Văn phòng xác nhận
+                  </button>
+                )}
 
-                <button
-                  onClick={() => {
-                    const updated = {
-                      ...formData,
-                      ttcmStatus: 'Đã xác nhận' as const,
-                      bghStatus: 'Đã xác nhận' as const,
-                      status: 'completed' as const,
-                      updatedAt: new Date().toISOString()
-                    };
-                    setFormData(updated);
-                    onSaveForm(updated);
-                    setSaveSuccessMsg('Ban Giám hiệu đã phê duyệt hoàn tất phiếu KPI!');
-                    setTimeout(() => setSaveSuccessMsg(''), 2000);
-                  }}
-                  className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-md"
-                >
-                  <Send size={15} /> BGH Phê duyệt & Nghiệm thu
-                </button>
+                {canBghScore && (
+                  <button
+                    onClick={() => {
+                      const updated = {
+                        ...formData,
+                        ttcmStatus: 'Đã xác nhận' as const,
+                        bghStatus: 'Đã xác nhận' as const,
+                        status: 'completed' as const,
+                        updatedAt: new Date().toISOString()
+                      };
+                      setFormData(updated);
+                      onSaveForm(updated);
+                      setSaveSuccessMsg('Ban Giám hiệu đã phê duyệt hoàn tất phiếu KPI!');
+                      setTimeout(() => setSaveSuccessMsg(''), 2000);
+                    }}
+                    className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-md"
+                  >
+                    <Send size={15} /> BGH Phê duyệt & Nghiệm thu
+                  </button>
+                )}
               </>
             )}
           </div>

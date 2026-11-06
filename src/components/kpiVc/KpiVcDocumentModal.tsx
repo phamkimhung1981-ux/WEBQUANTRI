@@ -76,6 +76,7 @@ import {
   getDepartmentTtcmDropdownOptions,
   isTeacherBgh,
   isTeacherTtcm,
+  isFormOwner,
   TtcmEvaluatorOption,
   BghEvaluatorOption
 } from '../../lib/kpiTargetAudienceUtils';
@@ -973,8 +974,7 @@ export default function KpiVcDocumentModal({
   }, [user, form, isAdmin]);
 
   const isOwnerOfThisForm = useMemo(() => {
-    if (!user || !form) return false;
-    return form.employeeId === user.id || form.employeeCode === (user as any).code || form.employeeUsername === user.username;
+    return isFormOwner(user, form);
   }, [user, form]);
 
   // VAI TRÒ THỰC THI (CHO PHÉP ROLE SIMULATOR ĐỂ THỬ NGHIỆM TIỆN LỢI HOẶC TỰ ĐỘNG THEO GIAI ĐOẠN)
@@ -1008,45 +1008,15 @@ export default function KpiVcDocumentModal({
   }, [scoreItems]);
   const isTtcmComplete = missingTtcmCriteria.length === 0;
 
-  // RÀNG BUỘC THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ (TÁCH BIỆT KHÓA RIÊNG TỪNG CẤP):
-  // (1) Giáo viên tự chấm điểm và gửi phiếu: Chỉ mở ở bước 1 (draft/returned)
-  const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && (
-    effectiveRole === 'TEACHER' ||
-    effectiveRole === 'ADMIN' ||
-    mode === 'self_eval' ||
-    mode === 'edit' ||
-    isOwnerOfThisForm ||
-    isAdmin ||
-    simulatedRole === 'TEACHER' ||
-    simulatedRole === 'ADMIN'
-  );
+  // RÀNG BUỘC THEO QUY TRÌNH 3 BƯỚC TUẦN TỰ (BẢO VỆ PHÂN QUYỀN RBAC NGHIÊM NGẶT):
+  // (1) Giáo viên tự chấm điểm và gửi phiếu: BẮT BUỘC phải là CHÍNH CHỦ SỞ HỮU PHIẾU (isOwnerOfThisForm) hoặc Admin
+  const canEditSelf = !isLocked && !isCompleted && isDraftOrReturned && (isOwnerOfThisForm || isAdmin);
 
-  // (2) TTCM đánh giá: Mở khi phiếu chưa khóa và chưa hoàn thành đối với TTCM / Admin / người quản lý
-  const canEditTtcm = !isLocked && !isCompleted && (
-    mode === 'ttcm_eval' ||
-    mode === 'edit' ||
-    simulatedRole === 'TTCM' ||
-    simulatedRole === 'ADMIN' ||
-    effectiveRole === 'TTCM' ||
-    effectiveRole === 'ADMIN' ||
-    isAdmin ||
-    isTtcmForThisForm ||
-    isSubmittedToTtcm ||
-    isDraftOrReturned
-  );
+  // (2) TTCM đánh giá: BẮT BUỘC phải là Tổ trưởng chuyên môn của tổ (isTtcmForThisForm) hoặc Admin
+  const canEditTtcm = !isLocked && !isCompleted && (isTtcmForThisForm || isAdmin) && (isSubmittedToTtcm || isDraftOrReturned || isEvaluatedByTtcm || mode === 'ttcm_eval' || mode === 'edit');
 
-  // (3) BGH chấm và phê duyệt: Mở khi TTCM đã hoàn thành hoặc ở bước BGH
-  const canEditManager = !isLocked && !isCompleted && (
-    mode === 'leader_eval' ||
-    mode === 'edit' ||
-    simulatedRole === 'BGH' ||
-    simulatedRole === 'ADMIN' ||
-    effectiveRole === 'BGH' ||
-    effectiveRole === 'ADMIN' ||
-    isAdmin ||
-    isBghForThisForm ||
-    (isEvaluatedByTtcm && simulatedRole === 'AUTO')
-  );
+  // (3) BGH chấm và phê duyệt: BẮT BUỘC phải là Ban Giám hiệu (isBghForThisForm) hoặc Admin
+  const canEditManager = !isLocked && !isCompleted && (isBghForThisForm || isAdmin) && (isEvaluatedByTtcm || isSubmittedToTtcm || isDraftOrReturned || mode === 'leader_eval' || mode === 'edit');
 
   // Lý do khóa cấp TTCM
   const lockReasonTtcm = useMemo(() => {

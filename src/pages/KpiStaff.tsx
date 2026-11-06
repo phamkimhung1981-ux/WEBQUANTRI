@@ -24,6 +24,7 @@ import KpiStaffPeriodManagerModal from '../components/kpiStaff/KpiStaffPeriodMan
 import KpiStaffDocumentModal from '../components/kpiStaff/KpiStaffDocumentModal';
 import KpiStaffFormModal from '../components/kpiStaff/KpiStaffFormModal';
 import KpiStaffPrintModal from '../components/kpiStaff/KpiStaffPrintModal';
+import { isFormOwner, isTeacherTtcm, isTeacherBgh } from '../lib/kpiTargetAudienceUtils';
 
 import { 
   UserCheck, Calendar, FileSpreadsheet, Plus, Search, 
@@ -565,15 +566,24 @@ export default function KpiStaff() {
 
                       <td className="p-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {(moduleCanEdit || isAdmin) && (
-                            <button
-                              onClick={() => setSelectedFormForEdit(f)}
-                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1"
-                              title="Chấm điểm / Đánh giá"
-                            >
-                              <Edit3 size={14} /> Chấm điểm
-                            </button>
-                          )}
+                          {(() => {
+                            const isMyForm = isFormOwner(user, f);
+                            const isTtcmUser = isAdmin || String(user?.role || '').toUpperCase() === 'TTCM' || (user?.position || '').toLowerCase().includes('tổ trưởng');
+                            const isBghUser = isAdmin || String(user?.role || '').toUpperCase() === 'BGH' || String(user?.role || '').toUpperCase() === 'CBQL' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+                            const canScoreOrEdit = (isMyForm && (moduleCanEdit || isAdmin)) || isAdmin || (isTtcmUser && (moduleCanApprove || isAdmin)) || (isBghUser && (moduleCanApprove || isAdmin));
+                            
+                            if (!canScoreOrEdit) return null;
+
+                            return (
+                              <button
+                                onClick={() => setSelectedFormForEdit(f)}
+                                className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1"
+                                title="Chấm điểm / Đánh giá"
+                              >
+                                <Edit3 size={14} /> Chấm điểm
+                              </button>
+                            );
+                          })()}
 
                           {(moduleCanExport || isAdmin) && (
                             <button

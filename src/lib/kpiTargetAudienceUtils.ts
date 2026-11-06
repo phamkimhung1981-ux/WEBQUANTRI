@@ -2532,3 +2532,40 @@ export function getKpiFormStatusInfo(status?: string): {
       };
   }
 }
+
+/**
+ * Utility function to check whether a logged-in user is the exact OWNER of a KPI form.
+ * Matches using UID / user.id, employeeId/teacherId/staffId, employeeCode/code, username/email.
+ * Does NOT rely on display name alone.
+ * Returns false if user or form is missing, or if owner info is incomplete.
+ */
+export function isFormOwner(
+  user: any, 
+  form: { employeeId?: string; employeeCode?: string; employeeUsername?: string; createdBy?: string } | null | undefined
+): boolean {
+  if (!user || !form) return false;
+
+  // 1. Direct match on user.id or user.uid or user.userId against form.employeeId or form.createdBy
+  const userId = String(user.id || user.uid || user.userId || '').trim().toLowerCase();
+  const formEmpId = String(form.employeeId || '').trim().toLowerCase();
+  const formCreatedBy = String(form.createdBy || '').trim().toLowerCase();
+  if (userId && formEmpId && userId === formEmpId) return true;
+  if (userId && formCreatedBy && userId === formCreatedBy) return true;
+
+  // 2. Match user.employeeId / user.teacherId / user.staffId against form.employeeId
+  const userEmpId = String(user.employeeId || user.teacherId || user.staffId || '').trim().toLowerCase();
+  if (userEmpId && formEmpId && userEmpId === formEmpId) return true;
+
+  // 3. Match code fields (e.g. 'GV01' or 'NV05')
+  const userCode = String(user.code || user.employeeCode || user.teacherCode || user.staffCode || '').trim().toLowerCase();
+  const formCode = String(form.employeeCode || '').trim().toLowerCase();
+  if (userCode && formCode && userCode === formCode) return true;
+
+  // 4. Match username / email
+  const userUsername = String(user.username || user.email || '').trim().toLowerCase();
+  const formUsername = String(form.employeeUsername || '').trim().toLowerCase();
+  if (userUsername && formUsername && userUsername === formUsername) return true;
+
+  return false;
+}
+

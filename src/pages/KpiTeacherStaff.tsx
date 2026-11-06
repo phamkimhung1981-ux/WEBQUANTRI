@@ -91,7 +91,7 @@ import KpiVcRatingConfigModal from '../components/kpiVc/KpiVcRatingConfigModal';
 import KpiVcPrintModal from '../components/kpiVc/KpiVcPrintModal';
 import { exportVcSummaryToExcel } from '../utils/kpiVcExport';
 import { exportVcFormToWord } from '../utils/kpiWordExport';
-import { isTeacherTtcm, isTeacherBgh } from '../lib/kpiTargetAudienceUtils';
+import { isTeacherTtcm, isTeacherBgh, isFormOwner } from '../lib/kpiTargetAudienceUtils';
 
 export default function KpiTeacherStaff() {
   const navigate = useNavigate();
@@ -457,8 +457,12 @@ export default function KpiTeacherStaff() {
   };
 
   const handleOpenDoc = (form: KpiVcForm, mode: 'create' | 'edit' | 'self_eval' | 'ttcm_eval' | 'leader_eval' | 'view') => {
+    let effectiveMode = mode;
+    if ((mode === 'edit' || mode === 'self_eval') && !isAdmin && !isFormOwner(user, form)) {
+      effectiveMode = 'view';
+    }
     setSelectedFormForDoc(form);
-    setDocModalMode(mode);
+    setDocModalMode(effectiveMode);
     setIsDocModalOpen(true);
   };
 
@@ -1229,7 +1233,7 @@ export default function KpiTeacherStaff() {
             const classStyle = ratingInfo.badgeStyle;
             const isSelected = selectedFormIds.includes(form.id);
 
-            const isMyForm = user?.id === form.employeeId || (user as any)?.code === form.employeeCode;
+            const isMyForm = isFormOwner(user, form);
             const canSelfScore = isMyForm && (moduleCanEdit || isAdmin) && (!effStatus || effStatus === 'draft' || effStatus === 'returned') && !isLocked;
 
             const isTtcmUser = isAdmin || 
@@ -1451,8 +1455,8 @@ export default function KpiTeacherStaff() {
                       <Eye size={15} />
                     </button>
 
-                    {/* Chỉnh sửa (chỉ khi có quyền CHỈNH SỬA) */}
-                    {(!isLocked || isAdmin) && (moduleCanEdit || isAdmin) && !canSelfScore && !canTtcmScore && !canBghScore && (
+                    {/* Chỉnh sửa (chỉ khi là CHỦ SỞ HỮU PHIẾU có quyền CHỈNH SỬA hoặc là ADMIN) */}
+                    {(!isLocked || isAdmin) && (isAdmin || (isMyForm && moduleCanEdit)) && !canSelfScore && !canTtcmScore && !canBghScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'edit')}
