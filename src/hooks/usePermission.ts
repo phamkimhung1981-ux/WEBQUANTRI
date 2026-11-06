@@ -44,9 +44,6 @@ export function usePermission() {
 
   // Compute effective permissions for all modules
   const effectivePermissions = useMemo(() => {
-    const baseConfig = DEFAULT_ROLE_GROUPS[roleGroup] || DEFAULT_ROLE_GROUPS.TEACHER;
-    const basePermissions = baseConfig.permissions;
-
     const anyUser = user as any;
     let hasCustom = !!anyUser?.hasCustomPermissions;
     let customPerms = anyUser?.customPermissions as Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
@@ -63,6 +60,16 @@ export function usePermission() {
         customPerms = matched;
       }
     }
+
+    // Default Deny / Strict Baseline: If user has NO custom permissions and is NOT BGH/ADMIN,
+    // strictly fall back to TEACHER baseline permissions to prevent role group (TTCM, GVCN, etc.) permission leakage.
+    let effectiveRoleGroup = roleGroup;
+    if (!hasCustom && !isSystemAdmin && roleGroup !== 'BGH') {
+      effectiveRoleGroup = 'TEACHER';
+    }
+
+    const baseConfig = DEFAULT_ROLE_GROUPS[effectiveRoleGroup] || DEFAULT_ROLE_GROUPS.TEACHER;
+    const basePermissions = baseConfig.permissions;
 
     const result: Record<ModuleCode, ModuleActionPermissions> = {} as any;
 
