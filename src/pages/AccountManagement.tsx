@@ -453,22 +453,6 @@ export default function AccountManagement() {
     setMatrixIsDirty(true);
   };
 
-  const handleApplyTeacherPreset = () => {
-    const teacherBase = DEFAULT_ROLE_GROUPS.TEACHER.permissions;
-    setMatrixPermissions(JSON.parse(JSON.stringify(teacherBase)));
-    setMatrixIsDirty(true);
-    showToast('Đã áp dụng mẫu phân quyền chuẩn cho Giáo viên bộ môn!', 'success');
-  };
-
-  const handleApplyTeacherHomeroomPreset = () => {
-    const base = JSON.parse(JSON.stringify(DEFAULT_ROLE_GROUPS.TEACHER.permissions));
-    base.homeroom = { view: true, create: true, edit: true, delete: false, approve: false, export: true, lock: false };
-    base.youth_discipline = { view: true, create: true, edit: true, delete: false, approve: false, export: true, lock: false };
-    base.academic_tracking = { view: true, create: true, edit: true, delete: false, approve: false, export: true, lock: false };
-    setMatrixPermissions(base);
-    setMatrixIsDirty(true);
-    showToast('Đã áp dụng mẫu phân quyền Giáo viên Chủ nhiệm (thêm Sổ chủ nhiệm & Thi đua)!', 'success');
-  };
 
   const handleApplyViewOnlyPreset = () => {
     const updated: Partial<ModulePermissionsMap> = {};
@@ -1217,32 +1201,16 @@ export default function AccountManagement() {
             </div>
           </div>
 
-          {/* Quick presets for easy teacher permission assignment */}
-          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                <span>⚡</span> Phân quyền mẫu nhanh:
+          {/* Quick actions bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <span>⚡</span> Tiện ích phân quyền:
               </span>
               <button
                 type="button"
-                onClick={handleApplyTeacherPreset}
-                className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
-                title="Áp dụng ngay phân quyền chuẩn cho Giáo viên bộ môn"
-              >
-                <span>🎓</span> Mẫu Giáo viên bộ môn
-              </button>
-              <button
-                type="button"
-                onClick={handleApplyTeacherHomeroomPreset}
-                className="px-3 py-1.5 text-xs font-bold text-blue-800 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
-                title="Áp dụng phân quyền Giáo viên kiêm Chủ nhiệm lớp"
-              >
-                <span>🏫</span> Mẫu Giáo viên Chủ nhiệm
-              </button>
-              <button
-                type="button"
                 onClick={handleApplyViewOnlyPreset}
-                className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1.5 hover:border-slate-400"
                 title="Bật quyền Xem cho tất cả 18 module"
               >
                 <span>👁</span> Xem tất cả module
