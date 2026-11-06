@@ -453,9 +453,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     sessionStorage.removeItem('authUser');
     sessionStorage.removeItem('authSessionExpiry');
+    sessionStorage.clear();
     localStorage.removeItem('authUser');
     localStorage.removeItem('authSessionExpiry');
-    sessionStorage.clear();
+    localStorage.removeItem('custom_user_permissions_map');
+    localStorage.removeItem('cached_user_accounts');
   };
 
   const isAdmin = Boolean(
