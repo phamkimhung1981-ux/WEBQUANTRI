@@ -15,6 +15,7 @@ export interface ClassAcademicEmulationRecord {
   goodWeeks: number; // Tuần học tốt (cộng 20đ/tuần nếu cả tuần toàn giờ tốt, không có giờ khá/tb/yếu)
   goodMarks: number; // Lượt học sinh đạt điểm 8, 9, 10 (cộng 2đ/lượt)
   badMarks: number; // Lượt học sinh có điểm dưới 5 (trừ 2đ/lượt)
+  disorderlyStudents?: number; // Số học sinh mất trật tự giờ truy bài (trừ 1đ/học sinh)
 
   // Chi tiết điểm cộng
   bonusGoodMarks?: number; // goodMarks * 2
@@ -28,6 +29,7 @@ export interface ClassAcademicEmulationRecord {
   deductWeakLessons?: number; // weakLessons * 5
   deductLessonTotal?: number; // Tổng trừ giờ học
   deductBadMarks?: number; // badMarks * 2
+  deductDisorderlyStudents?: number; // disorderlyStudents * 1
   deductionPoints?: number; // Tổng điểm trừ
 
   // Tổng kết
@@ -48,6 +50,7 @@ export interface AcademicEmulationConfig {
   pointPerGoodWeek: number; // Cộng tuần học tốt (mặc định 20)
   pointPerGoodMark: number; // Cộng điểm 8, 9, 10 (mặc định 2)
   pointPerBadMark: number; // Trừ điểm < 5 (mặc định 2)
+  pointPerDisorderlyStudent?: number; // Trừ mất trật tự giờ truy bài (mặc định 1đ/học sinh)
   thresholdExcellent: number; // Ngưỡng Tốt (>= 20)
   thresholdGood: number; // Ngưỡng Khá (>= 10)
   thresholdPass: number; // Ngưỡng Đạt (>= 0)
@@ -66,6 +69,7 @@ export const DEFAULT_EMULATION_CONFIG: AcademicEmulationConfig = {
   pointPerGoodWeek: 20,
   pointPerGoodMark: 2,
   pointPerBadMark: 2,
+  pointPerDisorderlyStudent: 1,
   thresholdExcellent: 20,
   thresholdGood: 10,
   thresholdPass: 0
@@ -93,6 +97,7 @@ export interface MonthlyEmulationSummary {
   totalGoodWeeks: number;
   totalGoodMarks: number;
   totalBadMarks: number;
+  totalDisorderlyStudents: number;
   totalBonusPoints: number;
   totalDeductionPoints: number;
 }

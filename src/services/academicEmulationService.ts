@@ -155,6 +155,7 @@ export const academicEmulationService = {
     const goodWeeks = Math.max(0, Number(record.goodWeeks) || 0);
     const goodMarks = Math.max(0, Number(record.goodMarks) || 0);
     const badMarks = Math.max(0, Number(record.badMarks) || 0);
+    const disorderlyStudents = Math.max(0, Number(record.disorderlyStudents) || 0);
 
     // Điểm cộng
     const bonusGoodMarks = goodMarks * (config.pointPerGoodMark ?? 2);
@@ -168,7 +169,8 @@ export const academicEmulationService = {
     const deductWeakLessons = weakLessons * Math.abs(config.pointPerWeakLesson ?? 5);
     const deductLessonTotal = deductFairLessons + deductAvgLessons + deductWeakLessons;
     const deductBadMarks = badMarks * Math.abs(config.pointPerBadMark ?? 2);
-    const deductionPoints = deductLessonTotal + deductBadMarks;
+    const deductDisorderlyStudents = disorderlyStudents * Math.abs(config.pointPerDisorderlyStudent ?? 1);
+    const deductionPoints = deductLessonTotal + deductBadMarks + deductDisorderlyStudents;
 
     // Tổng điểm thi đua = bonusPoints - deductionPoints
     const totalScore = bonusPoints - deductionPoints;
@@ -191,6 +193,7 @@ export const academicEmulationService = {
       goodWeeks,
       goodMarks,
       badMarks,
+      disorderlyStudents,
       bonusGoodMarks,
       bonusGoodDays,
       bonusGoodWeeks,
@@ -200,6 +203,7 @@ export const academicEmulationService = {
       deductWeakLessons,
       deductLessonTotal,
       deductBadMarks,
+      deductDisorderlyStudents,
       deductionPoints,
       totalScore,
       classification,
@@ -249,6 +253,7 @@ export const academicEmulationService = {
         const goodWeeks = Math.max(0, Number(found.goodWeeks) || 0);
         const goodMarks = Math.max(0, Number(found.goodMarks) || 0);
         const badMarks = Math.max(0, Number(found.badMarks) || 0);
+        const disorderlyStudents = Math.max(0, Number(found.disorderlyStudents) || 0);
 
         const bonusGoodMarks = goodMarks * (config.pointPerGoodMark ?? 2);
         const bonusGoodDays = goodDays * (config.pointPerGoodDay ?? 10);
@@ -260,7 +265,8 @@ export const academicEmulationService = {
         const deductWeakLessons = weakLessons * Math.abs(config.pointPerWeakLesson ?? 5);
         const deductLessonTotal = deductFairLessons + deductAvgLessons + deductWeakLessons;
         const deductBadMarks = badMarks * Math.abs(config.pointPerBadMark ?? 2);
-        const deductionPoints = deductLessonTotal + deductBadMarks;
+        const deductDisorderlyStudents = disorderlyStudents * Math.abs(config.pointPerDisorderlyStudent ?? 1);
+        const deductionPoints = deductLessonTotal + deductBadMarks + deductDisorderlyStudents;
 
         const totalScore = bonusPoints - deductionPoints;
 
@@ -273,6 +279,7 @@ export const academicEmulationService = {
         const updated: ClassAcademicEmulationRecord = {
           ...found,
           schoolYear: normYear,
+          disorderlyStudents,
           bonusGoodMarks,
           bonusGoodDays,
           bonusGoodWeeks,
@@ -282,6 +289,7 @@ export const academicEmulationService = {
           deductWeakLessons,
           deductLessonTotal,
           deductBadMarks,
+          deductDisorderlyStudents,
           deductionPoints,
           totalScore,
           classification,
@@ -305,6 +313,7 @@ export const academicEmulationService = {
           goodWeeks: 0,
           goodMarks: 0,
           badMarks: 0,
+          disorderlyStudents: 0,
           bonusGoodMarks: 0,
           bonusGoodDays: 0,
           bonusGoodWeeks: 0,
@@ -314,6 +323,7 @@ export const academicEmulationService = {
           deductWeakLessons: 0,
           deductLessonTotal: 0,
           deductBadMarks: 0,
+          deductDisorderlyStudents: 0,
           deductionPoints: 0,
           totalScore: 0,
           classification: 'Đạt',
@@ -379,6 +389,7 @@ export const academicEmulationService = {
       let totalGoodWeeks = 0;
       let totalGoodMarks = 0;
       let totalBadMarks = 0;
+      let totalDisorderlyStudents = 0;
       let totalBonusPoints = 0;
       let totalDeductionPoints = 0;
 
@@ -399,6 +410,7 @@ export const academicEmulationService = {
           totalGoodWeeks += found.goodWeeks || 0;
           totalGoodMarks += found.goodMarks || 0;
           totalBadMarks += found.badMarks || 0;
+          totalDisorderlyStudents += found.disorderlyStudents || 0;
           totalBonusPoints += found.bonusPoints || 0;
           totalDeductionPoints += found.deductionPoints || 0;
         } else {
@@ -438,6 +450,7 @@ export const academicEmulationService = {
         totalGoodWeeks,
         totalGoodMarks,
         totalBadMarks,
+        totalDisorderlyStudents,
         totalBonusPoints,
         totalDeductionPoints
       };

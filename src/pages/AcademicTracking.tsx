@@ -416,9 +416,9 @@ export default function AcademicTrackingPage() {
   };
 
   const handleExportEmulationExcel = () => {
-    let csv = "\uFEFFSTT,Lớp,Giờ Tốt,Giờ Khá (-1đ),Giờ Tb (-3đ),Giờ Yếu (-5đ),Ngày học tốt (+10đ),Tuần học tốt (+20đ),Điểm tốt 8-10 (+2đ),Điểm kém <5 (-2đ),Điểm cộng tổng,Điểm trừ tổng,Tổng điểm thi đua,Xếp loại\n";
+    let csv = "\uFEFFSTT,Lớp,Giờ Tốt,Giờ Khá (-1đ),Giờ Tb (-3đ),Giờ Yếu (-5đ),Ngày học tốt (+10đ),Tuần học tốt (+20đ),Điểm tốt 8-10 (+2đ),Điểm kém <5 (-2đ),Mất trật tự truy bài (-1đ),Điểm cộng tổng,Điểm trừ tổng,Tổng điểm thi đua,Xếp loại\n";
     sortedEmulationRecords.forEach((r, idx) => {
-      csv += `"${idx + 1}","${r.className}","${r.goodLessons}","${r.fairLessons}","${r.avgLessons}","${r.weakLessons}","${r.goodDays || 0}","${r.goodWeeks || 0}","${r.goodMarks || 0}","${r.badMarks || 0}","+${r.bonusPoints || 0}","-${r.deductionPoints || 0}","${r.totalScore ?? 0}","${r.classification || 'Đạt'}"\n`;
+      csv += `"${idx + 1}","${r.className}","${r.goodLessons}","${r.fairLessons}","${r.avgLessons}","${r.weakLessons}","${r.goodDays || 0}","${r.goodWeeks || 0}","${r.goodMarks || 0}","${r.badMarks || 0}","${r.disorderlyStudents || 0}","+${r.bonusPoints || 0}","-${r.deductionPoints || 0}","${r.totalScore ?? 0}","${r.classification || 'Đạt'}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -442,6 +442,7 @@ export default function AcademicTrackingPage() {
         <td style="text-align:center; font-weight:bold; color:#1d4ed8;">${r.goodWeeks || 0}</td>
         <td style="text-align:center; font-weight:bold; color:#047857;">${r.goodMarks || 0}</td>
         <td style="text-align:center; font-weight:bold; color:#b91c1c;">${r.badMarks || 0}</td>
+        <td style="text-align:center; font-weight:bold; color:#b91c1c;">${r.disorderlyStudents || 0}</td>
         <td style="text-align:center; font-weight:bold; color:#047857;">+${r.bonusPoints || 0}</td>
         <td style="text-align:center; font-weight:bold; color:#b91c1c;">-${r.deductionPoints || 0}</td>
         <td style="text-align:center; font-weight:bold; font-size:14px; color:#1e3a8a;">${r.totalScore ?? 0}</td>
@@ -477,6 +478,7 @@ export default function AcademicTrackingPage() {
               <th rowspan="2">Tuần học tốt (+20đ)</th>
               <th rowspan="2">Điểm tốt 8-10 (+2đ)</th>
               <th rowspan="2">Điểm kém <5 (-2đ)</th>
+              <th rowspan="2">Mất trật tự truy bài (-1đ)</th>
               <th rowspan="2">Điểm cộng</th>
               <th rowspan="2">Điểm trừ</th>
               <th rowspan="2">Tổng điểm đạt được</th>
@@ -498,6 +500,7 @@ export default function AcademicTrackingPage() {
           <p>- Điểm chuẩn ban đầu: 0 điểm (tính từ thực tế điểm cộng và điểm trừ).</p>
           <p>- Giờ tốt: 0đ (không cộng, không trừ; điều kiện ngày/tuần tốt).</p>
           <p>- Giờ khá: -1đ/giờ | Giờ TB: -3đ/giờ | Giờ yếu: -5đ/giờ | Học sinh điểm dưới 5: -2đ/lượt.</p>
+          <p>- Mất trật tự giờ truy bài: -1đ/học sinh.</p>
           <p>- Điểm 8, 9, 10: +2đ/lượt | Ngày học tốt (100% giờ tốt): +10đ/ngày | Tuần học tốt (100% giờ tốt, không có giờ khá/tb/yếu): +20đ/tuần.</p>
           <p>- Tổng điểm đạt được = Điểm cộng - Điểm trừ.</p>
         </div>
@@ -964,13 +967,17 @@ export default function AcademicTrackingPage() {
                   <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Tuần học tốt</th>
                   <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Điểm tốt</th>
                   <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-2 border-r border-slate-300 w-16">Điểm kém</th>
+                  <th rowSpan={2} className="sticky top-0 z-30 bg-rose-50 py-3 px-2 border-r border-slate-300 min-w-[90px] text-rose-950">
+                    <div>Mất trật tự truy bài</div>
+                    <div className="text-[10px] font-normal text-rose-700 normal-case">(-1đ/học sinh)</div>
+                  </th>
                   <th rowSpan={2} className="sticky top-0 z-30 bg-emerald-100 py-3 px-3 border-r border-slate-300 min-w-[150px] text-emerald-950">
                     <div>Điểm cộng</div>
                     <div className="text-[10px] font-medium text-emerald-800 normal-case">(Điểm 8-10, Ngày tốt, Tuần tốt)</div>
                   </th>
                   <th rowSpan={2} className="sticky top-0 z-30 bg-rose-100 py-3 px-3 border-r border-slate-300 min-w-[160px] text-rose-950">
                     <div>Điểm trừ</div>
-                    <div className="text-[10px] font-medium text-rose-800 normal-case">(Giờ Khá, TB, Yếu; Điểm &lt; 5)</div>
+                    <div className="text-[10px] font-medium text-rose-800 normal-case">(Giờ Khá, TB, Yếu; Điểm &lt; 5; Trùy bài)</div>
                   </th>
                   <th rowSpan={2} className="sticky top-0 z-30 bg-amber-100 py-3 px-3 border-r border-slate-300 min-w-[100px] text-amber-950">Tổng điểm đạt được</th>
                   <th rowSpan={2} className="sticky top-0 z-30 bg-slate-100 py-3 px-3 min-w-[90px]">Xếp loại</th>
@@ -985,7 +992,7 @@ export default function AcademicTrackingPage() {
               <tbody className="divide-y divide-slate-300 bg-white">
                 {sortedEmulationRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-12 text-center text-slate-400 italic">
+                    <td colSpan={15} className="py-12 text-center text-slate-400 italic">
                       Chưa có dữ liệu thi đua cho tuần này.
                     </td>
                   </tr>
@@ -1068,6 +1075,15 @@ export default function AcademicTrackingPage() {
                           className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-rose-500 border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </td>
+                      {/* Mất trật tự giờ truy bài */}
+                      <td className="py-2 px-1 border-r border-slate-300 bg-rose-50/20">
+                        <TableNumberInput
+                          value={r.disorderlyStudents ?? 0}
+                          disabled={isWeekLocked || (!isAdmin && !moduleCanEdit)}
+                          onChange={val => handleUpdateEmulationField(r.classId, 'disorderlyStudents', val)}
+                          className="w-14 sm:w-16 text-center font-bold bg-slate-50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-rose-500 border border-slate-200 rounded py-1 outline-none text-xs text-rose-600 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        />
+                      </td>
 
                       {/* Điểm cộng */}
                       <td className="py-2 px-3 border-r border-slate-300 font-black text-emerald-700 bg-emerald-50/30">
@@ -1104,6 +1120,10 @@ export default function AcademicTrackingPage() {
                             <div className="flex justify-between">
                               <span className="text-slate-500">• Điểm &lt; 5:</span>
                               <span className="font-bold text-rose-600">-{r.deductBadMarks || 0}đ</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">• Mất trật tự truy bài:</span>
+                              <span className="font-bold text-rose-600">-{r.deductDisorderlyStudents || 0}đ</span>
                             </div>
                           </div>
                         )}
@@ -1387,6 +1407,9 @@ export default function AcademicTrackingPage() {
                         <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-rose-50 text-rose-900">
                           Điểm &lt;5 (-2đ)
                         </th>
+                        <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-rose-100 text-rose-950 font-bold">
+                          Truy bài (-1đ)
+                        </th>
                         <th rowSpan={2} className="py-2 px-2 border-r border-slate-300 bg-emerald-100/60 text-emerald-900 font-black">
                           Tổng điểm cộng
                         </th>
@@ -1515,6 +1538,7 @@ export default function AcademicTrackingPage() {
                             <td className="py-2 px-1 border-r border-slate-300 font-bold text-blue-700">{s.totalGoodWeeks}</td>
                             <td className="py-2 px-1 border-r border-slate-300 font-bold text-emerald-700">{s.totalGoodMarks}</td>
                             <td className="py-2 px-1 border-r border-slate-300 font-bold text-rose-700">{s.totalBadMarks}</td>
+                            <td className="py-2 px-1 border-r border-slate-300 font-bold text-rose-700">{s.totalDisorderlyStudents || 0}</td>
                             <td className="py-2 px-2 border-r border-slate-300 font-black text-emerald-700 bg-emerald-50/20">+{s.totalBonusPoints}đ</td>
                             <td className="py-2 px-2 border-r border-slate-300 font-black text-rose-700 bg-rose-50/20">-{s.totalDeductionPoints}đ</td>
                           </>
@@ -1929,7 +1953,7 @@ export default function AcademicTrackingPage() {
 
               <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2">
                 <span className="font-bold text-rose-900 uppercase text-[11px]">2. Điểm trừ quy định</span>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <div>
                     <label className="font-bold text-slate-700">Trừ Giờ Khá:</label>
                     <input
@@ -1963,6 +1987,15 @@ export default function AcademicTrackingPage() {
                       type="number"
                       value={formConfig.pointPerBadMark ?? 2}
                       onChange={e => setFormConfig({ ...formConfig, pointPerBadMark: Number(e.target.value) })}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-bold text-rose-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-700">Trừ Mất TT truy bài:</label>
+                    <input
+                      type="number"
+                      value={formConfig.pointPerDisorderlyStudent ?? 1}
+                      onChange={e => setFormConfig({ ...formConfig, pointPerDisorderlyStudent: Number(e.target.value) })}
                       className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-bold text-rose-600"
                     />
                   </div>
@@ -2084,6 +2117,7 @@ export default function AcademicTrackingPage() {
                     <th className="py-2 px-2 border-r border-slate-200 text-blue-700">Tuần tốt (+20đ)</th>
                     <th className="py-2 px-2 border-r border-slate-200 text-emerald-700">Điểm 8-10 (+2đ)</th>
                     <th className="py-2 px-2 border-r border-slate-200 text-rose-700">Điểm &lt;5 (-2đ)</th>
+                    <th className="py-2 px-2 border-r border-slate-200 text-rose-700 bg-rose-50/50">Truy bài (-1đ)</th>
                     <th className="py-2 px-2 border-r border-slate-200 text-emerald-700 bg-emerald-50/50">Điểm cộng</th>
                     <th className="py-2 px-2 border-r border-slate-200 text-rose-700 bg-rose-50/50">Điểm trừ</th>
                     <th className="py-2 px-2.5 border-r border-slate-200 bg-amber-50 font-black text-blue-950">Tổng điểm</th>
@@ -2098,7 +2132,7 @@ export default function AcademicTrackingPage() {
                       return (
                         <tr key={w} className="bg-slate-50/60 text-slate-400 italic">
                           <td className="py-2 px-2 font-bold text-slate-600 border-r border-slate-200">Tuần {w}</td>
-                          <td colSpan={11} className="py-2 px-2 border-r border-slate-200 text-center">Chưa có bản ghi thi đua cho tuần này</td>
+                          <td colSpan={12} className="py-2 px-2 border-r border-slate-200 text-center">Chưa có bản ghi thi đua cho tuần này</td>
                           <td className="py-2 px-2 text-center">
                             <button
                               type="button"
@@ -2126,6 +2160,7 @@ export default function AcademicTrackingPage() {
                         <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-blue-700">{rec.goodWeeks || 0}</td>
                         <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-emerald-700">{rec.goodMarks || 0}</td>
                         <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-rose-700">{rec.badMarks || 0}</td>
+                        <td className="py-2.5 px-2 border-r border-slate-200 font-bold text-rose-700">{rec.disorderlyStudents || 0}</td>
                         <td className="py-2.5 px-2 border-r border-slate-200 font-black text-emerald-700 bg-emerald-50/30">+{rec.bonusPoints || 0}đ</td>
                         <td className="py-2.5 px-2 border-r border-slate-200 font-black text-rose-700 bg-rose-50/30">-{rec.deductionPoints || 0}đ</td>
                         <td className="py-2.5 px-2.5 border-r border-slate-200 font-black text-blue-900 bg-amber-50/60 text-sm">{rec.totalScore} đ</td>
@@ -2167,6 +2202,7 @@ export default function AcademicTrackingPage() {
                     <td className="py-2.5 px-2 border-r border-slate-300 text-blue-700">{selectedClassForMonthDetail.totalGoodWeeks}</td>
                     <td className="py-2.5 px-2 border-r border-slate-300 text-emerald-700">{selectedClassForMonthDetail.totalGoodMarks}</td>
                     <td className="py-2.5 px-2 border-r border-slate-300 text-rose-700">{selectedClassForMonthDetail.totalBadMarks}</td>
+                    <td className="py-2.5 px-2 border-r border-slate-300 text-rose-700">{selectedClassForMonthDetail.totalDisorderlyStudents || 0}</td>
                     <td className="py-2.5 px-2 border-r border-slate-300 text-emerald-700">+{selectedClassForMonthDetail.totalBonusPoints}đ</td>
                     <td className="py-2.5 px-2 border-r border-slate-300 text-rose-700">-{selectedClassForMonthDetail.totalDeductionPoints}đ</td>
                     <td className="py-2.5 px-2.5 border-r border-slate-300 text-blue-900 text-base">{selectedClassForMonthDetail.totalScore} đ</td>
