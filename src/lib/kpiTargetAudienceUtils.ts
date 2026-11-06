@@ -2541,30 +2541,33 @@ export function getKpiFormStatusInfo(status?: string): {
  */
 export function isFormOwner(
   user: any, 
-  form: { employeeId?: string; employeeCode?: string; employeeUsername?: string; createdBy?: string } | null | undefined
+  form: { employeeId?: string; employeeCode?: string; employeeUsername?: string; employeeName?: string; createdBy?: string } | null | undefined
 ): boolean {
   if (!user || !form) return false;
 
-  // 1. Direct match on user.id or user.uid or user.userId against form.employeeId or form.createdBy
+  // 1. Match user ID (user.id / user.uid) against form.employeeId (excluding generic 'admin')
   const userId = String(user.id || user.uid || user.userId || '').trim().toLowerCase();
   const formEmpId = String(form.employeeId || '').trim().toLowerCase();
-  const formCreatedBy = String(form.createdBy || '').trim().toLowerCase();
-  if (userId && formEmpId && userId === formEmpId) return true;
-  if (userId && formCreatedBy && userId === formCreatedBy) return true;
+  if (userId && formEmpId && userId !== 'admin' && userId === formEmpId) return true;
 
-  // 2. Match user.employeeId / user.teacherId / user.staffId against form.employeeId
+  // 2. Match user employeeId / teacherId / staffId against form.employeeId
   const userEmpId = String(user.employeeId || user.teacherId || user.staffId || '').trim().toLowerCase();
   if (userEmpId && formEmpId && userEmpId === formEmpId) return true;
 
-  // 3. Match code fields (e.g. 'GV01' or 'NV05')
+  // 3. Match teacher/employee code (e.g., 'GV01', 'GV40', 'NV05')
   const userCode = String(user.code || user.employeeCode || user.teacherCode || user.staffCode || '').trim().toLowerCase();
   const formCode = String(form.employeeCode || '').trim().toLowerCase();
   if (userCode && formCode && userCode === formCode) return true;
 
-  // 4. Match username / email
+  // 4. Match username / email (excluding generic 'admin')
   const userUsername = String(user.username || user.email || '').trim().toLowerCase();
   const formUsername = String(form.employeeUsername || '').trim().toLowerCase();
-  if (userUsername && formUsername && userUsername === formUsername) return true;
+  if (userUsername && formUsername && userUsername !== 'admin' && userUsername === formUsername) return true;
+
+  // 5. Match full employee name strictly (for legacy fallback)
+  const userName = String(user.name || user.fullName || '').trim().toLowerCase();
+  const formEmpName = String(form.employeeName || '').trim().toLowerCase();
+  if (userName && formEmpName && userName === formEmpName) return true;
 
   return false;
 }

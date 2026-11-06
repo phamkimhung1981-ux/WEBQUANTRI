@@ -568,21 +568,38 @@ export default function KpiStaff() {
                         <div className="flex items-center justify-end gap-1.5">
                           {(() => {
                             const isMyForm = isFormOwner(user, f);
+                            const isFormEditable = f.status !== 'locked' && f.status !== 'completed';
                             const isTtcmUser = isAdmin || String(user?.role || '').toUpperCase() === 'TTCM' || (user?.position || '').toLowerCase().includes('tổ trưởng');
                             const isBghUser = isAdmin || String(user?.role || '').toUpperCase() === 'BGH' || String(user?.role || '').toUpperCase() === 'CBQL' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
-                            const canScoreOrEdit = (isMyForm && (moduleCanEdit || isAdmin)) || isAdmin || (isTtcmUser && (moduleCanApprove || isAdmin)) || (isBghUser && (moduleCanApprove || isAdmin));
                             
-                            if (!canScoreOrEdit) return null;
+                            const canSelfScore = isMyForm && isFormEditable && (moduleCanEdit || isAdmin);
+                            const canEvalScore = !isMyForm && isFormEditable && ((isTtcmUser && (moduleCanApprove || isAdmin)) || (isBghUser && (moduleCanApprove || isAdmin)) || isAdmin);
 
-                            return (
-                              <button
-                                onClick={() => setSelectedFormForEdit(f)}
-                                className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1"
-                                title="Chấm điểm / Đánh giá"
-                              >
-                                <Edit3 size={14} /> Chấm điểm
-                              </button>
-                            );
+                            if (canSelfScore) {
+                              return (
+                                <button
+                                  onClick={() => setSelectedFormForEdit(f)}
+                                  className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                                  title="Tự chấm điểm phiếu KPI của bạn"
+                                >
+                                  <Edit3 size={14} /> Tự chấm
+                                </button>
+                              );
+                            }
+
+                            if (canEvalScore) {
+                              return (
+                                <button
+                                  onClick={() => setSelectedFormForEdit(f)}
+                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                                  title="Chấm điểm / Đánh giá nhân viên"
+                                >
+                                  <Edit3 size={14} /> Đánh giá
+                                </button>
+                              );
+                            }
+
+                            return null;
                           })()}
 
                           {(moduleCanExport || isAdmin) && (

@@ -458,9 +458,31 @@ export default function KpiTeacherStaff() {
 
   const handleOpenDoc = (form: KpiVcForm, mode: 'create' | 'edit' | 'self_eval' | 'ttcm_eval' | 'leader_eval' | 'view') => {
     let effectiveMode = mode;
-    if ((mode === 'edit' || mode === 'self_eval') && !isAdmin && !isFormOwner(user, form)) {
-      effectiveMode = 'view';
+    const isOwner = isFormOwner(user, form);
+    const effStatus = getEffectiveFormStatus(form);
+    const isLocked = effStatus === 'locked' || effStatus === 'completed';
+
+    // (1) Tự chấm hoặc chỉnh sửa: Yêu cầu bắt buộc phải là CHỦ SỞ HỮU PHIẾU và phiếu chưa bị khóa/nghiệm thu (hoặc admin)
+    if (mode === 'edit' || mode === 'self_eval') {
+      if ((!isOwner && !isAdmin) || isLocked) {
+        effectiveMode = 'view';
+      }
     }
+    // (2) TTCM chấm: Yêu cầu phải có quyền TTCM/BGH hoặc admin
+    if (mode === 'ttcm_eval') {
+      const isTtcm = isAdmin || isTeacherTtcm(user, departments) || String(user?.role || '').toUpperCase() === 'TTCM' || (user?.position || '').toLowerCase().includes('tổ trưởng');
+      if (!isTtcm || isLocked) {
+        effectiveMode = 'view';
+      }
+    }
+    // (3) BGH chấm: Yêu cầu phải là Ban Giám hiệu hoặc admin
+    if (mode === 'leader_eval') {
+      const isBgh = isAdmin || isTeacherBgh(user) || String(user?.role || '').toUpperCase() === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+      if (!isBgh || isLocked) {
+        effectiveMode = 'view';
+      }
+    }
+
     setSelectedFormForDoc(form);
     setDocModalMode(effectiveMode);
     setIsDocModalOpen(true);
@@ -1234,19 +1256,24 @@ export default function KpiTeacherStaff() {
             const isSelected = selectedFormIds.includes(form.id);
 
             const isMyForm = isFormOwner(user, form);
-            const canSelfScore = isMyForm && (moduleCanEdit || isAdmin) && (!effStatus || effStatus === 'draft' || effStatus === 'returned') && !isLocked;
+            const isFormEditable = !isLocked && effStatus !== 'completed' && effStatus !== 'locked';
 
-            const isTtcmUser = isAdmin || 
+            // 1. Tự chấm: Chỉ hiển thị cho CHÍNH CHỦ SỞ HỮU PHIẾU khi phiếu chưa hoàn thành/chưa bị khóa
+            const canSelfScore = isMyForm && isFormEditable && (moduleCanEdit || isAdmin) && (!effStatus || effStatus === 'draft' || effStatus === 'returned');
+
+            // 2. Chấm TTCM: Chỉ áp dụng cho Tổ trưởng chuyên môn thuộc tổ hoặc Admin
+            const isTtcmForForm = (
               isTeacherTtcm(user, departments) || 
               String(user?.role || '').toUpperCase() === 'TTCM' || 
               String((user as any)?.accountRole || '').toUpperCase() === 'TTCM' || 
               (user?.position || '').toLowerCase().includes('tổ trưởng') ||
-              form.ttcmEvaluatorId === user?.id;
+              form.ttcmEvaluatorId === user?.id
+            ) && (!user?.departmentId || !form.departmentId || user.departmentId === form.departmentId || user.department === form.department);
 
-            // Chấm TTCM: Yêu cầu có quyền PHÊ DUYỆT (approve) và là Tổ trưởng chuyên môn
-            const canTtcmScore = !isLocked && (moduleCanApprove || isAdmin) && isTtcmUser && effStatus !== 'completed' && effStatus !== 'locked';
+            const canTtcmScore = !isLocked && (moduleCanApprove || isAdmin) && (isTtcmForForm || isAdmin) && effStatus !== 'completed' && effStatus !== 'locked';
 
-            const isBghUser = isAdmin || 
+            // 3. Chấm BGH: Chỉ áp dụng cho Ban Giám hiệu / Admin
+            const isBghForForm = isAdmin || 
               isTeacherBgh(user) || 
               String(user?.role || '').toUpperCase() === 'BGH' || 
               String(user?.role || '').toUpperCase() === 'CBQL' || 
@@ -1254,8 +1281,7 @@ export default function KpiTeacherStaff() {
               form.bghEvaluatorId === user?.id || 
               form.evaluatorId === user?.id;
 
-            // Chấm BGH: Yêu cầu có quyền PHÊ DUYỆT (approve) và là Ban Giám hiệu
-            const canBghScore = !isLocked && (moduleCanApprove || isAdmin) && isBghUser && effStatus !== 'completed' && effStatus !== 'locked';
+            const canBghScore = !isLocked && (moduleCanApprove || isAdmin) && isBghForForm && effStatus !== 'completed' && effStatus !== 'locked';
 
             const sttStickyClass = showAdminCheckbox ? 'left-10' : 'left-0';
             const nameStickyClass = showAdminCheckbox ? 'left-[88px]' : 'left-12';
@@ -1409,20 +1435,20 @@ export default function KpiTeacherStaff() {
                 {/* Thao tác */}
                 <td className="p-3 text-center min-w-[200px]">
                   <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                    {/* Nút Tự chấm (chỉ hiển thị khi có quyền CHỈNH SỬA) */}
+                    {/* Nút Tự chấm (BẮT BUỘC CHỈ DÀNH RIÊNG CHO CHỦ SỞ HỮU PHIẾU) */}
                     {canSelfScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'self_eval')}
                         className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                        title="Tự chấm điểm phiếu KPI"
+                        title="Tự chấm điểm phiếu KPI của bạn"
                       >
                         <Edit3 size={12} /> Tự chấm
                       </button>
                     )}
 
-                    {/* Nút Chấm TTCM (chỉ hiển thị khi có quyền PHÊ DUYỆT) */}
-                    {canTtcmScore && (
+                    {/* Nút Chấm TTCM (Dành riêng cho Tổ trưởng chuyên môn chấm tổ viên) */}
+                    {!canSelfScore && canTtcmScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'ttcm_eval')}
@@ -1433,8 +1459,8 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* Nút Chấm BGH (chỉ hiển thị khi có quyền PHÊ DUYỆT) */}
-                    {canBghScore && (
+                    {/* Nút Chấm BGH (Dành riêng cho Ban Giám hiệu phê duyệt) */}
+                    {!canSelfScore && !canTtcmScore && canBghScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'leader_eval')}
@@ -1445,7 +1471,7 @@ export default function KpiTeacherStaff() {
                       </button>
                     )}
 
-                    {/* Xem chi tiết (luôn khả dụng khi có quyền Xem module) */}
+                    {/* Xem chi tiết (Luôn khả dụng khi có quyền Xem module) */}
                     <button
                       type="button"
                       onClick={() => handleOpenDoc(form, 'view')}
@@ -1455,12 +1481,12 @@ export default function KpiTeacherStaff() {
                       <Eye size={15} />
                     </button>
 
-                    {/* Chỉnh sửa (chỉ khi là CHỦ SỞ HỮU PHIẾU có quyền CHỈNH SỬA hoặc là ADMIN) */}
-                    {(!isLocked || isAdmin) && (isAdmin || (isMyForm && moduleCanEdit)) && !canSelfScore && !canTtcmScore && !canBghScore && (
+                    {/* Biểu tượng Bút chì Edit3 (TUYỆT ĐỐI CHỈ HIỂN THỊ KHI LÀ CHỦ SỞ HỮU PHIẾU VÀ PHIẾU CÒN ĐƯỢC CHỈNH SỬA) */}
+                    {isMyForm && isFormEditable && (moduleCanEdit || isAdmin) && !canSelfScore && !canTtcmScore && !canBghScore && (
                       <button
                         type="button"
                         onClick={() => handleOpenDoc(form, 'edit')}
-                        title="Chỉnh sửa phiếu"
+                        title="Chỉnh sửa phiếu KPI của bạn"
                         className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                       >
                         <Edit3 size={15} />
