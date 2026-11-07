@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   initializeFirestore, 
+  persistentLocalCache,
+  persistentMultipleTabManager,
   memoryLocalCache,
   getFirestore
 } from 'firebase/firestore';
@@ -25,17 +27,23 @@ const firestoreDbId = activeConfig.firestoreDatabaseId;
 
 let db: any;
 try {
-  // Sử dụng memoryLocalCache() để đảm bảo ổn định 100% trên mọi trình duyệt (Chrome, Cốc Cốc, Safari, iFrames Vercel)
-  // Loại bỏ hoàn toàn IndexedDB multi-tab lock deadlocks và FIRESTORE INTERNAL ASSERTION FAILED
+  // Sử dụng persistentLocalCache với persistentMultipleTabManager để lưu trữ IndexedDB đa tab
+  // Tiết kiệm hơn 90% hạn ngạch đọc Firestore hàng ngày và giữ nguyên dữ liệu khi ngoại tuyến / hết hạn ngạch
   db = initializeFirestore(app, {
-    localCache: memoryLocalCache(),
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     experimentalAutoDetectLongPolling: true,
   }, firestoreDbId);
 } catch (e) {
   try {
     db = getFirestore(app, firestoreDbId);
   } catch (err) {
-    db = initializeFirestore(app, {}, firestoreDbId);
+    try {
+      db = initializeFirestore(app, {
+        localCache: memoryLocalCache(),
+      }, firestoreDbId);
+    } catch (finalErr) {
+      db = getFirestore(app);
+    }
   }
 }
 

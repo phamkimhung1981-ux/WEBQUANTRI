@@ -45,6 +45,7 @@ interface AppState {
 }
 
 interface AppContextType extends AppState {
+  clearError: () => void;
   setKpiStaffForms: (forms: KpiStaffForm[]) => void;
   setKpiStaffPeriods: (periods: KpiStaffPeriod[]) => void;
   setKpiStaffCriteria: (criteria: KpiStaffCriterion[]) => void;
@@ -371,16 +372,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
             localStorage.setItem('app_cached_departments', JSON.stringify(data));
           } catch (e) {}
         }
-        setState(prev => ({ ...prev, [key]: data }));
+
+        // Lưu vào bộ nhớ đệm an toàn cho mọi collection
+        setLocalCollectionCache(colName, data);
+
+        // Khi nhận dữ liệu thành công, cập nhật state và xóa lỗi
+        setState(prev => ({ ...prev, [key]: data, error: null }));
       }, (error) => {
-        console.error(`Error fetching ${colName}:`, error);
+        console.warn(`Firestore snapshot notice for ${colName}:`, error);
+
+        // Phân loại chính xác mã lỗi Firebase theo yêu cầu
+        const errorCode = (error as any)?.code || '';
+        const errorMsg = (error as any)?.message || String(error);
+        const isQuota = errorCode === 'resource-exhausted' || errorMsg.includes('Quota exceeded') || errorMsg.includes('RESOURCE_EXHAUSTED');
+        const isPermission = errorCode === 'permission-denied';
+        const isOffline = errorCode === 'unavailable' || errorMsg.includes('offline') || errorMsg.includes('network');
+
+        let message = '';
+        if (isQuota) {
+          message = 'Hạn ngạch truy vấn Firebase Firestore trong ngày (Gói Spark miễn phí) đã đạt giới hạn 50.000 lượt đọc (Mã: resource-exhausted). Dữ liệu hiện được bảo vệ và hiển thị từ bộ nhớ đệm an toàn.';
+        } else if (isPermission) {
+          message = `Từ chối quyền truy cập dữ liệu "${colName}" (Mã: permission-denied). Vui lòng kiểm tra phân quyền tài khoản hoặc quy tắc bảo mật.`;
+        } else if (isOffline) {
+          message = `Máy chủ Firestore tạm thời không phản hồi (Mã: unavailable). Đang kết nối lại...`;
+        } else {
+          message = `Lỗi truy vấn cơ sở dữ liệu "${colName}" (${errorCode || 'unknown'}): ${errorMsg}`;
+        }
+
+        // BẢO TOÀN DỮ LIỆU: Phục hồi dữ liệu từ bộ nhớ đệm an toàn, không để mảng rỗng
         if (key === 'teachers') {
-          setState(prev => ({ ...prev, teachers: getCachedTeachers() }));
+          setState(prev => ({ ...prev, teachers: getCachedTeachers(), error: message }));
+        } else if (key === 'departments') {
+          setState(prev => ({ ...prev, departments: getCachedDepartments(), error: message }));
+        } else {
+          setState(prev => {
+            const cachedFallback = getLocalCollectionCache(colName, (prev as any)[key] || []);
+            const currentData = (prev as any)[key];
+            return {
+              ...prev,
+              [key]: Array.isArray(currentData) && currentData.length > 0 ? currentData : cachedFallback,
+              error: message
+            };
+          });
         }
-        if (key === 'departments') {
-          setState(prev => ({ ...prev, departments: getCachedDepartments() }));
-        }
-        setState(prev => ({ ...prev, error: "Không thể kết nối cơ sở dữ liệu. Dữ liệu chưa được tải." }));
       });
       unsubscribes.push(unsub);
     };
@@ -2265,6 +2299,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const clearError = () => setState(prev => ({ ...prev, error: null }));
+
+  const addModule = async (module: SystemModule, _currentUser?: User | null) => {
+    try {
+      const id = module.id || `mod_${Date.now()}`;
+      await setDoc(doc(db, 'system_modules', id), sanitize({ ...module, id }));
+      setState(prev => ({ ...prev, modules: [...prev.modules.filter(m => m.id !== id), { ...module, id }] }));
+    } catch (e) {
+      handleDbError(e);
+    }
+  };
+
+  const updateModule = async (id: string, data: Partial<SystemModule>, _currentUser?: User | null) => {
+    try {
+      await updateDoc(doc(db, 'system_modules', id), sanitize(data));
+      setState(prev => ({
+        ...prev,
+        modules: prev.modules.map(m => m.id === id ? { ...m, ...data } : m)
+      }));
+    } catch (e) {
+      handleDbError(e);
+    }
+  };
+
+  const deleteModule = async (id: string, _currentUser?: User | null) => {
+    try {
+      await deleteDoc(doc(db, 'system_modules', id));
+      setState(prev => ({
+        ...prev,
+        modules: prev.modules.filter(m => m.id !== id)
+      }));
+    } catch (e) {
+      handleDbError(e);
+    }
+  };
+
+  const toggleModule = async (id: string, _currentUser?: User | null) => {
+    const mod = state.modules.find(m => m.id === id);
+    if (!mod) return;
+    await updateModule(id, { enabled: !mod.enabled });
+  };
+
+  const reorderModules = async (newModules: SystemModule[], _currentUser?: User | null) => {
+    try {
+      setState(prev => ({ ...prev, modules: newModules }));
+      const batch = writeBatch(db);
+      newModules.forEach((m, idx) => {
+        batch.set(doc(db, 'system_modules', m.id), sanitize({ ...m, order: idx + 1 }), { merge: true });
+      });
+      await batch.commit();
+    } catch (e) {
+      handleDbError(e);
+    }
+  };
+
+  const resetModulesToDefault = async (_currentUser?: User | null) => {
+    try {
+      setState(prev => ({ ...prev, modules: DEFAULT_SYSTEM_MODULES }));
+      const batch = writeBatch(db);
+      DEFAULT_SYSTEM_MODULES.forEach((m, idx) => {
+        batch.set(doc(db, 'system_modules', m.id), sanitize({ ...m, order: idx + 1 }), { merge: true });
+      });
+      await batch.commit();
+    } catch (e) {
+      handleDbError(e);
+    }
+  };
+
   const updateSchoolStats = async (data: Partial<SchoolStats>) => {
     try {
       const statsDocRef = doc(db, 'systemSettings', 'schoolStats');
@@ -2279,24 +2381,113 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AppContext.Provider value={{ ...state, updateTaskStatus, markNotificationRead, deleteTeacher, deleteAllTeachers, importTeachers, updateTeacher, addTeacher, updateDepartment, deleteDepartment, addDepartment, addDisciplineRecord, updateDisciplineRecord, deleteDisciplineRecord, deleteDisciplineRecords,
-        addDisciplineCriterion, updateDisciplineCriterion, deleteDisciplineCriterion,
-        addGeneralKpi, updateGeneralKpi, deleteGeneralKpi,
-        addKpiGroup, updateKpiGroup, deleteKpiGroup,
-        addKpiCategory, updateKpiCategory, deleteKpiCategory,
-        addKpi, updateKpi, deleteKpi, addKpiRecord, updateKpiRecord, deleteKpiRecord,
-        addKpiEvaluationForm, updateKpiEvaluationForm, deleteKpiEvaluationForm,
-        saveKpiMonthlySetting,
-        addAttendanceRecord, updateAttendanceRecord, deleteAttendanceRecord, addLeaveRecord,
-        updateLeaveRecord,
-        deleteLeaveRecord, addTask, updateTask, deleteTask, addWorkAssignment, updateWorkAssignment, deleteWorkAssignment,
-        importWorkAssignments, seedOrResetSchoolTasks,
-         addCalendarEvent, updateCalendarEvent, deleteCalendarEvent, addNotification, updateNotification, deleteNotification,
-        addReport, updateReport, deleteReport, checkAndRepairKpiData, updateSchoolStats,
-        setKpiStaffForms, setKpiStaffPeriods, setKpiStaffCriteria }}>
+    <AppContext.Provider value={{
+      ...state,
+      clearError,
+      addModule,
+      updateModule,
+      deleteModule,
+      toggleModule,
+      reorderModules,
+      resetModulesToDefault,
+      updateTaskStatus,
+      markNotificationRead,
+      deleteTeacher,
+      deleteAllTeachers,
+      importTeachers,
+      updateTeacher,
+      addTeacher,
+      updateDepartment,
+      deleteDepartment,
+      addDepartment,
+      addDisciplineRecord,
+      updateDisciplineRecord,
+      deleteDisciplineRecord,
+      deleteDisciplineRecords,
+      addDisciplineCriterion,
+      updateDisciplineCriterion,
+      deleteDisciplineCriterion,
+      addGeneralKpi,
+      updateGeneralKpi,
+      deleteGeneralKpi,
+      addKpiGroup,
+      updateKpiGroup,
+      deleteKpiGroup,
+      addKpiCategory,
+      updateKpiCategory,
+      deleteKpiCategory,
+      addKpi,
+      updateKpi,
+      deleteKpi,
+      addKpiRecord,
+      updateKpiRecord,
+      deleteKpiRecord,
+      addKpiEvaluationForm,
+      updateKpiEvaluationForm,
+      deleteKpiEvaluationForm,
+      saveKpiMonthlySetting,
+      addAttendanceRecord,
+      updateAttendanceRecord,
+      deleteAttendanceRecord,
+      addLeaveRecord,
+      updateLeaveRecord,
+      deleteLeaveRecord,
+      addTask,
+      updateTask,
+      deleteTask,
+      addWorkAssignment,
+      updateWorkAssignment,
+      deleteWorkAssignment,
+      importWorkAssignments,
+      seedOrResetSchoolTasks,
+      addCalendarEvent,
+      updateCalendarEvent,
+      deleteCalendarEvent,
+      addNotification,
+      updateNotification,
+      deleteNotification,
+      addReport,
+      updateReport,
+      deleteReport,
+      checkAndRepairKpiData,
+      updateSchoolStats,
+      setKpiStaffForms,
+      setKpiStaffPeriods,
+      setKpiStaffCriteria
+    }}>
       {state.error && (
-        <div className="fixed top-0 left-0 right-0 bg-rose-500 text-white text-center py-2 z-50 shadow-md">
-          {state.error}
+        <div className={`fixed top-0 left-0 right-0 z-50 shadow-md py-2 px-4 transition-all duration-300 ${
+          state.error.includes('resource-exhausted') || state.error.includes('Hạn ngạch')
+            ? 'bg-amber-600/95 text-white backdrop-blur-sm border-b border-amber-500'
+            : 'bg-rose-600/95 text-white backdrop-blur-sm border-b border-rose-500'
+        }`}>
+          <div className="max-w-7xl mx-auto flex items-center justify-between text-xs sm:text-sm font-medium">
+            <div className="flex items-center space-x-2">
+              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/20 uppercase tracking-wider">
+                {state.error.includes('resource-exhausted') || state.error.includes('Hạn ngạch') ? 'Bộ nhớ đệm an toàn' : 'Thông báo CSDL'}
+              </span>
+              <span className="line-clamp-1">{state.error}</span>
+            </div>
+            <div className="flex items-center space-x-3 ml-4 shrink-0">
+              {(state.error.includes('resource-exhausted') || state.error.includes('Hạn ngạch')) && (
+                <a
+                  href="https://console.firebase.google.com/project/windy-system-q9v0l/firestore/databases/ai-studio-hthngqunlgiovint-0d69b880-7502-4902-b08f-94cb8fcead53/data?openUpgradeDialog=true"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden md:inline-flex items-center px-2 py-0.5 rounded bg-white text-amber-900 font-semibold text-xs hover:bg-amber-50 transition shadow-sm"
+                >
+                  Nâng cấp Blaze
+                </a>
+              )}
+              <button
+                onClick={clearError}
+                aria-label="Đóng thông báo"
+                className="p-1 rounded-full hover:bg-white/20 transition text-white font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {children}

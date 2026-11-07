@@ -14,8 +14,11 @@ import {
   GraduationCap
 } from 'lucide-react';
 
+import { useAppContext } from '../store/AppContext';
+
 export default function Login() {
   const { login, error, clearError } = useAuth();
+  const { clearError: clearAppError } = useAppContext();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -36,6 +39,7 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
+    clearAppError();
     setLoading(true);
     await login(username, password);
     setLoading(false);
