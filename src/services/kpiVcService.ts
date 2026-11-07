@@ -37,7 +37,13 @@ import {
 } from '../lib/kpiVcData';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { CANONICAL_51_VC_FORMS } from '../data/canonical51Forms';
+import { CANONICAL_OCT_17_VC_FORMS } from '../data/canonicalOctForms';
 import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
+
+export const CANONICAL_ALL_VC_FORMS: KpiVcForm[] = [
+  ...CANONICAL_51_VC_FORMS,
+  ...CANONICAL_OCT_17_VC_FORMS
+];
 
 /**
  * Hàm làm sạch dữ liệu Firestore (lọc sạch undefined và NaN ở mọi cấp độ)
@@ -85,35 +91,43 @@ export const VC_COLLECTIONS = {
 
 /**
  * Tự động khởi tạo dữ liệu mẫu nếu chưa có (Không ghi đè dữ liệu đang có)
+ * Bảo vệ hạn ngạch Firestore: Chỉ chạy 1 lần/phiên trình duyệt và chỉ nạp khi collection rỗng
  */
 export const seedVcInitialDataIfNeeded = async () => {
+  if (typeof window !== 'undefined') {
+    const sessionKey = 'kpi_vc_seed_done_v2';
+    if (sessionStorage.getItem(sessionKey)) {
+      return; // Đã kiểm tra trong phiên này, tránh lãng phí hạn ngạch Firestore
+    }
+    sessionStorage.setItem(sessionKey, 'true');
+  }
+
   try {
-    // 1. Groups - Upsert standard groups
-    for (const grp of DEFAULT_VC_GROUPS) {
-      await setDoc(doc(db, VC_COLLECTIONS.GROUPS, grp.id), cleanFirestoreData(grp), { merge: true }).catch(() => {});
+    // 1. Groups - Kiểm tra trước khi ghi
+    try {
+      const groupsSnap = await getDocs(collection(db, VC_COLLECTIONS.GROUPS));
+      if (groupsSnap.empty) {
+        for (const grp of DEFAULT_VC_GROUPS) {
+          await setDoc(doc(db, VC_COLLECTIONS.GROUPS, grp.id), cleanFirestoreData(grp), { merge: true }).catch(() => {});
+        }
+      }
+    } catch (grpErr) {
+      console.warn('Groups check skipped:', grpErr);
     }
 
-    // 2. Criteria - Ensure all 23 criteria are updated in Firestore
+    // 2. Criteria - Kiểm tra trước khi ghi
     try {
       const criteriaSnap = await getDocs(collection(db, VC_COLLECTIONS.CRITERIA));
-      const defaultIds = new Set(DEFAULT_VC_CRITERIA.map(c => c.id));
-
-      for (const crit of DEFAULT_VC_CRITERIA) {
-        await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, crit.id), cleanFirestoreData(crit), { merge: true }).catch(() => {});
-      }
-
-      if (!criteriaSnap.empty) {
-        for (const docSnap of criteriaSnap.docs) {
-          if (!defaultIds.has(docSnap.id)) {
-            await deleteDoc(doc(db, VC_COLLECTIONS.CRITERIA, docSnap.id)).catch(() => {});
-          }
+      if (criteriaSnap.empty) {
+        for (const crit of DEFAULT_VC_CRITERIA) {
+          await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, crit.id), cleanFirestoreData(crit), { merge: true }).catch(() => {});
         }
       }
     } catch (critErr) {
       console.warn('Criteria seeding skipped or deferred:', critErr);
     }
 
-    // 3. Periods
+    // 3. Periods - Kiểm tra trước khi ghi
     try {
       const periodsSnap = await getDocs(collection(db, VC_COLLECTIONS.PERIODS));
       if (periodsSnap.empty) {
@@ -125,8 +139,10 @@ export const seedVcInitialDataIfNeeded = async () => {
       console.warn('Periods seeding skipped or deferred:', pErr);
     }
 
-    // 4. Forms - Luôn đồng bộ danh sách 51 phiếu KPI có điểm chấm chuẩn từ Google AI Studio
-    await syncCanonicalVcDataToStorageAndFirestore(false);
+    // 4. Forms - Bảo đảm cache LocalStorage có đầy đủ 51 phiếu Tháng 9 và 17 phiếu Tháng 10
+    // Cập nhật LocalStorage tức thì 0ms, không spam ghi Firestore hàng loạt
+    const canonicalForms = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
+    safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(canonicalForms));
   } catch (error) {
     console.error('Error seeding initial VC KPI data:', error);
   }
@@ -157,7 +173,7 @@ const hasTeacherActuallyEvaluated = (form: KpiVcForm): boolean => {
   return sumSelf > 0;
 };
 
-// Local Storage Cache Helpers - Use authoritative versioned cache v6
+// Local Storage Cache Helpers - Use authoritative versioned cache v7
 export const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache_v7_workflow_unlocked';
 
 // Tự động dọn dẹp các cache cũ có nguy cơ chứa điểm rỗng hoặc không đồng bộ
@@ -179,12 +195,12 @@ if (typeof window !== 'undefined' && window.localStorage) {
 
 /**
  * ĐỒNG BỘ DỮ LIỆU CHUẨN TỪ GOOGLE AI STUDIO:
- * Cập nhật 100% 51 phiếu KPI có điểm chấm chuẩn, phân quyền TTCM và trạng thái quy trình.
- * Ghi đồng thời vào LocalStorage và cố gắng đồng bộ lên Firestore.
+ * Cập nhật 100% 51 phiếu Tháng 9 và 17 phiếu Tháng 10 có điểm chấm chuẩn, phân quyền TTCM và trạng thái quy trình.
+ * Ghi đồng thời vào LocalStorage và cố gắng đồng bộ lên Firestore khi được yêu cầu.
  */
 export const syncCanonicalVcDataToStorageAndFirestore = async (force: boolean = false): Promise<{ success: boolean; count: number; message: string }> => {
   try {
-    const canonicalForms = deduplicateVcForms(CANONICAL_51_VC_FORMS);
+    const canonicalForms = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
     
     // 1. Lưu ngay vào Cache LocalStorage để ứng dụng hiển thị tức thì 0ms trên mọi môi trường (Xuất web, Vercel, chia sẻ)
     safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(canonicalForms));
@@ -192,22 +208,24 @@ export const syncCanonicalVcDataToStorageAndFirestore = async (force: boolean = 
       window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: canonicalForms }));
     }
 
-    // 2. Thử đồng bộ lên Firestore theo từng document (nếu mạng kết nối được)
-    try {
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
-      const syncOps = canonicalForms.map(form => {
-        const docRef = doc(db, VC_COLLECTIONS.FORMS, form.id);
-        return setDoc(docRef, cleanFirestoreData(form), { merge: true });
-      });
-      await Promise.race([Promise.all(syncOps), timeoutPromise]);
-    } catch (netErr) {
-      console.warn('Đồng bộ Firestore chạy ngầm hoặc hạn ngạch quá tải, dữ liệu đã được bảo toàn trong LocalStorage:', netErr);
+    // 2. Thử đồng bộ lên Firestore theo từng document khi force = true
+    if (force) {
+      try {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
+        const syncOps = canonicalForms.map(form => {
+          const docRef = doc(db, VC_COLLECTIONS.FORMS, form.id);
+          return setDoc(docRef, cleanFirestoreData(form), { merge: true });
+        });
+        await Promise.race([Promise.all(syncOps), timeoutPromise]);
+      } catch (netErr) {
+        console.warn('Đồng bộ Firestore chạy ngầm hoặc hạn ngạch quá tải, dữ liệu đã được bảo toàn trong LocalStorage:', netErr);
+      }
     }
 
     return {
       success: true,
       count: canonicalForms.length,
-      message: `Đã đồng bộ thành công ${canonicalForms.length} phiếu KPI có điểm chấm và danh mục chuẩn từ Google AI Studio.`
+      message: `Đã đồng bộ thành công ${canonicalForms.length} phiếu KPI (Tháng 9 & Tháng 10) có điểm chấm và danh mục chuẩn từ Google AI Studio.`
     };
   } catch (err: any) {
     console.error('Lỗi khi đồng bộ dữ liệu chuẩn:', err);
@@ -279,9 +297,16 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     if (f.employeeName) canonicalFallbackMap.set(normalizeTeacherName(f.employeeName), f);
   });
 
+  // Tra cứu bảng dữ liệu chuẩn Tháng 10/2026 CANONICAL_OCT_17_VC_FORMS
+  const canonicalOctFallbackMap = new Map<string, KpiVcForm>();
+  CANONICAL_OCT_17_VC_FORMS.forEach(f => {
+    canonicalOctFallbackMap.set(f.employeeId, f);
+    if (f.employeeName) canonicalOctFallbackMap.set(normalizeTeacherName(f.employeeName), f);
+  });
+
   // Duyệt qua từng giáo viên và kỳ đánh giá trọng tâm
   eligibleTeachers.forEach(t => {
-    // 1. Kỳ trọng tâm: vc_period_2026_09
+    // 1. Kỳ trọng tâm: vc_period_2026_09 (Tháng 9/2026)
     const groupKey = `vc_period_2026_09__${t.id}`;
     const matched = matchedMap.get(groupKey) || [];
     const fallback = canonicalFallbackMap.get(t.id) || canonicalFallbackMap.get(normalizeTeacherName(t.name));
@@ -478,9 +503,70 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     result.push(primary);
   });
 
-  // 2. Xử lý các kỳ khác (Tháng 10, Tháng 11, v.v...)
+  // 2. Kỳ Tháng 10/2026: Đảm bảo 100% 17 phiếu của Tổ Hóa-Sinh-GDTC-QPAN-NN hiển thị trên mọi môi trường
+  const octTargetTeachers = eligibleTeachers.filter(t => 
+    canonicalOctFallbackMap.has(t.id) || canonicalOctFallbackMap.has(normalizeTeacherName(t.name))
+  );
+
+  octTargetTeachers.forEach(t => {
+    const groupKey = `vc_period_2026_10__${t.id}`;
+    const matched = matchedMap.get(groupKey) || [];
+    const fallback = canonicalOctFallbackMap.get(t.id) || canonicalOctFallbackMap.get(normalizeTeacherName(t.name));
+
+    const candidates: KpiVcForm[] = [...matched];
+    if (fallback) {
+      const alreadyInCandidates = candidates.some(c => c.id === fallback.id);
+      if (!alreadyInCandidates) {
+        candidates.push(fallback);
+      }
+    }
+
+    if (candidates.length === 0) {
+      if (fallback) {
+        result.push({ ...fallback });
+      }
+      return;
+    }
+
+    // Ưu tiên chọn phiếu có điểm chấm thực tế (>0), có điểm TTCM/BGH, trạng thái cao hơn
+    const sorted = [...candidates].sort((a, b) => {
+      const aEval = (hasTeacherActuallyEvaluated(a) || (a.totalScore || 0) > 0) ? 1 : 0;
+      const bEval = (hasTeacherActuallyEvaluated(b) || (b.totalScore || 0) > 0) ? 1 : 0;
+      if (bEval !== aEval) return bEval - aEval;
+
+      const wA = getStatusWeight(a.status);
+      const wB = getStatusWeight(b.status);
+      if (wB !== wA) return wB - wA;
+
+      const aTtcm = (a.ttcmTotalScore !== null && a.ttcmTotalScore !== undefined) ? 1 : 0;
+      const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
+      if (bTtcm !== aTtcm) return bTtcm - aTtcm;
+
+      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    const primary: KpiVcForm = { ...sorted[0] };
+    if (!primary.id) {
+      primary.id = fallback?.id || `vc_period_2026_10_${t.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    }
+    primary.periodId = 'vc_period_2026_10';
+    primary.periodName = primary.periodName || 'Tháng 10/2026';
+    primary.academicYear = primary.academicYear || '2026-2027';
+    primary.department = primary.department || 'Tổ Hóa-Sinh-GDTC-QPAN-NN';
+    primary.departmentId = primary.departmentId || 'd_hoa_ly_sinh_gdqpan_nn';
+    result.push(primary);
+  });
+
+  // 3. Xử lý các kỳ khác (Tháng 11, Cả năm, Học kỳ 1, v.v...) và các giáo viên khác trong Tháng 10
+  const processedOctTeacherIds = new Set(octTargetTeachers.map(t => t.id));
   for (const [groupKey, matched] of matchedMap.entries()) {
     if (groupKey.startsWith('vc_period_2026_09__')) continue;
+    if (groupKey.startsWith('vc_period_2026_10__')) {
+      const parts = groupKey.split('__');
+      if (parts[1] && processedOctTeacherIds.has(parts[1])) continue;
+    }
     if (matched.length > 0) {
       const sortedOther = [...matched].sort((a, b) => {
         const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
@@ -510,7 +596,7 @@ export const getVcFormsCache = (): KpiVcForm[] => {
   } catch (err) {
     console.warn('Error reading VC forms cache:', err);
   }
-  const defaultList = deduplicateVcForms(CANONICAL_51_VC_FORMS);
+  const defaultList = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
   saveVcFormsCache(defaultList);
   return defaultList;
 };
@@ -535,7 +621,7 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
   const cached = getVcFormsCache();
   const initialList = (cached && cached.length >= 40 && cached.some(f => (f.totalScore || 0) > 0)) 
     ? cached 
-    : deduplicateVcForms(CANONICAL_51_VC_FORMS);
+    : deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
   callback(initialList);
 
   const handleLocalEvent = () => {
@@ -560,7 +646,7 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
     let finalList: KpiVcForm[] = firestoreList;
     if (finalList.length === 0) {
       const currentCached = getVcFormsCache();
-      finalList = currentCached && currentCached.length > 0 ? currentCached : CANONICAL_51_VC_FORMS;
+      finalList = currentCached && currentCached.length > 0 ? currentCached : CANONICAL_ALL_VC_FORMS;
     } else {
       // Kết hợp cache bộ nhớ cục bộ nếu có bản ghi vừa lưu chưa kịp đồng bộ snap
       const currentCached = getVcFormsCache();

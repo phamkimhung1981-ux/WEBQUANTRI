@@ -1293,14 +1293,16 @@ export const getVcStatusMeta = (status?: string): VcStatusMeta => {
 };
 
 import { CANONICAL_51_VC_FORMS } from '../data/canonical51Forms';
+import { CANONICAL_OCT_17_VC_FORMS } from '../data/canonicalOctForms';
 
 /**
- * Bộ 51 phiếu KPI Giáo viên chuẩn của Trường THPT Sơn Lương (Kỳ Tháng 9/2026, năm học 2026-2027)
- * Đảm bảo hệ thống trên Vercel và mọi trình duyệt luôn có đầy đủ 51 phiếu với điểm số đã chấm
+ * Bộ phiếu KPI Giáo viên chuẩn của Trường THPT Sơn Lương (Tháng 9/2026 & Tháng 10/2026, năm học 2026-2027)
+ * Đảm bảo hệ thống trên Vercel và mọi trình duyệt luôn có đầy đủ phiếu với điểm số đã chấm
  */
 export const generateDefaultVcForms = (): KpiVcForm[] => {
-  return CANONICAL_51_VC_FORMS;
+  return [...CANONICAL_51_VC_FORMS, ...CANONICAL_OCT_17_VC_FORMS];
 };
 
-export const DEFAULT_VC_FALLBACK_FORMS: KpiVcForm[] = CANONICAL_51_VC_FORMS;
+export const DEFAULT_VC_FALLBACK_FORMS: KpiVcForm[] = [...CANONICAL_51_VC_FORMS, ...CANONICAL_OCT_17_VC_FORMS];
+
 
