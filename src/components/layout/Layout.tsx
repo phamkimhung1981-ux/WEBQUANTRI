@@ -69,7 +69,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        <main className={`flex-1 relative z-0 focus:outline-none custom-scrollbar ${isDashboard ? 'p-0 overflow-x-hidden' : 'pb-8'}`}>
+        <main className={`flex-1 relative focus:outline-none custom-scrollbar ${isDashboard ? 'p-0 overflow-x-hidden' : 'pb-8'}`}>
           {children}
           
           {/* Footer for non-dashboard pages */}

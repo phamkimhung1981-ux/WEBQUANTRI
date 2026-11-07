@@ -34,7 +34,8 @@ import {
   ShieldAlert,
   Check,
   Copy,
-  Edit3
+  Edit3,
+  Briefcase
 } from 'lucide-react';
 import { 
   KpiVcForm, 
@@ -1496,21 +1497,28 @@ export default function KpiVcDocumentModal({
           )}
 
           {/* MAIN WORKSPACE AREA */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
-            <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
+            <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-start p-4 sm:p-6 lg:p-8 lg:pl-12">
 
-              {/* LEFT COLUMN: KHU VỰC CHỌN ĐỐI TƯỢNG (40% width / lg:col-span-5) */}
-              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-                <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
-                      <Users size={16} className="text-blue-600" /> ĐỐI TƯỢNG ĐÁNH GIÁ
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">Chọn danh sách giáo viên được tạo phiếu</p>
+              {/* LEFT COLUMN: KHU VỰC CHỌN ĐỐI TƯỢNG (45% width / lg:col-span-5.5) */}
+              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden h-[calc(100vh-180px)]">
+                <div className="p-4 sm:p-5 border-b border-slate-200 bg-white flex items-center justify-between shadow-sm shrink-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="bg-blue-100 p-2 rounded-lg shrink-0">
+                      <Users size={18} className="text-blue-600" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-black uppercase text-blue-900 tracking-tight">
+                        ĐỐI TƯỢNG ĐÁNH GIÁ
+                      </h2>
+                      <p className="text-[10px] text-slate-500 font-bold">Chọn giáo viên được tạo phiếu</p>
+                    </div>
                   </div>
-                  <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-extrabold rounded-lg border border-blue-200">
-                    Đã chọn {selectedTeacherIds.length} Giáo viên
-                  </span>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="px-3 py-1 bg-blue-600 text-white text-[11px] font-black rounded-full shadow-sm border border-blue-500">
+                      Đã chọn {selectedTeacherIds.length} người
+                    </span>
+                  </div>
                 </div>
 
                 {/* TABS */}
@@ -1541,27 +1549,42 @@ export default function KpiVcDocumentModal({
 
                 {/* TAB 1: CHỌN THEO TỔ */}
                 {audienceTab === 'by_dept' && (
-                  <div className="p-4 space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar">
-                    <div className="flex items-center justify-between mb-1 text-xs">
-                      <span className="font-bold text-slate-700">Danh sách Tổ chuyên môn & Phòng ban:</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTeacherIds(eligibleTeachers.map(t => t.id))}
-                          className="text-blue-600 hover:text-blue-800 font-bold hover:underline cursor-pointer"
-                        >
-                          Chọn tất cả
-                        </button>
-                        <span className="text-slate-300">|</span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTeacherIds([])}
-                          className="text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer"
-                        >
-                          Bỏ chọn
-                        </button>
+                  <div className="flex flex-col h-full min-h-0">
+                    {/* SEARCH IN DEPT TAB */}
+                    <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+                      <div className="relative">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={teacherSearch}
+                          onChange={e => setTeacherSearch(e.target.value)}
+                          placeholder="🔍 Tìm nhanh theo tên hoặc mã..."
+                          className="w-full pl-10 pr-3 py-2.5 text-xs font-bold bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all shadow-sm"
+                        />
                       </div>
                     </div>
+
+                    <div className="p-4 space-y-3 flex-1 overflow-y-auto custom-scrollbar">
+                      <div className="flex items-center justify-between mb-2 text-[11px]">
+                        <span className="font-extrabold text-slate-600 uppercase tracking-wider">Cơ cấu tổ chuyên môn:</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTeacherIds(eligibleTeachers.map(t => t.id))}
+                            className="text-blue-600 hover:text-blue-800 font-black transition-colors cursor-pointer"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <div className="w-px h-3 bg-slate-200" />
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTeacherIds([])}
+                            className="text-rose-600 hover:text-rose-800 font-black transition-colors cursor-pointer"
+                          >
+                            Bỏ chọn
+                          </button>
+                        </div>
+                      </div>
 
                     {departments.map((dept) => {
                       const teachersInDept = getTeachersInDept(dept.id);
@@ -1575,7 +1598,7 @@ export default function KpiVcDocumentModal({
                       return (
                         <div
                           key={dept.id}
-                          className={`rounded-xl border transition-all overflow-hidden ${
+                          className={`rounded-xl border transition-all overflow-hidden mb-3 ${
                             isFullySelected
                               ? 'bg-blue-50/40 border-blue-300'
                               : isPartiallySelected
@@ -1593,12 +1616,12 @@ export default function KpiVcDocumentModal({
                                 onChange={() => toggleSelectDept(dept.id)}
                                 className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
                               />
-                              <div className="truncate">
-                                <h3 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                              <div className="min-w-0 flex-1">
+                                <h3 className="text-xs sm:text-sm font-black text-slate-900 leading-tight">
                                   {dept.name}
                                 </h3>
-                                <p className="text-[11px] text-slate-500">
-                                  Đã chọn: <span className="font-bold text-blue-700">{selectedInDept.length}</span>/{teachersInDept.length} người
+                                <p className="text-[11px] text-slate-500 mt-0.5 font-semibold">
+                                  Đã chọn: <span className="text-blue-700">{selectedInDept.length}</span>/{teachersInDept.length} người
                                 </p>
                               </div>
                             </label>
@@ -1615,38 +1638,53 @@ export default function KpiVcDocumentModal({
 
                           {/* EXPANDED LIST OF TEACHERS */}
                           {isExpanded && (
-                            <div className="bg-slate-50/80 border-t border-slate-200/80 p-2.5 space-y-1.5 max-h-[250px] overflow-y-auto custom-scrollbar">
-                              {teachersInDept.map(t => {
-                                const isChecked = selectedTeacherIds.includes(t.id);
-                                return (
-                                  <label
-                                    key={t.id}
-                                    className={`flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
-                                      isChecked
-                                        ? 'bg-blue-100/70 border-blue-300 text-blue-950 font-semibold'
-                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={() => toggleSelectTeacher(t.id)}
-                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                                      />
-                                      <span className="text-xs truncate font-medium">{t.name}</span>
-                                    </div>
-                                    <span className="text-[10.5px] font-mono text-slate-500 shrink-0">
-                                      {t.code || `GV${t.id}`}
-                                    </span>
-                                  </label>
-                                );
-                              })}
+                            <div className="bg-slate-50/50 border-t border-slate-200/80 p-2 space-y-1.5 max-h-[400px] overflow-y-auto custom-scrollbar">
+                              {teachersInDept
+                                .filter(t => {
+                                  if (!teacherSearch.trim()) return true;
+                                  const q = teacherSearch.toLowerCase().trim();
+                                  return t.name.toLowerCase().includes(q) || (t.code || '').toLowerCase().includes(q);
+                                })
+                                .map(t => {
+                                  const isChecked = selectedTeacherIds.includes(t.id);
+                                  return (
+                                    <label
+                                      key={t.id}
+                                      className={`grid grid-cols-[32px_1fr_auto] items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer shadow-sm w-full box-border ${
+                                        isChecked
+                                          ? 'bg-blue-600 border-blue-700 text-white'
+                                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-center">
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => toggleSelectTeacher(t.id)}
+                                          className="w-4.5 h-4.5 rounded border-slate-300 focus:ring-blue-500 cursor-pointer accent-white shrink-0"
+                                        />
+                                      </div>
+                                      <div className="min-w-0 pr-2">
+                                        <p className="text-[13px] font-black leading-snug whitespace-normal break-words">
+                                          {t.name}
+                                        </p>
+                                      </div>
+                                      <div className="shrink-0">
+                                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                                          isChecked ? 'bg-white/20 text-white border-white/30' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                                        }`}>
+                                          {t.code || `GV${t.id}`}
+                                        </span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
                             </div>
                           )}
                         </div>
                       );
                     })}
+                    </div>
                   </div>
                 )}
 
@@ -1655,13 +1693,13 @@ export default function KpiVcDocumentModal({
                   <div className="p-4 space-y-3">
                     {/* SEARCH & FILTERS */}
                     <div className="relative">
-                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         type="text"
                         value={teacherSearch}
                         onChange={e => setTeacherSearch(e.target.value)}
-                        placeholder="🔍 Tìm theo tên hoặc mã Giáo viên..."
-                        className="w-full pl-9 pr-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        placeholder="🔍 Tìm nhanh theo tên hoặc mã Giáo viên..."
+                        className="w-full pl-11 pr-4 py-3 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-sm transition-all"
                       />
                     </div>
 
@@ -1724,39 +1762,36 @@ export default function KpiVcDocumentModal({
                       ) : (
                         filteredTeachers.map(t => {
                           const isChecked = selectedTeacherIds.includes(t.id);
-                          const pos = resolveVcTeacherPosition(t, departments);
-                          const dept = resolveVcTeacherDepartment(t, departments);
 
                           return (
                             <label
                               key={t.id}
-                              className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                              className={`grid grid-cols-[40px_1fr_auto] items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer shadow-sm w-full box-border ${
                                 isChecked
-                                  ? 'bg-blue-50/90 border-blue-300 ring-1 ring-blue-400/30 shadow-2xs'
-                                  : 'bg-white border-slate-200 hover:bg-slate-50'
+                                  ? 'bg-blue-600 border-blue-700 text-white'
+                                  : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                               }`}
                             >
-                              <div className="flex items-center gap-3 min-w-0">
+                              <div className="flex items-center justify-center">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
                                   onChange={() => toggleSelectTeacher(t.id)}
-                                  className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                  className="w-6 h-6 rounded border-slate-300 focus:ring-blue-500 cursor-pointer accent-white shrink-0"
                                 />
-                                <div className="min-w-0">
-                                  <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
-                                    {t.name}
-                                  </p>
-                                  <p className="text-[11px] text-slate-500 truncate">
-                                    Mã: <span className="font-mono font-semibold">{t.code || `GV${t.id}`}</span> • {pos} ({dept})
-                                  </p>
-                                </div>
                               </div>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                                isChecked ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
-                              }`}>
-                                {isChecked ? 'Đã chọn' : 'Chưa chọn'}
-                              </span>
+                              <div className="min-w-0 pr-4">
+                                <p className={`text-[16px] font-black leading-tight whitespace-normal break-words ${isChecked ? 'text-white' : 'text-slate-900'}`}>
+                                  {t.name}
+                                </p>
+                              </div>
+                              <div className="shrink-0">
+                                <span className={`text-[12px] font-mono font-bold px-2.5 py-1 rounded border ${
+                                  isChecked ? 'bg-white/20 text-white border-white/30' : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}>
+                                  {t.code || `GV${t.id}`}
+                                </span>
+                              </div>
                             </label>
                           );
                         })
