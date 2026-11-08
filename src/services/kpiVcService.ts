@@ -9,7 +9,8 @@ import {
   onSnapshot, 
   query, 
   orderBy, 
-  where 
+  where,
+  writeBatch 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { 
@@ -814,7 +815,7 @@ export const addVcAuditLog = async (logData: Omit<KpiVcAuditLog, 'id' | 'timesta
 };
 
 /**
- * TẠO PHIẾU ĐÁNH GIÁ MỚI
+ * TẠO PHIẾU ĐÁNH GIÁ MỚI (TỨC THÌ 0MS - LƯU CACHE NGAY & ĐỒNG BỘ FIRESTORE)
  * Ràng buộc: Một người + một kỳ = duy nhất 1 phiếu
  */
 export const createVcForm = async (
@@ -826,34 +827,20 @@ export const createVcForm = async (
   const pKey = rawPeriod.startsWith('vc_') ? rawPeriod : `vc_${rawPeriod}`;
   const formId = `${pKey}_${sanitizedEmployeeId}`;
 
-  const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
-  let existingExists = false;
-  let existingCreatedAt = '';
-  let existingCreatedBy = '';
-  try {
-    const timeoutGet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
-    const existing = await Promise.race([getDoc(docRef), timeoutGet]) as any;
-    if (existing && existing.exists()) {
-      existingExists = true;
-      existingCreatedAt = existing.data()?.createdAt || '';
-      existingCreatedBy = existing.data()?.createdBy || '';
-    }
-  } catch (err) {
-    console.warn('Could not check existing doc, proceeding with create/merge:', err);
-  }
-
+  const cachedForms = getVcFormsCache();
+  const existingForm = cachedForms.find(f => f.id === formId);
   const now = new Date().toISOString();
+
   const fullForm: KpiVcForm = {
     ...formData,
     id: formId,
-    createdAt: existingExists && existingCreatedAt ? existingCreatedAt : now,
+    createdAt: existingForm?.createdAt || now,
     updatedAt: now,
-    createdBy: existingExists && existingCreatedBy ? existingCreatedBy : (actor.name || actor.id),
+    createdBy: existingForm?.createdBy || (actor.name || actor.id),
     updatedBy: actor.name || actor.id
   };
 
-  // 1. Cập nhật cache cục bộ ngay lập tức để UI phản hồi 0ms
-  const cachedForms = getVcFormsCache();
+  // 1. Cập nhật cache cục bộ NGAY LẬP TỨC để UI phản hồi 0ms
   const existingIdx = cachedForms.findIndex(f => f.id === formId);
   if (existingIdx >= 0) {
     cachedForms[existingIdx] = { ...cachedForms[existingIdx], ...fullForm };
@@ -862,32 +849,108 @@ export const createVcForm = async (
   }
   saveVcFormsCache(cachedForms);
 
-  // 2. Ghi Firestore với thời gian chờ an toàn (10 giây)
-  try {
-    const cleanData = cleanFirestoreData(fullForm);
-    const timeoutSet = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000));
-    await Promise.race([
-      setDoc(docRef, cleanData, { merge: true }),
-      timeoutSet
-    ]);
-  } catch (e) {
-    console.warn('Firestore setDoc deferred or offline, data safely preserved in local storage:', e);
-  }
+  // 2. Ghi Firestore không chặn luồng UI (Background async)
+  (async () => {
+    try {
+      const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
+      const cleanData = cleanFirestoreData(fullForm);
+      await setDoc(docRef, cleanData, { merge: true });
+    } catch (e) {
+      console.warn('Firestore setDoc deferred or offline, data safely preserved in local storage:', e);
+    }
+  })();
 
+  // 3. Ghi audit log ngầm
   try {
     addVcAuditLog({
       formId,
       periodId: formData.periodId,
-      action: existingExists ? 'update_form' : 'create_form',
+      action: existingForm ? 'update_form' : 'create_form',
       actorId: actor.id,
       actorName: actor.name,
       actorRole: actor.role,
       targetName: `Phiếu KPI của ${formData.employeeName}`,
-      description: `${existingExists ? 'Cập nhật' : 'Tạo'} phiếu đánh giá KPI giáo viên/nhân viên: ${formData.employeeName} (${formData.periodName})`
+      description: `${existingForm ? 'Cập nhật' : 'Tạo'} phiếu đánh giá KPI giáo viên/nhân viên: ${formData.employeeName} (${formData.periodName})`
     }).catch(() => {});
   } catch (logErr) {}
 
   return formId;
+};
+
+/**
+ * TẠO HÀNG LOẠT PHIẾU ĐÁNH GIÁ (OPTIMISTIC & ULTRA-FAST 0MS)
+ * Cập nhật cache và UI ngay lập tức, đồng bộ Firestore qua writeBatch ở background
+ */
+export const createBatchVcForms = async (
+  formsDataList: Omit<KpiVcForm, 'id' | 'createdAt' | 'updatedAt'>[],
+  actor: { id: string; name: string; role?: string }
+): Promise<{ count: number; formIds: string[]; periodId: string }> => {
+  const now = new Date().toISOString();
+  const cachedForms = getVcFormsCache();
+  const formMap = new Map(cachedForms.map(f => [f.id, f]));
+  const createdIds: string[] = [];
+  const fullFormsToSave: KpiVcForm[] = [];
+  let detectedPeriodId = '';
+
+  for (const formData of formsDataList) {
+    const sanitizedEmployeeId = (formData.employeeId || 'emp').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const rawPeriod = (formData.periodId || 'vc_period_2026_09').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const pKey = rawPeriod.startsWith('vc_') ? rawPeriod : `vc_${rawPeriod}`;
+    const formId = `${pKey}_${sanitizedEmployeeId}`;
+    if (!detectedPeriodId) detectedPeriodId = formData.periodId;
+
+    const existing = formMap.get(formId);
+    const fullForm: KpiVcForm = {
+      ...formData,
+      id: formId,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      createdBy: existing?.createdBy || (actor.name || actor.id),
+      updatedBy: actor.name || actor.id
+    };
+
+    formMap.set(formId, fullForm);
+    createdIds.push(formId);
+    fullFormsToSave.push(fullForm);
+  }
+
+  // 1. Cập nhật cache cục bộ ngay lập tức để UI phản hồi tức thì
+  const updatedAllForms = Array.from(formMap.values());
+  saveVcFormsCache(updatedAllForms);
+
+  // 2. Đồng bộ Firestore non-blocking qua writeBatch ở Background
+  (async () => {
+    try {
+      const chunkSize = 400; // Batch limit của Firestore là 500
+      for (let i = 0; i < fullFormsToSave.length; i += chunkSize) {
+        const chunk = fullFormsToSave.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(f => {
+          const docRef = doc(db, VC_COLLECTIONS.FORMS, f.id);
+          batch.set(docRef, cleanFirestoreData(f), { merge: true });
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn('Batch Firestore write deferred or offline, safely kept in local storage:', e);
+    }
+  })();
+
+  // 3. Ghi audit log background
+  try {
+    addVcAuditLog({
+      formId: createdIds[0] || 'batch',
+      periodId: detectedPeriodId,
+      action: 'create_form',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      targetName: `Tạo hàng loạt ${createdIds.length} phiếu KPI`,
+      description: `Đã tạo ${createdIds.length} phiếu đánh giá KPI giáo viên viên chức`
+    }).catch(() => {});
+  } catch (err) {}
+
+  return { count: createdIds.length, formIds: createdIds, periodId: detectedPeriodId };
 };
 
 /**
@@ -926,12 +989,12 @@ export const updateVcForm = async (
     console.warn('[KPI_SERVICE_WARNING: LOCAL_CACHE_ERROR]', cacheErr);
   }
 
-  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout 10 giây (đảm bảo đủ thời gian ghi trên mọi đường truyền)
+  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout 1.5 giây (nếu mạng chậm/quota thì ghi ngầm, không bắt người dùng đợi lâu)
   try {
     console.log('[KPI_SERVICE_STEP_C: FIRESTORE_SET_DOC_START]', { formId });
     const cleanData = cleanFirestoreData(payload);
     const firestorePromise = setDoc(docRef, cleanData, { merge: true });
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500));
     
     await Promise.race([firestorePromise, timeoutPromise]);
     console.log('[KPI_SERVICE_STEP_D: FIRESTORE_SET_DOC_SUCCESS]', { formId });

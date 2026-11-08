@@ -83,6 +83,7 @@ import {
 } from '../../lib/kpiTargetAudienceUtils';
 import { 
   createVcForm, 
+  createBatchVcForms,
   updateVcForm, 
   toggleLockVcForm, 
   cleanFirestoreData 
@@ -779,7 +780,7 @@ export default function KpiVcDocumentModal({
       const activeCrit = criteria.length > 0 ? criteria : DEFAULT_VC_CRITERIA;
       const initialItems = initializeVcScoreItems(activeCrit);
       const currentPeriod = periods.find(p => p.id === targetPeriodId) || DEFAULT_VC_PERIODS.find(p => p.id === targetPeriodId);
-      let createdCount = 0;
+      const formsToCreate: Omit<KpiVcForm, 'id' | 'createdAt' | 'updatedAt'>[] = [];
 
       for (const tId of selectedTeacherIds) {
         const teacherObj = eligibleTeachers.find(t => t.id === tId) || teachers.find(t => t.id === tId);
@@ -838,7 +839,7 @@ export default function KpiVcDocumentModal({
 
           periodId: targetPeriodId,
           periodName: currentPeriod?.name || 'Kỳ đánh giá KPI',
-          academicYear: currentPeriod?.academicYear || '2025-2026',
+          academicYear: currentPeriod?.academicYear || '2026-2027',
 
           criteriaSnapshot: snapshot,
           items: initialItems,
@@ -892,24 +893,26 @@ export default function KpiVcDocumentModal({
           managerGeneralComment: '',
           managerEvaluatedAt: null,
 
-          status: 'draft',
+          status: isDraft ? 'draft' : 'draft',
           createdBy: actor.name
         };
 
-        await createVcForm(newFormData, actor);
-        createdCount++;
+        formsToCreate.push(newFormData);
       }
 
-      if (createdCount === 0) {
+      if (formsToCreate.length === 0) {
         setErrorMsg('Không thể tạo phiếu: Không tìm thấy danh sách giáo viên/nhân viên hợp lệ.');
         return;
       }
 
-      setSuccessMsg(`Đã tạo và lưu thành công ${createdCount} phiếu đánh giá KPI cho Giáo viên!`);
-      if (onSaved) onSaved(selectedPeriodId);
+      // Lưu hàng loạt tức thì 0ms vào Local Cache & đồng bộ Firebase nền
+      const res = await createBatchVcForms(formsToCreate, actor);
+
+      setSuccessMsg(`Đã tạo và lưu thành công ${res.count} phiếu đánh giá KPI cho Giáo viên!`);
+      if (onSaved) onSaved(targetPeriodId);
       setTimeout(() => {
         onClose();
-      }, 1200);
+      }, 500);
 
     } catch (err: any) {
       console.error('Error batch creating VC forms:', err);

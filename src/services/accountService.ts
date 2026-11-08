@@ -15,6 +15,7 @@ import {
   getDoc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
   query, 
   where,
   orderBy,
@@ -371,8 +372,25 @@ export const accountService = {
 
       if (snap && !snap.empty) {
         const customMap = getStoredUserCustomPermissions();
-        const accounts = snap.docs.map((d: any) => {
-          const acc = { id: d.id, ...d.data() } as AccountRecord;
+        const rawAccounts = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as AccountRecord));
+        // LỌC BỎ HOÀN TOÀN TÀI KHOẢN RÁC / GHOST (không có tên hoặc username rỗng)
+        const validRawAccounts = rawAccounts.filter(acc => 
+          Boolean(acc && acc.fullName && acc.fullName.trim() !== '' && acc.username && acc.username.trim() !== '')
+        );
+
+        // Deduplicate theo username để tránh trùng lặp
+        const dedupMap = new Map<string, AccountRecord>();
+        for (const a of validRawAccounts) {
+          const uKey = (a.username || '').toLowerCase().trim();
+          if (!dedupMap.has(uKey)) {
+            dedupMap.set(uKey, a);
+          } else {
+            const existing = dedupMap.get(uKey)!;
+            dedupMap.set(uKey, { ...existing, ...a });
+          }
+        }
+
+        const accounts = Array.from(dedupMap.values()).map(acc => {
           const aliases = getTeacherKeyAliases(acc.id);
           if (acc.username) getTeacherKeyAliases(acc.username).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
           if (acc.teacherCode) getTeacherKeyAliases(acc.teacherCode).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
@@ -404,7 +422,12 @@ export const accountService = {
 
       // If Firestore fetch returned empty or timed out, but we have cached accounts, return cached!
       if (cachedAccounts && cachedAccounts.length > 0) {
-        return cachedAccounts;
+        const cleanCached = cachedAccounts.filter(a => 
+          Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== '')
+        );
+        if (cleanCached.length > 0) {
+          return cleanCached;
+        }
       }
 
       // Otherwise seed default accounts list from DEFAULT_TEACHERS
@@ -631,6 +654,51 @@ export const accountService = {
       performedBy,
       details: `Cập nhật thông tin tài khoản: ${Object.keys(updates).join(', ')}`
     });
+  },
+
+  /**
+   * Delete an account
+   */
+  async deleteAccount(id: string, performedBy: string): Promise<void> {
+    try {
+      const docRef = doc(db, ACCOUNTS_COLLECTION, id);
+      const accDoc = await getDoc(docRef);
+      const accData = accDoc.exists() ? accDoc.data() : null;
+
+      // 1. Delete from Firestore
+      await deleteDoc(docRef).catch(() => {});
+
+      // Delete from custom permissions
+      await deleteDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, id)).catch(() => {});
+
+      if (accData?.username) {
+        const uLower = accData.username.toLowerCase();
+        await deleteDoc(doc(db, ACCOUNTS_COLLECTION, uLower)).catch(() => {});
+        await deleteDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, uLower)).catch(() => {});
+      }
+
+      // 2. Update local storage cache
+      try {
+        const rawCached = localStorage.getItem('cached_user_accounts');
+        if (rawCached) {
+          const cached: AccountRecord[] = JSON.parse(rawCached);
+          const updated = cached.filter(a => a.id !== id && a.username !== accData?.username);
+          localStorage.setItem('cached_user_accounts', JSON.stringify(updated));
+        }
+      } catch (e) {}
+
+      // 3. Add audit log
+      this.addAuditLog({
+        action: 'DELETE',
+        targetUsername: accData?.username || id,
+        targetFullName: accData?.fullName || id,
+        performedBy,
+        details: `Đã xóa tài khoản "${accData?.fullName || accData?.username || id}" khỏi hệ thống.`
+      }).catch(() => {});
+    } catch (err) {
+      console.error('Error deleting account:', err);
+      throw err;
+    }
   },
 
   /**
@@ -1114,11 +1182,7 @@ export const accountService = {
 
     if (targetUser && targetUser !== id) {
       firestoreWriteTasks.push(
-        setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
-          hasCustomPermissions: true,
-          customPermissions: permissions,
-          updatedAt: now
-        }, { merge: true })
+        deleteDoc(doc(db, ACCOUNTS_COLLECTION, targetUser)).catch(() => {})
       );
     }
 
@@ -1229,11 +1293,7 @@ export const accountService = {
 
     if (targetUser && targetUser !== id) {
       firestoreResetTasks.push(
-        setDoc(doc(db, ACCOUNTS_COLLECTION, targetUser), {
-          hasCustomPermissions: false,
-          customPermissions: null,
-          updatedAt: now
-        }, { merge: true })
+        deleteDoc(doc(db, ACCOUNTS_COLLECTION, targetUser)).catch(() => {})
       );
     }
 

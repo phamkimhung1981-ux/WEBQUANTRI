@@ -1663,15 +1663,26 @@ export default function KpiTeacherStaff() {
         periods={periods}
         criteria={criteria}
         groups={groups}
-        onSaved={(formId) => {
+        onSaved={(targetPeriodOrFormId) => {
           setIsDocModalOpen(false);
-          setSelectedPeriodId(prev => (prev && prev !== 'all') ? prev : 'vc_period_2026_09');
+          const fresh = getVcFormsCache();
+          setForms(fresh);
+          if (targetPeriodOrFormId && typeof targetPeriodOrFormId === 'string') {
+            if (targetPeriodOrFormId.startsWith('vc_period_')) {
+              setSelectedPeriodId(targetPeriodOrFormId);
+            } else {
+              const matchedForm = fresh.find(f => f.id === targetPeriodOrFormId);
+              if (matchedForm && matchedForm.periodId) {
+                setSelectedPeriodId(matchedForm.periodId);
+              }
+            }
+          }
           setStatusFilter('all');
           setClassificationFilter('all');
           setSelectedDeptId('all');
           setSearchQuery('');
-          setNotificationMessage('Đã lưu và gửi phiếu tự chấm thành công! Trạng thái phiếu đã chuyển sang: Chờ TTCM.');
-          setTimeout(() => setNotificationMessage(null), 6000);
+          setNotificationMessage('Đã lưu và cập nhật danh sách phiếu KPI thành công!');
+          setTimeout(() => setNotificationMessage(null), 5000);
         }}
         onPrintRequest={(f) => {
           setIsDocModalOpen(false);

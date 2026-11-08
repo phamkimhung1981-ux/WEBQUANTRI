@@ -80,6 +80,8 @@ export default function AccountManagement() {
   const [lockReasonInput, setLockReasonInput] = useState('');
   const [deactivateModalAccount, setDeactivateModalAccount] = useState<AccountRecord | null>(null);
   const [deactivateReasonInput, setDeactivateReasonInput] = useState('');
+  const [deleteModalAccount, setDeleteModalAccount] = useState<AccountRecord | null>(null);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   // Copy permissions modal state
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
@@ -121,8 +123,12 @@ export default function AccountManagement() {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setAccounts(parsed);
-          setSelectedUserId(parsed[0].id);
+          const validCached = parsed.filter((a: any) => Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== ''));
+          setAccounts(validCached);
+          localStorage.setItem('cached_user_accounts', JSON.stringify(validCached));
+          if (validCached.length > 0) {
+            setSelectedUserId(validCached[0].id);
+          }
         }
       }
     } catch (e) {}
@@ -135,10 +141,12 @@ export default function AccountManagement() {
       ]);
 
       if (accList && accList.length > 0) {
-        setAccounts(accList);
+        const validAccs = accList.filter((a: any) => Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== ''));
+        setAccounts(validAccs);
+        localStorage.setItem('cached_user_accounts', JSON.stringify(validAccs));
         setSelectedUserId(prev => {
-          if (prev && accList.some((a: any) => a.id === prev)) return prev;
-          return accList[0].id;
+          if (prev && validAccs.some((a: any) => a.id === prev)) return prev;
+          return validAccs[0].id;
         });
       }
 
@@ -225,6 +233,10 @@ export default function AccountManagement() {
   // Filter accounts
   const filteredAccounts = useMemo(() => {
     return accounts.filter(acc => {
+      // Loại bỏ tài khoản rác không có tên hoặc username rỗng
+      if (!acc.fullName || !acc.fullName.trim() || !acc.username || !acc.username.trim()) {
+        return false;
+      }
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -633,6 +645,21 @@ export default function AccountManagement() {
       showToast('Lỗi khi sao chép quyền: ' + (err?.message || 'Thất bại'), 'error');
     } finally {
       setIsSavingMatrix(false);
+    }
+  };
+
+  const handleDeleteAccountConfirm = async () => {
+    if (!deleteModalAccount) return;
+    setIsDeletingAccount(true);
+    try {
+      await accountService.deleteAccount(deleteModalAccount.id, user?.name || 'Admin');
+      setAccounts(prev => prev.filter(a => a.id !== deleteModalAccount.id));
+      showToast(`Đã xóa tài khoản "${deleteModalAccount.fullName || deleteModalAccount.username}" thành công!`, 'success');
+      setDeleteModalAccount(null);
+    } catch (err: any) {
+      showToast('Lỗi khi xóa tài khoản: ' + (err?.message || 'Không xác định'), 'error');
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -1062,6 +1089,14 @@ export default function AccountManagement() {
                                     <UserX size={15} />
                                   </button>
                                 )}
+
+                                <button
+                                  onClick={() => setDeleteModalAccount(acc)}
+                                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Xóa tài khoản khỏi hệ thống"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
                               </>
                             ) : (
                               <span className="p-1 text-emerald-600" title="Quản trị viên hệ thống tối cao">
@@ -1861,6 +1896,70 @@ export default function AccountManagement() {
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {isSavingMatrix ? "Đang sao chép..." : "Xác nhận sao chép quyền"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: DELETE ACCOUNT CONFIRMATION */}
+      {deleteModalAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-rose-600 to-red-700 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/15 rounded-xl">
+                  <Trash2 size={18} />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm">XÓA TÀI KHOẢN KHỎI HỆ THỐNG</h3>
+                  <p className="text-[11px] text-rose-100">Hành động này không thể hoàn tác</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalAccount(null)}
+                className="p-1.5 hover:bg-white/20 rounded-xl transition-colors cursor-pointer text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs font-semibold">
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-950">
+                <p className="text-slate-600 font-medium">Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản sau:</p>
+                <p className="text-sm font-black text-rose-900 mt-1">
+                  {deleteModalAccount.fullName} ({deleteModalAccount.username})
+                </p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Mã: {deleteModalAccount.teacherCode || 'Không có'} - Tổ: {deleteModalAccount.departmentName} - Nhóm: {deleteModalAccount.roleGroup}
+                </p>
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed">
+                <p className="font-bold flex items-center gap-1.5 mb-1">
+                  <AlertTriangle size={14} className="text-amber-600 shrink-0" /> Cảnh báo:
+                </p>
+                Toàn bộ dữ liệu tài khoản, phân quyền riêng và lịch sử liên quan sẽ bị xóa khỏi hệ thống. Hãy cân nhắc kỹ trước khi xác nhận.
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeletingAccount}
+                  onClick={() => setDeleteModalAccount(null)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 font-bold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingAccount}
+                  onClick={handleDeleteAccountConfirm}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {isDeletingAccount ? "Đang xóa..." : "Xác nhận xóa tài khoản"}
                 </button>
               </div>
             </div>

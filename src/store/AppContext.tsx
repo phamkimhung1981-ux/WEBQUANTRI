@@ -11,6 +11,7 @@ import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc } from 'firebase/firestore';
 import { syncCanonicalVcDataToStorageAndFirestore } from '../services/kpiVcService';
+import { useAuth } from './AuthContext';
 
 interface AppState {
   teachers: Teacher[];
@@ -260,6 +261,7 @@ export const getCachedTeachers = (): Teacher[] => {
 };
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [state, setState] = useState<AppState>({
     teachers: getCachedTeachers(),
     departments: getCachedDepartments(),
@@ -381,29 +383,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }, (error) => {
         console.warn(`Firestore snapshot notice for ${colName}:`, error);
 
-        // Phân loại chính xác mã lỗi Firebase theo yêu cầu
+        // Phân loại mã lỗi Firebase
         const errorCode = (error as any)?.code || '';
         const errorMsg = (error as any)?.message || String(error);
         const isQuota = errorCode === 'resource-exhausted' || errorMsg.includes('Quota exceeded') || errorMsg.includes('RESOURCE_EXHAUSTED');
         const isPermission = errorCode === 'permission-denied';
-        const isOffline = errorCode === 'unavailable' || errorMsg.includes('offline') || errorMsg.includes('network');
-
-        let message = '';
-        if (isQuota) {
-          message = 'Hạn ngạch truy vấn Firebase Firestore trong ngày (Gói Spark miễn phí) đã đạt giới hạn 50.000 lượt đọc (Mã: resource-exhausted). Dữ liệu hiện được bảo vệ và hiển thị từ bộ nhớ đệm an toàn.';
-        } else if (isPermission) {
-          message = `Từ chối quyền truy cập dữ liệu "${colName}" (Mã: permission-denied). Vui lòng kiểm tra phân quyền tài khoản hoặc quy tắc bảo mật.`;
-        } else if (isOffline) {
-          message = `Máy chủ Firestore tạm thời không phản hồi (Mã: unavailable). Đang kết nối lại...`;
-        } else {
-          message = `Lỗi truy vấn cơ sở dữ liệu "${colName}" (${errorCode || 'unknown'}): ${errorMsg}`;
-        }
 
         // BẢO TOÀN DỮ LIỆU: Phục hồi dữ liệu từ bộ nhớ đệm an toàn, không để mảng rỗng
+        // Khi gặp lỗi quota hoặc offline, hệ thống tự động chạy trên cache an toàn và KHÔNG hiển thị banner lỗi đỏ gây gián đoạn
+        const fatalError = isPermission ? `Từ chối quyền truy cập dữ liệu "${colName}" (permission-denied).` : null;
+
         if (key === 'teachers') {
-          setState(prev => ({ ...prev, teachers: getCachedTeachers(), error: message }));
+          setState(prev => ({ ...prev, teachers: getCachedTeachers(), error: fatalError }));
         } else if (key === 'departments') {
-          setState(prev => ({ ...prev, departments: getCachedDepartments(), error: message }));
+          setState(prev => ({ ...prev, departments: getCachedDepartments(), error: fatalError }));
         } else {
           setState(prev => {
             const cachedFallback = getLocalCollectionCache(colName, (prev as any)[key] || []);
@@ -411,7 +404,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return {
               ...prev,
               [key]: Array.isArray(currentData) && currentData.length > 0 ? currentData : cachedFallback,
-              error: message
+              error: fatalError
             };
           });
         }
@@ -2455,7 +2448,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setKpiStaffPeriods,
       setKpiStaffCriteria
     }}>
-      {state.error && (
+      {state.error && user && (
         <div className={`fixed top-0 left-0 right-0 z-50 shadow-md py-2 px-4 transition-all duration-300 ${
           state.error.includes('resource-exhausted') || state.error.includes('Hạn ngạch')
             ? 'bg-amber-600/95 text-white backdrop-blur-sm border-b border-amber-500'
