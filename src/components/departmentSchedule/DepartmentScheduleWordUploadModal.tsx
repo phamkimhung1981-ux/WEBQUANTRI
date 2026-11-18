@@ -19,6 +19,7 @@ import { parseDepartmentScheduleWord } from '../../utils/departmentScheduleWordP
 import { downloadBlankTemplateWord } from '../../utils/departmentScheduleExportWord';
 import { DepartmentWeeklySchedule, ParsedWordScheduleResult } from '../../types/departmentSchedule';
 import { PRESET_DEPARTMENTS } from '../../pages/Tasks';
+import { getCanonicalDepartmentId, getCanonicalDepartmentName, detectDepartmentFromText } from '../../services/departmentScheduleService';
 
 interface DepartmentScheduleWordUploadModalProps {
   isOpen: boolean;
@@ -40,8 +41,10 @@ export default function DepartmentScheduleWordUploadModal({
   const [parsedData, setParsedData] = useState<ParsedWordScheduleResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [step, setStep] = useState<'upload' | 'preview'>('upload');
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(currentDepartmentId || 'd_toan_ly_tin_cn');
-  const [selectedDeptName, setSelectedDeptName] = useState<string>(currentDepartmentName || 'Tổ Toán-Lý-Tin-CN');
+  
+  const initId = getCanonicalDepartmentId(currentDepartmentId || 'd_toan_ly_tin_cn');
+  const [selectedDeptId, setSelectedDeptId] = useState<string>(initId);
+  const [selectedDeptName, setSelectedDeptName] = useState<string>(currentDepartmentName || getCanonicalDepartmentName(initId));
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,17 +81,20 @@ export default function DepartmentScheduleWordUploadModal({
       const result = await parseDepartmentScheduleWord(f);
       setParsedData(result);
       
-      // Auto-match department if parsed
-      if (result.departmentName) {
-        const foundDept = PRESET_DEPARTMENTS.find(d => 
-          d.name.toLowerCase().includes(result.departmentName.toLowerCase()) || 
-          result.departmentName.toLowerCase().includes(d.shortName.toLowerCase())
-        );
-        if (foundDept) {
-          setSelectedDeptId(foundDept.id);
-          setSelectedDeptName(foundDept.name);
-        } else {
-          setSelectedDeptName(result.departmentName);
+      // Auto-match department accurately
+      if (result.departmentId) {
+        const canonical = getCanonicalDepartmentId(result.departmentId);
+        setSelectedDeptId(canonical);
+        setSelectedDeptName(result.departmentName || getCanonicalDepartmentName(canonical));
+      } else {
+        const detected = (result.departmentName ? detectDepartmentFromText(result.departmentName) : null) || detectDepartmentFromText(f.name);
+        if (detected) {
+          setSelectedDeptId(detected.id);
+          setSelectedDeptName(detected.name);
+        } else if (result.departmentName) {
+          const canonical = getCanonicalDepartmentId(result.departmentName);
+          setSelectedDeptId(canonical);
+          setSelectedDeptName(getCanonicalDepartmentName(canonical));
         }
       }
 
@@ -106,11 +112,12 @@ export default function DepartmentScheduleWordUploadModal({
 
     try {
       setLoading(true);
+      const canonicalId = getCanonicalDepartmentId(selectedDeptId);
       const scheduleToSave: DepartmentWeeklySchedule = {
         id: `dept_sched_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         schoolName: parsedData.schoolName || 'TRƯỜNG THPT SƠN LƯƠNG',
-        departmentId: selectedDeptId,
-        departmentName: selectedDeptName || parsedData.departmentName || 'Tổ chuyên môn',
+        departmentId: canonicalId,
+        departmentName: selectedDeptName || getCanonicalDepartmentName(canonicalId),
         weekNumber: parsedData.weekNumber || 1,
         startDate: parsedData.startDate || '2026-09-28',
         endDate: parsedData.endDate || '2026-10-04',
@@ -251,16 +258,15 @@ export default function DepartmentScheduleWordUploadModal({
                   <select 
                     value={selectedDeptId}
                     onChange={(e) => {
-                      setSelectedDeptId(e.target.value);
-                      const found = PRESET_DEPARTMENTS.find(d => d.id === e.target.value);
-                      if (found) setSelectedDeptName(found.name);
+                      const canonical = getCanonicalDepartmentId(e.target.value);
+                      setSelectedDeptId(canonical);
+                      setSelectedDeptName(getCanonicalDepartmentName(canonical));
                     }}
                     className="mt-1 w-full bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 py-1.5 px-2.5 shadow-xs focus:ring-2 focus:ring-blue-500"
                   >
                     {PRESET_DEPARTMENTS.map(d => (
                       <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
-                    <option value="custom">Tổ khác ({parsedData?.departmentName || 'Tổ chuyên môn'})</option>
                   </select>
                 </div>
 

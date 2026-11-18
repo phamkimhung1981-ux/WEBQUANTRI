@@ -1,5 +1,6 @@
 import mammoth from 'mammoth';
 import { DepartmentScheduleDayItem, ParsedWordScheduleResult } from '../types/departmentSchedule';
+import { detectDepartmentFromText, getCanonicalDepartmentId, getCanonicalDepartmentName } from '../services/departmentScheduleService';
 
 const DAY_DEFINITIONS = [
   { key: 'thứ hai', altKeys: ['thứ 2', 'thứ hai', 'thu hai', 'thu 2', 'thứ hai,', 't2', 'thứ hai (', 'thứ 2 ('], label: 'Thứ Hai' },
@@ -16,6 +17,7 @@ const DAY_DEFINITIONS = [
  */
 export async function parseDepartmentScheduleWord(file: File | ArrayBuffer): Promise<ParsedWordScheduleResult> {
   const arrayBuffer = file instanceof File ? await file.arrayBuffer() : file;
+  const fileName = file instanceof File ? (file.name || '') : '';
   const warnings: string[] = [];
 
   try {
@@ -29,6 +31,7 @@ export async function parseDepartmentScheduleWord(file: File | ArrayBuffer): Pro
     // Initialize result with defaults
     let schoolName = 'TRƯỜNG THPT SƠN LƯƠNG';
     let departmentName = '';
+    let departmentId = '';
     let weekNumber = 1;
     let startDate = '';
     let endDate = '';
@@ -53,6 +56,29 @@ export async function parseDepartmentScheduleWord(file: File | ArrayBuffer): Pro
           departmentName = name;
           break;
         }
+      }
+    }
+
+    // Detect Department accurately using smart keyword detection on line text, filename, and content
+    const detectedFromDeptName = departmentName ? detectDepartmentFromText(departmentName) : null;
+    const detectedFromFileName = fileName ? detectDepartmentFromText(fileName) : null;
+    
+    let detectedFromContent: { id: string; name: string } | null = null;
+    if (!detectedFromDeptName && !detectedFromFileName) {
+      for (const line of lines.slice(0, 15)) {
+        const d = detectDepartmentFromText(line);
+        if (d) {
+          detectedFromContent = d;
+          break;
+        }
+      }
+    }
+
+    const finalDetected = detectedFromDeptName || detectedFromFileName || detectedFromContent;
+    if (finalDetected) {
+      departmentId = finalDetected.id;
+      if (!departmentName || departmentName === 'Tổ chuyên môn') {
+        departmentName = finalDetected.name;
       }
     }
 
@@ -226,6 +252,7 @@ export async function parseDepartmentScheduleWord(file: File | ArrayBuffer): Pro
     return {
       success: true,
       schoolName,
+      departmentId: departmentId || undefined,
       departmentName,
       weekNumber: weekNumber || 1,
       startDate: startDate || '',

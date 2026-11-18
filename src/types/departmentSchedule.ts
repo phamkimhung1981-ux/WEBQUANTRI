@@ -37,6 +37,7 @@ export interface DepartmentWeeklySchedule {
 export interface ParsedWordScheduleResult {
   success: boolean;
   schoolName: string;
+  departmentId?: string;
   departmentName: string;
   weekNumber: number;
   startDate: string;

@@ -23,17 +23,26 @@ import {
   FileSpreadsheet,
   Building2,
   Share2,
-  Send
+  Send,
+  Lock,
+  ShieldCheck,
+  Info
 } from 'lucide-react';
 import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
+import { usePermission } from '../hooks/usePermission';
 import { 
   DepartmentWeeklySchedule, 
   DepartmentScheduleDayItem 
 } from '../types/departmentSchedule';
-import { departmentScheduleService } from '../services/departmentScheduleService';
+import { 
+  departmentScheduleService,
+  getCanonicalDepartmentId,
+  getCanonicalDepartmentName,
+  CANONICAL_DEPARTMENTS 
+} from '../services/departmentScheduleService';
 import { 
   exportDepartmentScheduleToWord, 
   downloadBlankTemplateWord 
@@ -48,20 +57,22 @@ export default function DepartmentSchedule() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const { departments, teachers } = useAppContext();
+  const { hasPermission, canEdit, canApprove, isSystemAdmin, isBGH, isTTCM, roleGroup } = usePermission();
+  const { departments } = useAppContext();
 
-  // Combine Preset departments and custom departments from context
+  // Combine Preset departments and custom departments from context with canonical IDs
   const allDepartments = useMemo(() => {
     const list = [...PRESET_DEPARTMENTS];
     departments.forEach(dept => {
-      const exists = list.some(d => d.id === dept.id || d.name.toLowerCase() === dept.name.toLowerCase());
+      const canonicalId = getCanonicalDepartmentId(dept.id);
+      const exists = list.some(d => getCanonicalDepartmentId(d.id) === canonicalId);
       if (!exists) {
         list.push({
-          id: dept.id,
-          slug: dept.id,
+          id: canonicalId,
+          slug: canonicalId,
           name: dept.name,
           shortName: dept.name.replace(/^Tổ\s+/i, ''),
-          groupToken: `GROUP_${dept.id.toUpperCase()}`,
+          groupToken: `GROUP_${canonicalId.toUpperCase()}`,
           icon: Users,
           description: `Tổ chuyên môn ${dept.name}`,
           subjects: [],
@@ -80,12 +91,29 @@ export default function DepartmentSchedule() {
     return list;
   }, [departments]);
 
-  // Selected State
-  const initialDeptId = searchParams.get('dept') || allDepartments[0]?.id || 'd_toan_ly_tin_cn';
-  const initialWeek = parseInt(searchParams.get('week') || '5', 10);
+  // Determine user's assigned department ID in canonical form
+  const userAssignedDeptId = useMemo(() => {
+    if (!user) return '';
+    const rawDept = (user as any).departmentId || (user as any).departmentName || '';
+    return rawDept ? getCanonicalDepartmentId(rawDept) : '';
+  }, [user]);
+
+  // Selected Department State (strictly canonicalized)
+  const initialDeptId = useMemo(() => {
+    const paramDept = searchParams.get('dept');
+    if (paramDept) return getCanonicalDepartmentId(paramDept);
+    if (userAssignedDeptId) return userAssignedDeptId;
+    return 'd_toan_ly_tin_cn';
+  }, [searchParams, userAssignedDeptId]);
+
+  const initialWeek = parseInt(searchParams.get('week') || '10', 10);
 
   const [selectedDeptId, setSelectedDeptId] = useState<string>(initialDeptId);
   const [selectedWeek, setSelectedWeek] = useState<number>(initialWeek);
+
+  // Canonical selected ID and authoritative display name
+  const canonicalSelectedDeptId = useMemo(() => getCanonicalDepartmentId(selectedDeptId), [selectedDeptId]);
+  const currentDeptName = useMemo(() => getCanonicalDepartmentName(canonicalSelectedDeptId), [canonicalSelectedDeptId]);
 
   // Active schedule being viewed/edited
   const [schedule, setSchedule] = useState<DepartmentWeeklySchedule | null>(null);
@@ -98,10 +126,22 @@ export default function DepartmentSchedule() {
   const [isWordUploadOpen, setIsWordUploadOpen] = useState<boolean>(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
 
-  // Selected department config
+  // Permission Checks:
+  // - Admin and BGH can view, edit, and approve all departments
+  const isBGHOrAdmin = isSystemAdmin || isBGH || roleGroup === 'ADMIN' || roleGroup === 'BGH' || user?.role === 'admin' || user?.role === 'BGH';
+
+  // - TTCM or Teacher can edit only if they belong to this specific department
+  const isUserOwnDepartment = !!userAssignedDeptId && userAssignedDeptId === canonicalSelectedDeptId;
+  const hasEditPermission = canEdit('department_schedule') || hasPermission('department_schedule', 'create') || isTTCM;
+  const canEditCurrentDept = isBGHOrAdmin || (hasEditPermission && isUserOwnDepartment);
+
+  // - Approval permission (BGH / Admin only)
+  const canApproveSchedule = isBGHOrAdmin || canApprove('department_schedule');
+
+  // Selected department config from list
   const currentDeptConfig = useMemo(() => {
-    return allDepartments.find(d => d.id === selectedDeptId) || allDepartments[0];
-  }, [allDepartments, selectedDeptId]);
+    return allDepartments.find(d => getCanonicalDepartmentId(d.id) === canonicalSelectedDeptId) || allDepartments[0];
+  }, [allDepartments, canonicalSelectedDeptId]);
 
   // Weeks list for 2026-2027
   const allWeeks = useMemo(() => {
@@ -125,7 +165,7 @@ export default function DepartmentSchedule() {
     }, 3500);
   };
 
-  // Load schedules
+  // Load schedules from Firestore & LocalStorage
   useEffect(() => {
     loadSchedules();
   }, []);
@@ -136,7 +176,7 @@ export default function DepartmentSchedule() {
       const list = await departmentScheduleService.getSchedules();
       setAllSchedules(list);
     } catch (e) {
-      console.error(e);
+      console.error('Error loading schedules:', e);
     } finally {
       setLoading(false);
     }
@@ -146,34 +186,60 @@ export default function DepartmentSchedule() {
   useEffect(() => {
     if (loading) return;
 
-    // Find if a schedule already exists for this dept & week
-    const existing = allSchedules.find(
-      s => (s.departmentId === selectedDeptId || s.departmentName === currentDeptConfig?.name) &&
-           Number(s.weekNumber) === Number(selectedWeek)
+    const targetDeptId = canonicalSelectedDeptId;
+    const targetDeptName = currentDeptName;
+
+    // Filter schedules strictly matching canonical department ID and week number
+    const matching = allSchedules.filter(s => 
+      getCanonicalDepartmentId(s.departmentId || s.departmentName) === targetDeptId &&
+      Number(s.weekNumber) === Number(selectedWeek)
     );
 
+    let existing: DepartmentWeeklySchedule | undefined;
+    if (matching.length > 0) {
+      // Prioritize: approved first, then has non-empty day tasks, then latest updatedAt
+      const sorted = [...matching].sort((a, b) => {
+        if (a.status === 'approved' && b.status !== 'approved') return -1;
+        if (b.status === 'approved' && a.status !== 'approved') return 1;
+        const aHasContent = (a.days || []).some(d => (d.morningTasks?.trim() || d.afternoonTasks?.trim()));
+        const bHasContent = (b.days || []).some(d => (d.morningTasks?.trim() || d.afternoonTasks?.trim()));
+        if (aHasContent && !bHasContent) return -1;
+        if (!aHasContent && bHasContent) return 1;
+        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      });
+      existing = sorted[0];
+    }
+
     if (existing) {
-      // Chuẩn hóa và gắn ngày thực tế của tuần đang chọn (sửa tận gốc nếu dữ liệu cũ lưu sai ngày)
+      // Chuẩn hóa và gắn ngày thực tế của tuần đang chọn
       const normalized = departmentScheduleService.normalizeScheduleForWeek(existing, selectedWeek, '2026-2027');
+      // Enforce strict canonical department ID and name in active state
+      normalized.departmentId = targetDeptId;
+      normalized.departmentName = targetDeptName;
       setSchedule(normalized);
     } else {
       // Create fresh blank schedule
       const blank = departmentScheduleService.createBlankSchedule(
-        currentDeptConfig?.id || selectedDeptId,
-        currentDeptConfig?.name || 'Tổ chuyên môn',
+        targetDeptId,
+        targetDeptName,
         selectedWeek,
         2026
       );
       setSchedule(blank);
     }
 
-    // Sync query params
-    setSearchParams({ dept: selectedDeptId, week: String(selectedWeek) }, { replace: true });
-  }, [selectedDeptId, selectedWeek, allSchedules, loading, currentDeptConfig]);
+    // Sync query params strictly with canonical ID
+    setSearchParams({ dept: targetDeptId, week: String(selectedWeek) }, { replace: true });
+  }, [canonicalSelectedDeptId, selectedWeek, allSchedules, loading, currentDeptName]);
 
   // Handle cell edit by date ISO (Liên kết dữ liệu với ngày thực tế)
   const handleUpdateDay = (dateIso: string, field: keyof DepartmentScheduleDayItem, value: any) => {
     if (!schedule) return;
+
+    if (!canEditCurrentDept) {
+      showToast('Bạn chỉ có quyền xem, không được chỉnh sửa lịch của tổ này.');
+      return;
+    }
 
     const newDays = [...schedule.days];
     let dayIndex = newDays.findIndex(d => d.date === dateIso);
@@ -204,6 +270,8 @@ export default function DepartmentSchedule() {
 
     const updatedSchedule: DepartmentWeeklySchedule = {
       ...schedule,
+      departmentId: canonicalSelectedDeptId,
+      departmentName: currentDeptName,
       days: newDays,
       updatedAt: new Date().toISOString()
     };
@@ -217,15 +285,27 @@ export default function DepartmentSchedule() {
   // Manual save
   const handleSave = async () => {
     if (!schedule) return;
+
+    if (!canEditCurrentDept) {
+      showToast('Bạn chỉ có quyền xem, không thể lưu lịch của tổ này.');
+      return;
+    }
+
     setSaving(true);
     try {
       const normalized = departmentScheduleService.normalizeScheduleForWeek(schedule, selectedWeek, '2026-2027');
+      normalized.departmentId = canonicalSelectedDeptId;
+      normalized.departmentName = currentDeptName;
+      
       await departmentScheduleService.saveSchedule(normalized);
       setSchedule(normalized);
       
       // Update local state list
       setAllSchedules(prev => {
-        const idx = prev.findIndex(s => s.id === normalized.id || (s.departmentId === normalized.departmentId && s.weekNumber === normalized.weekNumber));
+        const idx = prev.findIndex(s => 
+          s.id === normalized.id || 
+          (getCanonicalDepartmentId(s.departmentId) === canonicalSelectedDeptId && Number(s.weekNumber) === Number(normalized.weekNumber))
+        );
         if (idx >= 0) {
           const updated = [...prev];
           updated[idx] = normalized;
@@ -234,7 +314,7 @@ export default function DepartmentSchedule() {
         return [normalized, ...prev];
       });
 
-      showToast('Đã lưu lịch giao việc thành công!');
+      showToast(`Đã lưu lịch giao việc ${currentDeptName} (Tuần ${selectedWeek}) thành công!`);
     } catch (e: any) {
       console.error(e);
       showToast('Lỗi khi lưu: ' + (e.message || ''));
@@ -248,22 +328,31 @@ export default function DepartmentSchedule() {
     const normalized = departmentScheduleService.normalizeScheduleForWeek(imported, imported.weekNumber, '2026-2027');
     await departmentScheduleService.saveSchedule(normalized);
     setAllSchedules(prev => [normalized, ...prev.filter(s => s.id !== normalized.id)]);
-    setSelectedDeptId(normalized.departmentId);
+    
+    // Switch to imported department and week
+    const targetDept = getCanonicalDepartmentId(normalized.departmentId);
+    setSelectedDeptId(targetDept);
     setSelectedWeek(normalized.weekNumber);
     setSchedule(normalized);
-    showToast(`Đã nạp thành công lịch tuần ${normalized.weekNumber} từ file Word!`);
+    showToast(`Đã nạp thành công lịch tuần ${normalized.weekNumber} cho ${normalized.departmentName} từ file Word!`);
   };
 
   // Handle BGH Approval
   const handleApprove = async () => {
     if (!schedule) return;
+
+    if (!canApproveSchedule) {
+      showToast('Chỉ Ban Giám Hiệu hoặc Quản trị viên mới có quyền phê duyệt lịch.');
+      return;
+    }
+
     const approverName = user?.name || 'Ban Giám Hiệu';
     try {
       const updated = await departmentScheduleService.approveSchedule(schedule.id, approverName);
       if (updated) {
         setSchedule(updated);
         setAllSchedules(prev => prev.map(s => s.id === updated.id ? updated : s));
-        showToast('Đã duyệt lịch giao việc tuần này thành công!');
+        showToast(`Đã phê duyệt lịch giao việc Tuần ${selectedWeek} của ${currentDeptName}!`);
       }
     } catch (e) {
       console.error(e);
@@ -272,7 +361,7 @@ export default function DepartmentSchedule() {
 
   // Add bullet to day cell
   const handleAddBullet = (dateIso: string, field: 'morningTasks' | 'afternoonTasks') => {
-    if (!schedule) return;
+    if (!schedule || !canEditCurrentDept) return;
     const targetDay = schedule.days?.find(d => d.date === dateIso);
     const currentText = targetDay ? targetDay[field] || '' : '';
     const newText = currentText ? `${currentText}\n- ` : '- ';
@@ -318,7 +407,7 @@ export default function DepartmentSchedule() {
           <button
             type="button"
             onClick={() => setIsWordUploadOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md shadow-blue-500/25 transition-all transform hover:-translate-y-0.5"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md shadow-blue-500/25 transition-all transform hover:-translate-y-0.5 cursor-pointer"
           >
             <Upload size={16} />
             <span>Tải lên từ file Word</span>
@@ -327,8 +416,8 @@ export default function DepartmentSchedule() {
           {/* Download Blank Template */}
           <button
             type="button"
-            onClick={() => downloadBlankTemplateWord(currentDeptConfig?.name, String(selectedWeek))}
-            className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+            onClick={() => downloadBlankTemplateWord(currentDeptName, String(selectedWeek))}
+            className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
             title="Tải biểu mẫu Word trống để điền"
           >
             <Download size={15} />
@@ -340,7 +429,7 @@ export default function DepartmentSchedule() {
             <button
               type="button"
               onClick={() => exportDepartmentScheduleToWord(schedule)}
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs rounded-xl transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs rounded-xl transition-colors cursor-pointer"
               title="Xuất lịch tuần này ra file Word"
             >
               <FileText size={15} />
@@ -353,7 +442,7 @@ export default function DepartmentSchedule() {
             <button
               type="button"
               onClick={() => setIsPrintModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
               title="Xem và In lịch"
             >
               <Printer size={15} />
@@ -361,16 +450,18 @@ export default function DepartmentSchedule() {
             </button>
           )}
 
-          {/* Save Button */}
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSave}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
-          >
-            <Save size={15} className={saving ? 'animate-spin' : ''} />
-            <span>{saving ? 'Đang lưu...' : 'Lưu lại'}</span>
-          </button>
+          {/* Save Button (Disabled if read-only) */}
+          {canEditCurrentDept && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleSave}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Save size={15} className={saving ? 'animate-spin' : ''} />
+              <span>{saving ? 'Đang lưu...' : 'Lưu lại'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -384,13 +475,19 @@ export default function DepartmentSchedule() {
               Tổ chuyên môn:
             </span>
             {allDepartments.map((dept) => {
-              const isSelected = dept.id === selectedDeptId;
+              const canonicalDeptId = getCanonicalDepartmentId(dept.id);
+              const isSelected = canonicalDeptId === canonicalSelectedDeptId;
               const IconComp = dept.icon || Users;
+              const isUserDept = userAssignedDeptId === canonicalDeptId;
+
               return (
                 <button
                   key={dept.id}
-                  onClick={() => setSelectedDeptId(dept.id)}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                  onClick={() => {
+                    setSelectedDeptId(canonicalDeptId);
+                    setSearchParams({ dept: canonicalDeptId, week: String(selectedWeek) }, { replace: true });
+                  }}
+                  className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                     isSelected
                       ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-600 ring-offset-2'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
@@ -398,6 +495,11 @@ export default function DepartmentSchedule() {
                 >
                   <IconComp size={15} />
                   <span>{dept.shortName || dept.name}</span>
+                  {isUserDept && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isSelected ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-700'}`}>
+                      Tổ của bạn
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -415,7 +517,7 @@ export default function DepartmentSchedule() {
               type="button"
               disabled={selectedWeek <= 1}
               onClick={() => setSelectedWeek(prev => Math.max(1, prev - 1))}
-              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 text-slate-700 transition-colors"
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 text-slate-700 transition-colors cursor-pointer"
             >
               <ChevronLeft size={16} />
             </button>
@@ -423,7 +525,7 @@ export default function DepartmentSchedule() {
             <select
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(Number(e.target.value))}
-              className="bg-white border border-slate-300 font-extrabold text-xs text-blue-700 rounded-xl px-3 py-1.5 shadow-xs focus:ring-2 focus:ring-blue-500"
+              className="bg-white border border-slate-300 font-extrabold text-xs text-blue-700 rounded-xl px-3 py-1.5 shadow-xs focus:ring-2 focus:ring-blue-500 cursor-pointer"
             >
               {allWeeks.slice(0, 37).map(w => (
                 <option key={w.weekNumber} value={w.weekNumber}>
@@ -436,7 +538,7 @@ export default function DepartmentSchedule() {
               type="button"
               disabled={selectedWeek >= 37}
               onClick={() => setSelectedWeek(prev => Math.min(37, prev + 1))}
-              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 text-slate-700 transition-colors"
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 text-slate-700 transition-colors cursor-pointer"
             >
               <ChevronRight size={16} />
             </button>
@@ -464,11 +566,11 @@ export default function DepartmentSchedule() {
                 </span>
                 
                 {/* Allow BGH to approve */}
-                {(user?.role === 'BGH' || user?.role === 'TTCM') && (
+                {canApproveSchedule && (
                   <button
                     type="button"
                     onClick={handleApprove}
-                    className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
                   >
                     <Check size={14} />
                     Duyệt lịch
@@ -482,24 +584,37 @@ export default function DepartmentSchedule() {
 
       </div>
 
+      {/* Read-Only Alert Banner if user is viewing another department */}
+      {!canEditCurrentDept && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50/80 border border-amber-200 rounded-2xl text-amber-900 text-xs shadow-xs">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
+            <Lock size={16} />
+          </div>
+          <div>
+            <div className="font-bold text-amber-800">
+              Chế độ xem lịch: {currentDeptName}
+            </div>
+            <p className="text-amber-700/90 mt-0.5">
+              Bạn đang xem lịch công tác của tổ bạn không phụ trách. Theo nguyên tắc bảo mật và phân quyền, chỉ Tổ trưởng chuyên môn của <strong>{currentDeptName}</strong> hoặc Ban Giám Hiệu mới có quyền tạo mới và chỉnh sửa bảng lịch này.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Main Schedule Document View */}
       <Card className="p-6 sm:p-8 bg-white border border-slate-200 shadow-sm rounded-3xl space-y-6">
         
-        {/* Document Header (Matches Word Document) */}
+        {/* Document Header (Matches Word Document - STRICTLY TIED TO SELECTED DEPARTMENT) */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-6 border-b border-slate-200 gap-4">
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <h2 className="text-base sm:text-lg font-bold uppercase tracking-tight text-slate-900">
               TRƯỜNG THPT SƠN LƯƠNG
             </h2>
             <div className="flex items-center gap-2 text-sm sm:text-base font-extrabold text-blue-700 uppercase">
-              <span>TỔ:</span>
-              <input
-                type="text"
-                value={schedule?.departmentName || ''}
-                onChange={(e) => setSchedule(prev => prev ? { ...prev, departmentName: e.target.value } : null)}
-                placeholder="Tên tổ chuyên môn..."
-                className="font-extrabold uppercase border-b-2 border-dashed border-blue-400 focus:border-blue-600 outline-none px-1 py-0.5 bg-transparent min-w-[240px]"
-              />
+              <span className="text-slate-700">TỔ:</span>
+              <span className="text-blue-800 tracking-wide font-black bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
+                {currentDeptName.replace(/^Tổ\s+/i, '')}
+              </span>
             </div>
           </div>
 
@@ -513,7 +628,7 @@ export default function DepartmentSchedule() {
           </div>
         </div>
 
-        {/* Schedule Table (Matches exact 5 columns from screenshot) */}
+        {/* Schedule Table (Matches exact 5 columns from official school format) */}
         <div className="border border-slate-300 rounded-2xl overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse">
@@ -595,41 +710,55 @@ export default function DepartmentSchedule() {
 
                       {/* Col 2: Sáng - Nội dung công việc */}
                       <td className="p-2.5 border-r border-slate-300 align-top group relative">
-                        <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={() => handleAddBullet(wDay.dateIso, 'morningTasks')}
-                            className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                          >
-                            <Plus size={11} /> Thêm dòng việc
-                          </button>
-                        </div>
+                        {canEditCurrentDept && (
+                          <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => handleAddBullet(wDay.dateIso, 'morningTasks')}
+                              className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <Plus size={11} /> Thêm dòng việc
+                            </button>
+                          </div>
+                        )}
                         <AutoResizeTextarea
                           minHeight={64}
+                          readOnly={!canEditCurrentDept}
                           value={day.morningTasks || ''}
                           onChange={(e) => handleUpdateDay(wDay.dateIso, 'morningTasks', e.target.value)}
-                          placeholder="Nội dung công việc buổi sáng..."
-                          className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none leading-relaxed"
+                          placeholder={canEditCurrentDept ? "Nội dung công việc buổi sáng..." : "Không có nhiệm vụ"}
+                          className={`w-full text-xs text-slate-800 rounded-lg p-1.5 leading-relaxed ${
+                            canEditCurrentDept 
+                              ? 'bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none' 
+                              : 'bg-transparent cursor-default'
+                          }`}
                         />
                       </td>
 
                       {/* Col 3: Chiều - Nội dung công việc */}
                       <td className="p-2.5 border-r border-slate-300 align-top group relative">
-                        <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={() => handleAddBullet(wDay.dateIso, 'afternoonTasks')}
-                            className="text-[10px] text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                          >
-                            <Plus size={11} /> Thêm dòng việc
-                          </button>
-                        </div>
+                        {canEditCurrentDept && (
+                          <div className="flex items-center justify-between mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => handleAddBullet(wDay.dateIso, 'afternoonTasks')}
+                              className="text-[10px] text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <Plus size={11} /> Thêm dòng việc
+                            </button>
+                          </div>
+                        )}
                         <AutoResizeTextarea
                           minHeight={64}
+                          readOnly={!canEditCurrentDept}
                           value={day.afternoonTasks || ''}
                           onChange={(e) => handleUpdateDay(wDay.dateIso, 'afternoonTasks', e.target.value)}
-                          placeholder="Nội dung công việc buổi chiều..."
-                          className="w-full text-xs text-slate-800 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none leading-relaxed"
+                          placeholder={canEditCurrentDept ? "Nội dung công việc buổi chiều..." : "Không có nhiệm vụ"}
+                          className={`w-full text-xs text-slate-800 rounded-lg p-1.5 leading-relaxed ${
+                            canEditCurrentDept 
+                              ? 'bg-transparent focus:bg-white focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none' 
+                              : 'bg-transparent cursor-default'
+                          }`}
                         />
                       </td>
 
@@ -637,10 +766,15 @@ export default function DepartmentSchedule() {
                       <td className="p-2.5 border-r border-slate-300 align-top w-44">
                         <AutoResizeTextarea
                           minHeight={64}
+                          readOnly={!canEditCurrentDept}
                           value={day.dutyLeaderOrEvaluation || ''}
                           onChange={(e) => handleUpdateDay(wDay.dateIso, 'dutyLeaderOrEvaluation', e.target.value)}
-                          placeholder="Lãnh đạo trực / đánh giá kết quả..."
-                          className="w-full text-xs text-slate-700 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-blue-400 outline-none text-center leading-relaxed"
+                          placeholder={canEditCurrentDept ? "Lãnh đạo trực / đánh giá kết quả..." : "-"}
+                          className={`w-full text-xs text-slate-700 rounded-lg p-1.5 text-center leading-relaxed ${
+                            canEditCurrentDept 
+                              ? 'bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-400 outline-none' 
+                              : 'bg-transparent cursor-default'
+                          }`}
                         />
                       </td>
 
@@ -648,10 +782,15 @@ export default function DepartmentSchedule() {
                       <td className="p-2.5 align-top w-32">
                         <AutoResizeTextarea
                           minHeight={64}
+                          readOnly={!canEditCurrentDept}
                           value={day.notes || ''}
                           onChange={(e) => handleUpdateDay(wDay.dateIso, 'notes', e.target.value)}
-                          placeholder="Ghi chú thêm..."
-                          className="w-full text-xs text-slate-600 bg-transparent rounded-lg p-1.5 focus:bg-white focus:ring-1 focus:ring-slate-400 outline-none text-center leading-relaxed"
+                          placeholder={canEditCurrentDept ? "Ghi chú thêm..." : ""}
+                          className={`w-full text-xs text-slate-600 rounded-lg p-1.5 text-center leading-relaxed ${
+                            canEditCurrentDept 
+                              ? 'bg-transparent focus:bg-white focus:ring-1 focus:ring-slate-400 outline-none' 
+                              : 'bg-transparent cursor-default'
+                          }`}
                         />
                       </td>
 
@@ -674,19 +813,21 @@ export default function DepartmentSchedule() {
             <button
               type="button"
               onClick={() => setIsPrintModalOpen(true)}
-              className="font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              className="font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
             >
               <Eye size={14} />
               Xem bản in tiêu chuẩn
             </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
-            >
-              <Save size={14} />
-              Lưu bảng lịch
-            </button>
+            {canEditCurrentDept && (
+              <button
+                type="button"
+                onClick={handleSave}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Save size={14} />
+                Lưu bảng lịch
+              </button>
+            )}
           </div>
         </div>
 
@@ -711,12 +852,15 @@ export default function DepartmentSchedule() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           {allSchedules.map((s) => {
             const isCurrent = s.id === schedule?.id;
+            const canonicalId = getCanonicalDepartmentId(s.departmentId || s.departmentName);
+            const displayDeptName = getCanonicalDepartmentName(canonicalId);
+
             return (
               <div
                 key={s.id}
                 onClick={() => {
                   setSchedule(s);
-                  setSelectedDeptId(s.departmentId);
+                  setSelectedDeptId(canonicalId);
                   setSelectedWeek(s.weekNumber);
                 }}
                 className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
@@ -732,7 +876,7 @@ export default function DepartmentSchedule() {
                     </span>
                     {s.status === 'approved' ? (
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                        Đã duyệt
+                        Đã duyệt ({s.approvedBy || 'BGH'})
                       </span>
                     ) : (
                       <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
@@ -741,7 +885,7 @@ export default function DepartmentSchedule() {
                     )}
                   </div>
                   <h4 className="text-xs font-extrabold text-slate-800 line-clamp-1">
-                    {s.departmentName}
+                    {displayDeptName}
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-1">
                     Năm học: {s.academicYear || '2026-2027'}
@@ -763,8 +907,8 @@ export default function DepartmentSchedule() {
         isOpen={isWordUploadOpen}
         onClose={() => setIsWordUploadOpen(false)}
         onSaveSchedule={handleWordScheduleSaved}
-        currentDepartmentId={selectedDeptId}
-        currentDepartmentName={currentDeptConfig?.name}
+        currentDepartmentId={canonicalSelectedDeptId}
+        currentDepartmentName={currentDeptName}
       />
 
       {/* Print / Preview Modal */}

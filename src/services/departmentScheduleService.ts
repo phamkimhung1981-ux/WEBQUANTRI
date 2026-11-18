@@ -17,6 +17,97 @@ import { getWeekInfoByNumber, getCurrentSchoolWeekInfo, getWeekDayDates, WeekDay
 const COLLECTION_NAME = 'department_weekly_schedules';
 const LOCAL_STORAGE_KEY = 'school_department_weekly_schedules';
 
+export const CANONICAL_DEPARTMENTS = [
+  {
+    id: 'd_toan_ly_tin_cn',
+    name: 'Tổ Toán-Lý-Tin-CN',
+    shortName: 'Toán-Lý-Tin-CN'
+  },
+  {
+    id: 'd_hoa_sinh_gdtc_qpan_nn',
+    name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN',
+    shortName: 'Hóa-Sinh-GDTC-QPAN-NN'
+  },
+  {
+    id: 'd_van_su_dia_gdkt_pl_an',
+    name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN',
+    shortName: 'Văn-Sử-Địa-GDKT&PL-AN'
+  },
+  {
+    id: 'd_van_phong',
+    name: 'Tổ Văn phòng',
+    shortName: 'Văn phòng'
+  }
+];
+
+export function getCanonicalDepartmentId(deptIdOrName: string = ''): string {
+  const s = String(deptIdOrName || '').toLowerCase().trim();
+  if (!s) return 'd_toan_ly_tin_cn';
+
+  // 1. Tổ Văn phòng
+  if (
+    s === 'd_van_phong' ||
+    s.includes('văn phòng') || s.includes('van phong') ||
+    s.includes('thủ quỹ') || s.includes('kế toán') ||
+    s.includes('văn thư') || s.includes('y tế') ||
+    s.includes('thiết bị') || s.includes('thư viện')
+  ) {
+    return 'd_van_phong';
+  }
+
+  // 2. Tổ Toán - Lý - Tin - CN
+  if (
+    s === 'd_toan_ly_tin_cn' ||
+    s.includes('toán') || s.includes('toan') ||
+    s.includes('vật lý') || s.includes('vat ly') ||
+    s.includes('tin học') || s.includes('tin hoc') ||
+    s.includes('công nghệ') || s.includes('cong nghe') ||
+    s.includes('toán-lý') || s.includes('toan-ly')
+  ) {
+    return 'd_toan_ly_tin_cn';
+  }
+
+  // 3. Tổ Hóa - Sinh - GDTC - QPAN - NN
+  if (
+    s === 'd_hoa_sinh_gdtc_qpan_nn' || s === 'd_hoa_ly_sinh_gdqpan_nn' ||
+    s.includes('hóa') || s.includes('hoa') ||
+    s.includes('sinh') || s.includes('gdtc') ||
+    s.includes('qpan') || s.includes('gdqp') ||
+    s.includes('tiếng anh') || s.includes('ngoại ngữ') ||
+    s.includes('thể dục') || s.includes('tự nhiên')
+  ) {
+    return 'd_hoa_sinh_gdtc_qpan_nn';
+  }
+
+  // 4. Tổ Văn - Sử - Địa - GDKT&PL - AN
+  if (
+    s === 'd_van_su_dia_gdkt_pl_an' ||
+    s.includes('văn') || s.includes('van') ||
+    s.includes('ngữ văn') || s.includes('ngu van') ||
+    s.includes('sử') || s.includes('lịch sử') ||
+    s.includes('địa') || s.includes('gdkt') ||
+    s.includes('xã hội') || s.includes('xa hoi') ||
+    s.includes('âm nhạc') || s.includes('mĩ thuật')
+  ) {
+    return 'd_van_su_dia_gdkt_pl_an';
+  }
+
+  return s;
+}
+
+export function getCanonicalDepartmentName(deptIdOrName: string = ''): string {
+  const cId = getCanonicalDepartmentId(deptIdOrName);
+  const found = CANONICAL_DEPARTMENTS.find(d => d.id === cId);
+  return found ? found.name : deptIdOrName;
+}
+
+export function detectDepartmentFromText(text: string = ''): { id: string; name: string } | null {
+  if (!text || typeof text !== 'string') return null;
+  const canonicalId = getCanonicalDepartmentId(text);
+  const found = CANONICAL_DEPARTMENTS.find(d => d.id === canonicalId);
+  return found ? { id: found.id, name: found.name } : null;
+}
+
 export const departmentScheduleService = {
   /**
    * Chuẩn hóa và gắn ngày thực tế của tuần đang chọn cho lịch
@@ -26,6 +117,7 @@ export const departmentScheduleService = {
     weekNumber: number,
     academicYear: string = '2026-2027'
   ): DepartmentWeeklySchedule {
+    const canonicalId = getCanonicalDepartmentId(schedule.departmentId || schedule.departmentName);
     const weekDays = getWeekDayDates(weekNumber, academicYear);
     const weekInfo = getWeekInfoByNumber(weekNumber, academicYear);
 
@@ -62,6 +154,8 @@ export const departmentScheduleService = {
 
     return {
       ...schedule,
+      departmentId: canonicalId,
+      departmentName: schedule.departmentName || getCanonicalDepartmentName(canonicalId),
       weekNumber,
       startDate: weekInfo.startDateIso,
       endDate: weekInfo.endDateIso,
@@ -72,21 +166,42 @@ export const departmentScheduleService = {
   },
 
   /**
-   * Tự động kiểm tra và sửa dữ liệu cũ bị lệch ngày trong LocalStorage/Firestore
+   * Tự động kiểm tra và sửa dữ liệu cũ bị lệch ngày hoặc sai mã tổ trong LocalStorage/Firestore
    */
   sanitizeSchedules(list: DepartmentWeeklySchedule[]): DepartmentWeeklySchedule[] {
     let changed = false;
     const cleaned = list.map(item => {
-      const weekNum = item.weekNumber || 5;
+      let currentItem = { ...item };
+      const name = (currentItem.departmentName || '').toLowerCase();
+      const currDeptId = (currentItem.departmentId || '').toLowerCase();
+
+      // Sửa dứt điểm nếu departmentName và departmentId mâu thuẫn
+      let canonicalId = getCanonicalDepartmentId(currDeptId);
+      if (name.includes('văn') || name.includes('van') || name.includes('sử') || name.includes('địa') || name.includes('xã hội')) {
+        canonicalId = 'd_van_su_dia_gdkt_pl_an';
+      } else if (name.includes('toán') || name.includes('toan') || name.includes('lý') || name.includes('tin') || name.includes('công nghệ')) {
+        canonicalId = 'd_toan_ly_tin_cn';
+      } else if (name.includes('hóa') || name.includes('hoa') || name.includes('sinh') || name.includes('gdtc') || name.includes('qpan') || name.includes('tiếng anh')) {
+        canonicalId = 'd_hoa_sinh_gdtc_qpan_nn';
+      } else if (name.includes('văn phòng') || name.includes('van phong')) {
+        canonicalId = 'd_van_phong';
+      }
+
+      if (currentItem.departmentId !== canonicalId) {
+        currentItem.departmentId = canonicalId;
+        changed = true;
+      }
+
+      const weekNum = currentItem.weekNumber || 5;
       const weekInfo = getWeekInfoByNumber(weekNum, '2026-2027');
       const expectedStartIso = weekInfo.startDateIso;
       
       // Nếu ngày bắt đầu hoặc ngày thứ Hai không khớp tuần
-      if (item.startDate !== expectedStartIso || (item.days?.[0] && item.days[0].date !== expectedStartIso)) {
+      if (currentItem.startDate !== expectedStartIso || (currentItem.days?.[0] && currentItem.days[0].date !== expectedStartIso)) {
         changed = true;
-        return this.normalizeScheduleForWeek(item, weekNum, '2026-2027');
+        return this.normalizeScheduleForWeek(currentItem, weekNum, '2026-2027');
       }
-      return item;
+      return currentItem;
     });
 
     if (changed) {
@@ -118,7 +233,9 @@ export const departmentScheduleService = {
       }
 
       const sanitized = this.sanitizeSchedules(list);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
+      } catch (e) {}
 
       return this.applyFilter(sanitized, filter);
     } catch (error) {
@@ -128,7 +245,7 @@ export const departmentScheduleService = {
   },
 
   /**
-   * Helper to filter list
+   * Helper to filter list strictly by canonical departmentId and weekNumber
    */
   applyFilter(
     list: DepartmentWeeklySchedule[],
@@ -136,13 +253,14 @@ export const departmentScheduleService = {
   ): DepartmentWeeklySchedule[] {
     if (!filter) return list;
     return list.filter((item) => {
-      if (filter.departmentId && item.departmentId !== filter.departmentId && !item.departmentName.toLowerCase().includes(filter.departmentId.toLowerCase())) {
-        return false;
+      if (filter.departmentId) {
+        const itemCanonical = getCanonicalDepartmentId(item.departmentId || item.departmentName);
+        const filterCanonical = getCanonicalDepartmentId(filter.departmentId);
+        if (itemCanonical !== filterCanonical) {
+          return false;
+        }
       }
-      if (filter.departmentName && !item.departmentName.toLowerCase().includes(filter.departmentName.toLowerCase())) {
-        return false;
-      }
-      if (filter.weekNumber && item.weekNumber !== filter.weekNumber) {
+      if (filter.weekNumber && Number(item.weekNumber) !== Number(filter.weekNumber)) {
         return false;
       }
       return true;
@@ -280,6 +398,8 @@ export const departmentScheduleService = {
     weekNum = 5,
     year = 2026
   ): DepartmentWeeklySchedule {
+    const canonicalDeptId = getCanonicalDepartmentId(departmentId || departmentName);
+    const canonicalDeptName = departmentName || getCanonicalDepartmentName(canonicalDeptId);
     const weekInfo = getWeekInfoByNumber(weekNum, '2026-2027');
     const weekDays = getWeekDayDates(weekNum, '2026-2027');
 
@@ -299,8 +419,8 @@ export const departmentScheduleService = {
     return {
       id: `dept_sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       schoolName: 'TRƯỜNG THPT SƠN LƯƠNG',
-      departmentId,
-      departmentName,
+      departmentId: canonicalDeptId,
+      departmentName: canonicalDeptName,
       weekNumber: weekNum,
       startDate: weekInfo.startDateIso,
       endDate: weekInfo.endDateIso,
