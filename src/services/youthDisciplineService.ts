@@ -13,6 +13,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import {
   YouthDisciplineCriterion,
   YouthViolationRecord,
@@ -216,11 +217,20 @@ const CACHE_KEYS = {
   AUDIT_LOGS: 'youth_discipline_cached_audit_logs'
 };
 
+const youthDisciplineMemoryCache = new Map<string, string>();
+
 const safeStorage = {
   getItem(key: string): string | null {
+    if (youthDisciplineMemoryCache.has(key)) {
+      return youthDisciplineMemoryCache.get(key) ?? null;
+    }
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
-        return window.localStorage.getItem(key);
+        const raw = window.localStorage.getItem(key);
+        if (raw !== null) {
+          youthDisciplineMemoryCache.set(key, raw);
+        }
+        return raw;
       } catch (e) {
         return null;
       }
@@ -228,15 +238,11 @@ const safeStorage = {
     return null;
   },
   setItem(key: string, value: string): void {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.setItem(key, value);
-      } catch (e) {
-        // ignore
-      }
-    }
+    youthDisciplineMemoryCache.set(key, value);
+    safeLocalStorageSet(key, value);
   },
   removeItem(key: string): void {
+    youthDisciplineMemoryCache.delete(key);
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         window.localStorage.removeItem(key);

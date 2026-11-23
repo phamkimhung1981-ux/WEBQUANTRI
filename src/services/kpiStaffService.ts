@@ -157,9 +157,6 @@ export const subscribeStaffForms = (callback: (forms: KpiStaffForm[]) => void) =
         const raw = docSnap.data() as KpiStaffForm;
         const sanitized = sanitizeStaffForm(raw);
         formsList.push(sanitized);
-        if (raw.totalScore === 100 && sanitized.totalScore === 0) {
-          saveStaffFormToFirestore(sanitized).catch(() => {});
-        }
       });
       const combined = formsList.length > 0 ? formsList : DEFAULT_STAFF_FALLBACK_FORMS;
       const uniqueForms = deduplicateStaffForms(combined.map(sanitizeStaffForm));

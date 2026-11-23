@@ -28,6 +28,7 @@ import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import { usePermission } from '../hooks/usePermission';
 import { ModuleCode } from '../types/permission';
+import { idbCacheGet, idbCacheSet, idbCacheRemove } from '../utils/indexedDbCache';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -36,11 +37,23 @@ export default function Dashboard() {
   const { canAccessModule, isAdmin } = usePermission();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Background image state: prioritize user's uploaded image if set in localStorage,
+  // Background image state: prioritize user's uploaded image from IndexedDB/localStorage,
   // otherwise fallback to the provided school asset.
   const [bgImage, setBgImage] = useState<string>(() => {
-    return localStorage.getItem('thpt_son_luong_custom_bg') || '/anh_truong_hung.png';
+    try {
+      return localStorage.getItem('thpt_son_luong_custom_bg') || '/anh_truong_hung.png';
+    } catch {
+      return '/anh_truong_hung.png';
+    }
   });
+
+  useEffect(() => {
+    idbCacheGet<string>('thpt_son_luong_custom_bg')
+      .then((savedBg) => {
+        if (savedBg) setBgImage(savedBg);
+      })
+      .catch(() => {});
+  }, []);
 
   // Real-time Date and Time (system time)
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -224,7 +237,7 @@ export default function Dashboard() {
     return canAccessModule(m.id);
   });
 
-  // Handle local background image change if user wants to select a file directly
+  // Handle local background image change safely via IndexedDB (never exhausts 5MB localStorage)
   const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -233,7 +246,7 @@ export default function Dashboard() {
         const result = event.target?.result as string;
         if (result) {
           setBgImage(result);
-          localStorage.setItem('thpt_son_luong_custom_bg', result);
+          idbCacheSet('thpt_son_luong_custom_bg', result).catch(() => {});
         }
       };
       reader.readAsDataURL(file);
@@ -241,7 +254,10 @@ export default function Dashboard() {
   };
 
   const handleResetBg = () => {
-    localStorage.removeItem('thpt_son_luong_custom_bg');
+    try {
+      localStorage.removeItem('thpt_son_luong_custom_bg');
+    } catch {}
+    idbCacheRemove('thpt_son_luong_custom_bg').catch(() => {});
     setBgImage('/anh_truong_hung.png');
   };
 

@@ -9,6 +9,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import { Student, ClassInfo } from '../types/homeroom';
 import { StudentAcademicRecord, SubjectScore, SemesterType, ClassAcademicSummary } from '../types/academic';
 
@@ -32,11 +33,18 @@ const COLLECTIONS = {
 
 const CACHE_KEY = 'academic_records_cache_v1';
 
+const academicMemoryCache = new Map<string, string>();
+
 const safeStorage = {
   getItem(key: string): string | null {
+    if (academicMemoryCache.has(key)) {
+      return academicMemoryCache.get(key) ?? null;
+    }
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
-        return window.localStorage.getItem(key);
+        const raw = window.localStorage.getItem(key);
+        if (raw !== null) academicMemoryCache.set(key, raw);
+        return raw;
       } catch (e) {
         return null;
       }
@@ -44,11 +52,8 @@ const safeStorage = {
     return null;
   },
   setItem(key: string, value: string): void {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.setItem(key, value);
-      } catch (e) {}
-    }
+    academicMemoryCache.set(key, value);
+    safeLocalStorageSet(key, value);
   }
 };
 

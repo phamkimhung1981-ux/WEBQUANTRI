@@ -7,6 +7,7 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATION_CONFIG, MonthlyEmulationSummary } from '../types/academicEmulation';
 import { ClassInfo } from '../types/homeroom';
 import { getWeeksForMonth } from '../utils/schoolWeekUtils';
@@ -24,17 +25,25 @@ const normalizeYear = (yr?: string): string => {
   return yr.replace(/[\u2010-\u2015]/g, '-').trim();
 };
 
+const academicEmulationMemoryCache = new Map<string, string>();
+
 const safeStorage = {
   getItem(key: string): string | null {
+    if (academicEmulationMemoryCache.has(key)) {
+      return academicEmulationMemoryCache.get(key) ?? null;
+    }
     if (typeof window !== 'undefined' && window.localStorage) {
-      try { return window.localStorage.getItem(key); } catch (e) { return null; }
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (raw !== null) academicEmulationMemoryCache.set(key, raw);
+        return raw;
+      } catch (e) { return null; }
     }
     return null;
   },
   setItem(key: string, value: string): void {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try { window.localStorage.setItem(key, value); } catch (e) {}
-    }
+    academicEmulationMemoryCache.set(key, value);
+    safeLocalStorageSet(key, value);
   }
 };
 

@@ -13,6 +13,7 @@ import {
 import { db } from '../lib/firebase';
 import { DepartmentWeeklySchedule, DepartmentScheduleDayItem } from '../types/departmentSchedule';
 import { getWeekInfoByNumber, getCurrentSchoolWeekInfo, getWeekDayDates, WeekDayDateItem } from '../utils/schoolWeekUtils';
+import { safeLocalStorageSet } from '../utils/envUtils';
 
 const COLLECTION_NAME = 'department_weekly_schedules';
 const LOCAL_STORAGE_KEY = 'school_department_weekly_schedules';
@@ -205,9 +206,7 @@ export const departmentScheduleService = {
     });
 
     if (changed) {
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cleaned));
-      } catch (e) {}
+      safeLocalStorageSet(LOCAL_STORAGE_KEY, JSON.stringify(cleaned));
     }
     return cleaned;
   },
@@ -233,9 +232,7 @@ export const departmentScheduleService = {
       }
 
       const sanitized = this.sanitizeSchedules(list);
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
-      } catch (e) {}
+      safeLocalStorageSet(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
 
       return this.applyFilter(sanitized, filter);
     } catch (error) {
@@ -307,7 +304,7 @@ export const departmentScheduleService = {
     } else {
       localList.unshift(dataToSave);
     }
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localList));
+    safeLocalStorageSet(LOCAL_STORAGE_KEY, JSON.stringify(localList));
 
     // 2. Persist to Firestore
     try {
@@ -323,7 +320,7 @@ export const departmentScheduleService = {
    */
   async deleteSchedule(id: string): Promise<void> {
     const localList = this.getLocalSchedules().filter((s) => s.id !== id);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localList));
+    safeLocalStorageSet(LOCAL_STORAGE_KEY, JSON.stringify(localList));
 
     try {
       const docRef = doc(db, COLLECTION_NAME, id);
@@ -384,7 +381,7 @@ export const departmentScheduleService = {
     let list = this.getLocalSchedules();
     if (list.length === 0) {
       list = this.createDefaultSeedSchedules();
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+      safeLocalStorageSet(LOCAL_STORAGE_KEY, JSON.stringify(list));
     }
     return this.applyFilter(list, filter);
   },

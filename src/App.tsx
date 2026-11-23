@@ -32,7 +32,12 @@ import AcademicTrackingPage from './pages/AcademicTracking';
 import AccountManagement from './pages/AccountManagement';
 import { usePermission } from './hooks/usePermission';
 import { ModuleCode } from './types/permission';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, RefreshCw, X } from 'lucide-react';
+import {
+  firestoreRuntimeState,
+  enableFirestoreMemoryFallback,
+  isFirestoreRuntimeStorageError
+} from './lib/firebase';
 
 function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; children: React.ReactNode }) {
   const { canAccessModule, isAdmin } = usePermission();
@@ -166,41 +171,179 @@ function AppRoutes() {
   );
 }
 
+function StorageHealthBanner() {
+  const [notice, setNotice] = React.useState<{
+    message: string;
+    needsReloadToMemory: boolean;
+  } | null>(() => {
+    if (firestoreRuntimeState.isStorageConstrained && firestoreRuntimeState.warningMessage) {
+      return {
+        message: firestoreRuntimeState.warningMessage,
+        needsReloadToMemory: false
+      };
+    }
+    return null;
+  });
+
+  React.useEffect(() => {
+    const handleFirestoreStorageError = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      setNotice({
+        message:
+          detail?.message ||
+          'Bộ nhớ cục bộ trình duyệt đã đầy (QuotaExceededError). Dữ liệu máy chủ vẫn an toàn. Hãy chuyển sang chế độ bộ nhớ tạm để tiếp tục làm việc ổn định.',
+        needsReloadToMemory: true
+      });
+    };
+
+    const handleAppStorageWarning = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      setNotice((prev) =>
+        prev?.needsReloadToMemory
+          ? prev
+          : {
+              message:
+                detail?.message ||
+                'Bộ nhớ trình duyệt trên máy tính này gần đầy. Hệ thống đã chuyển sang chế độ an toàn để bảo toàn dữ liệu.',
+              needsReloadToMemory: false
+            }
+      );
+    };
+
+    window.addEventListener('firestore_storage_error', handleFirestoreStorageError);
+    window.addEventListener('app_storage_warning', handleAppStorageWarning);
+    return () => {
+      window.removeEventListener('firestore_storage_error', handleFirestoreStorageError);
+      window.removeEventListener('app_storage_warning', handleAppStorageWarning);
+    };
+  }, []);
+
+  if (!notice) return null;
+
+  const handleSwitchToMemoryMode = () => {
+    enableFirestoreMemoryFallback(
+      'Hệ thống đang chạy ở chế độ bộ nhớ tạm an toàn do bộ nhớ cục bộ trình duyệt bị hạn chế. Dữ liệu vẫn đồng bộ trực tuyến bình thường.'
+    );
+    window.location.reload();
+  };
+
+  return (
+    <div
+      role="alert"
+      className="fixed bottom-4 right-4 z-[9999] max-w-md bg-amber-50 border border-amber-300 text-amber-950 rounded-2xl shadow-xl p-4 font-sans"
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+          <AlertTriangle size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-extrabold text-amber-900 mb-1">
+            {notice.needsReloadToMemory
+              ? 'Cảnh báo bộ nhớ lưu trữ trình duyệt'
+              : 'Thông báo chế độ bộ nhớ tạm an toàn'}
+          </p>
+          <p className="text-xs text-amber-800 leading-relaxed">{notice.message}</p>
+          {notice.needsReloadToMemory && (
+            <button
+              type="button"
+              onClick={handleSwitchToMemoryMode}
+              className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+            >
+              <RefreshCw size={13} />
+              Chuyển sang chế độ bộ nhớ tạm an toàn
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setNotice(null)}
+          aria-label="Đóng thông báo"
+          className="text-amber-700 hover:text-amber-900 p-1 rounded-lg hover:bg-amber-100 transition-colors cursor-pointer shrink-0"
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  isStorageError: boolean;
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
   props: { children: React.ReactNode };
-  state: ErrorBoundaryState = { hasError: false, error: null };
+  state: ErrorBoundaryState = { hasError: false, error: null, isStorageError: false };
 
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, isStorageError: false };
   }
 
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    const isStorage = isFirestoreRuntimeStorageError(error);
+    if (isStorage) {
+      enableFirestoreMemoryFallback(
+        'Hệ thống đã tự động chuyển sang chế độ bộ nhớ tạm an toàn do bộ nhớ lưu trữ trình duyệt đã đầy. Toàn bộ dữ liệu máy chủ vẫn được bảo toàn.'
+      );
+    }
+    return { hasError: true, error, isStorageError: isStorage };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
   }
 
+  handleSafeRecovery = () => {
+    if (this.state.isStorageError) {
+      enableFirestoreMemoryFallback(
+        'Hệ thống đang chạy ở chế độ bộ nhớ tạm an toàn do bộ nhớ cục bộ trình duyệt bị hạn chế.'
+      );
+    }
+    window.location.reload();
+  };
+
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center font-sans">
           <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl max-w-md w-full">
-            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">!</div>
-            <h2 className="text-xl font-extrabold text-slate-800 mb-2">Đã xảy ra lỗi khi tải giao diện</h2>
-            <p className="text-sm text-slate-600 mb-6">{this.state.error?.message || "Vui lòng thử lại sau hoặc tải lại trang."}</p>
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-xl ${
+              this.state.isStorageError ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-600'
+            }`}>
+              !
+            </div>
+            <h2 className="text-xl font-extrabold text-slate-800 mb-2">
+              {this.state.isStorageError
+                ? 'Bộ nhớ lưu trữ trình duyệt đã đầy'
+                : 'Đã xảy ra lỗi khi tải giao diện'}
+            </h2>
+            {this.state.isStorageError ? (
+              <div className="text-sm text-slate-600 mb-6 space-y-2 text-left bg-amber-50/70 border border-amber-200 rounded-xl p-4">
+                <p>
+                  Trình duyệt trên máy tính này không còn đủ dung lượng bộ nhớ cục bộ (Local Storage) cho chế độ lưu ngoại tuyến của cơ sở dữ liệu.
+                </p>
+                <p className="font-semibold text-slate-700">
+                  Toàn bộ dữ liệu nhà trường, tài khoản đăng nhập và dữ liệu đang chờ đồng bộ vẫn được giữ nguyên an toàn.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Nhấn nút bên dưới để mở lại hệ thống ở chế độ bộ nhớ tạm trực tuyến (không cần lưu ngoại tuyến).
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600 mb-6">
+                {this.state.error?.message || "Vui lòng thử lại sau hoặc tải lại trang."}
+              </p>
+            )}
             <button 
-              onClick={() => window.location.reload()} 
-              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-colors"
+              onClick={this.handleSafeRecovery} 
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
             >
-              Tải lại trang
+              {this.state.isStorageError
+                ? 'Tiếp tục với chế độ bộ nhớ tạm an toàn'
+                : 'Tải lại trang'}
             </button>
           </div>
         </div>
@@ -218,6 +361,7 @@ export default function App() {
           <BrowserRouter>
             <UnsavedChangesProvider>
               <AppRoutes />
+              <StorageHealthBanner />
             </UnsavedChangesProvider>
           </BrowserRouter>
         </AppProvider>

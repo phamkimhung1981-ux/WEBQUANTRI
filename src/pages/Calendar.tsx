@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import {
   format,
@@ -153,7 +154,7 @@ export default function Calendar() {
 
       if (initialTarget) {
         setSelectedScheduleId(initialTarget.id);
-        localStorage.setItem(STORAGE_SELECTED_WEEK_KEY, initialTarget.id);
+        safeLocalStorageSet(STORAGE_SELECTED_WEEK_KEY, initialTarget.id);
       }
 
       setLoadingSchedules(false);
@@ -172,7 +173,7 @@ export default function Calendar() {
   // Handle select week
   const handleSelectSchedule = (sched: WeeklySchedule) => {
     setSelectedScheduleId(sched.id);
-    localStorage.setItem(STORAGE_SELECTED_WEEK_KEY, sched.id);
+    safeLocalStorageSet(STORAGE_SELECTED_WEEK_KEY, sched.id);
     setSearchParams(prev => {
       prev.set('week', String(sched.week_number));
       return prev;
@@ -191,7 +192,7 @@ export default function Calendar() {
 
       // Auto-select the newly created week
       setSelectedScheduleId(newSched.id);
-      localStorage.setItem(STORAGE_SELECTED_WEEK_KEY, newSched.id);
+      safeLocalStorageSet(STORAGE_SELECTED_WEEK_KEY, newSched.id);
       setSearchParams(prev => {
         prev.set('week', String(newSched.week_number));
         return prev;
@@ -249,9 +250,9 @@ export default function Calendar() {
       const remaining = nextList.length > 0 ? nextList[nextList.length - 1] : null;
       setSelectedScheduleId(remaining ? remaining.id : null);
       if (remaining) {
-        localStorage.setItem(STORAGE_SELECTED_WEEK_KEY, remaining.id);
+        safeLocalStorageSet(STORAGE_SELECTED_WEEK_KEY, remaining.id);
       } else {
-        localStorage.removeItem(STORAGE_SELECTED_WEEK_KEY);
+        try { localStorage.removeItem(STORAGE_SELECTED_WEEK_KEY); } catch {}
       }
     }
 

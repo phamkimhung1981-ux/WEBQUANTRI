@@ -1,13 +1,17 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  initializeFirestore, 
+import {
+  initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
   memoryLocalCache,
-  getFirestore
+  getFirestore,
+  doc,
+  getDocFromServer,
+  type Firestore
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import firebaseConfigFile from '../../firebase-applet-config.json';
+import { probeLocalStorageHeadroom, isStorageQuotaError } from '../utils/envUtils';
 
 // Cấu hình Firebase thống nhất hỗ trợ đồng bộ giữa Google AI Studio, Localhost và Vercel
 const activeConfig = {
@@ -22,30 +26,224 @@ const activeConfig = {
 
 // Initialize Firebase as singleton
 const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
-
 const firestoreDbId = activeConfig.firestoreDatabaseId;
 
-let db: any;
-try {
-  // Sử dụng persistentLocalCache với persistentMultipleTabManager để lưu trữ IndexedDB đa tab
-  // Tiết kiệm hơn 90% hạn ngạch đọc Firestore hàng ngày và giữ nguyên dữ liệu khi ngoại tuyến / hết hạn ngạch
-  db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-    experimentalAutoDetectLongPolling: true,
-  }, firestoreDbId);
-} catch (e) {
+const MEMORY_FALLBACK_SESSION_KEY = 'firestore_use_memory_cache_fallback';
+const MEMORY_FALLBACK_REASON_KEY = 'firestore_memory_cache_reason';
+
+export interface FirestoreRuntimeState {
+  cacheMode: 'persistent' | 'memory';
+  isStorageConstrained: boolean;
+  warningMessage: string | null;
+}
+
+export const firestoreRuntimeState: FirestoreRuntimeState = {
+  cacheMode: 'memory',
+  isStorageConstrained: false,
+  warningMessage: null
+};
+
+/**
+ * Safely record in sessionStorage that this browser tab/profile should use memoryLocalCache()
+ * on next load. NEVER deletes localStorage, auth data, user data, or pending mutations.
+ */
+export function enableFirestoreMemoryFallback(reason?: string): void {
+  firestoreRuntimeState.isStorageConstrained = true;
+  if (reason) {
+    firestoreRuntimeState.warningMessage = reason;
+  }
   try {
-    db = getFirestore(app, firestoreDbId);
-  } catch (err) {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      sessionStorage.setItem(MEMORY_FALLBACK_SESSION_KEY, '1');
+      if (reason) {
+        sessionStorage.setItem(MEMORY_FALLBACK_REASON_KEY, reason);
+      }
+    }
+  } catch {
+    // ignore if sessionStorage itself is restricted
+  }
+}
+
+export function isFirestoreRuntimeStorageError(err: unknown): boolean {
+  if (isStorageQuotaError(err)) return true;
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('internal assertion failed') ||
+    lower.includes('unexpected state (id: b815)') ||
+    lower.includes('unexpected state (id: ca9)') ||
+    lower.includes('unexpected state (id: c050)') ||
+    lower.includes('firestore_mutations_') ||
+    lower.includes('firestore_clients_') ||
+    lower.includes('failed to obtain exclusive access')
+  );
+}
+
+/**
+ * Determine whether browser storage (IndexedDB + LocalStorage headroom) can safely support
+ * Firestore persistentLocalCache with persistentMultipleTabManager.
+ *
+ * Firebase SDK v12's persistentMultipleTabManager writes multi-tab client & mutation metadata
+ * (`firestore_mutations_...`, `firestore_clients_...`) to window.localStorage.
+ * If localStorage has insufficient free space (< 384 KB), persistentMultipleTabManager can
+ * throw QuotaExceededError -> INTERNAL ASSERTION FAILED (ID: b815).
+ * When headroom is low or IndexedDB is unavailable, we cleanly select memoryLocalCache()
+ * without deleting any existing user or pending data.
+ */
+function canSafelyUsePersistentMultiTabCache(): { ok: boolean; reason?: string } {
+  if (typeof window === 'undefined') {
+    return { ok: false, reason: 'Môi trường không hỗ trợ trình duyệt.' };
+  }
+
+  try {
+    if (window.sessionStorage && sessionStorage.getItem(MEMORY_FALLBACK_SESSION_KEY) === '1') {
+      const savedReason =
+        sessionStorage.getItem(MEMORY_FALLBACK_REASON_KEY) ||
+        'Bộ nhớ lưu trữ trình duyệt bị hạn chế. Hệ thống đã chuyển sang chế độ bộ nhớ tạm an toàn (dữ liệu vẫn đồng bộ trực tuyến bình thường).';
+      return { ok: false, reason: savedReason };
+    }
+  } catch {
+    // sessionStorage blocked -> safer to use memory cache
+    return {
+      ok: false,
+      reason: 'Trình duyệt đang hạn chế quyền lưu trữ cục bộ. Hệ thống đang chạy ở chế độ bộ nhớ tạm an toàn.'
+    };
+  }
+
+  if (typeof indexedDB === 'undefined') {
+    return {
+      ok: false,
+      reason: 'Trình duyệt không hỗ trợ IndexedDB. Hệ thống đang chạy ở chế độ bộ nhớ tạm an toàn.'
+    };
+  }
+
+  // Non-destructive probe: verify at least 384 KB free in localStorage for Firestore multi-tab state
+  const hasHeadroom = probeLocalStorageHeadroom(384 * 1024);
+  if (!hasHeadroom) {
+    return {
+      ok: false,
+      reason:
+        'Bộ nhớ cục bộ (Local Storage) trên máy tính này đã gần đầy. Hệ thống tự động chuyển sang chế độ bộ nhớ tạm an toàn để tránh lỗi gián đoạn mà không xóa dữ liệu hiện có.'
+    };
+  }
+
+  return { ok: true };
+}
+
+let db: Firestore;
+
+const persistenceCheck = canSafelyUsePersistentMultiTabCache();
+
+if (persistenceCheck.ok) {
+  try {
+    // Giới hạn dung lượng cache IndexedDB (40MB) để tránh phình bộ nhớ trên máy cấu hình thấp
+    db = initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({
+          cacheSizeBytes: 40 * 1024 * 1024,
+          tabManager: persistentMultipleTabManager()
+        }),
+        experimentalAutoDetectLongPolling: true
+      },
+      firestoreDbId
+    );
+    firestoreRuntimeState.cacheMode = 'persistent';
+    firestoreRuntimeState.isStorageConstrained = false;
+    firestoreRuntimeState.warningMessage = null;
+  } catch (initErr) {
+    console.warn('Firestore persistentLocalCache unavailable, falling back to memoryLocalCache:', initErr);
     try {
-      db = initializeFirestore(app, {
+      db = getFirestore(app, firestoreDbId);
+      firestoreRuntimeState.cacheMode = 'persistent';
+    } catch {
+      try {
+        db = initializeFirestore(
+          app,
+          {
+            localCache: memoryLocalCache(),
+            experimentalAutoDetectLongPolling: true
+          },
+          firestoreDbId
+        );
+        firestoreRuntimeState.cacheMode = 'memory';
+        firestoreRuntimeState.isStorageConstrained = true;
+        firestoreRuntimeState.warningMessage =
+          'Không thể khởi tạo bộ nhớ ngoại tuyến trình duyệt. Hệ thống đã chuyển sang chế độ bộ nhớ tạm an toàn.';
+      } catch {
+        db = getFirestore(app);
+      }
+    }
+  }
+} else {
+  // Bộ nhớ cục bộ đầy hoặc hạn chế -> dùng memoryLocalCache() để không bao giờ gây QuotaExceededError / b815
+  try {
+    db = initializeFirestore(
+      app,
+      {
         localCache: memoryLocalCache(),
-      }, firestoreDbId);
-    } catch (finalErr) {
-      db = getFirestore(app);
+        experimentalAutoDetectLongPolling: true
+      },
+      firestoreDbId
+    );
+  } catch {
+    db = getFirestore(app, firestoreDbId);
+  }
+  firestoreRuntimeState.cacheMode = 'memory';
+  firestoreRuntimeState.isStorageConstrained = true;
+  firestoreRuntimeState.warningMessage =
+    persistenceCheck.reason ||
+    'Bộ nhớ cục bộ trình duyệt bị hạn chế. Hệ thống đang hoạt động an toàn ở chế độ bộ nhớ tạm trực tuyến.';
+}
+
+// Global non-destructive guard for asynchronous Firestore storage / assertion errors (e.g., b815 / QuotaExceededError)
+if (typeof window !== 'undefined' && !(window as any).__thptSlFirestoreGuardAttached) {
+  (window as any).__thptSlFirestoreGuardAttached = true;
+
+  const notifyFirestoreStorageIssue = (err: unknown) => {
+    if (!isFirestoreRuntimeStorageError(err)) return;
+    const userMsg =
+      'Bộ nhớ cục bộ trên trình duyệt máy tính này đã đạt giới hạn (QuotaExceededError). Dữ liệu trên máy chủ vẫn an toàn tuyệt đối. Vui lòng bấm "Chuyển sang chế độ bộ nhớ tạm an toàn" để tiếp tục làm việc ổn định.';
+    enableFirestoreMemoryFallback(userMsg);
+    window.dispatchEvent(
+      new CustomEvent('firestore_storage_error', {
+        detail: {
+          message: userMsg,
+          rawError: err instanceof Error ? err.message : String(err)
+        }
+      })
+    );
+  };
+
+  window.addEventListener('error', (event) => {
+    if (event.error && isFirestoreRuntimeStorageError(event.error)) {
+      notifyFirestoreStorageIssue(event.error);
+    } else if (event.message && isFirestoreRuntimeStorageError(event.message)) {
+      notifyFirestoreStorageIssue(event.message);
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason && isFirestoreRuntimeStorageError(event.reason)) {
+      notifyFirestoreStorageIssue(event.reason);
+      event.preventDefault();
+    }
+  });
+}
+
+// Non-blocking startup connectivity check
+async function testConnection() {
+  if (typeof window === 'undefined' || !navigator.onLine) return;
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firestore connectivity check: client appears offline or network restricted.');
     }
   }
 }
+testConnection();
 
 // Initialize Auth
 const auth = getAuth(app);
@@ -54,6 +252,8 @@ export const getFirebaseConfigDetails = () => ({
   projectId: activeConfig.projectId,
   firestoreDatabaseId: firestoreDbId,
   authDomain: activeConfig.authDomain,
+  cacheMode: firestoreRuntimeState.cacheMode,
+  isStorageConstrained: firestoreRuntimeState.isStorageConstrained,
   isProduction: Boolean((import.meta as any).env?.PROD)
 });
 

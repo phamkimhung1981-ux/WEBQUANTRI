@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { canEditOrDelete } from '../utils/envUtils';
+import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
 import TaskEvaluationModal from "../components/evaluations/TaskEvaluationModal";
@@ -200,7 +200,7 @@ export default function Tasks() {
 
   const handleWeekChange = (newWeekNum: number) => {
     setSelectedWeekNumber(newWeekNum);
-    localStorage.setItem('task_selected_week', String(newWeekNum));
+    safeLocalStorageSet('task_selected_week', String(newWeekNum));
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('week', String(newWeekNum));
     nextParams.set('year', selectedYear);
@@ -209,7 +209,7 @@ export default function Tasks() {
 
   const handleYearChange = (newYear: string) => {
     setSelectedYear(newYear);
-    localStorage.setItem('task_selected_year', newYear);
+    safeLocalStorageSet('task_selected_year', newYear);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('year', newYear);
     nextParams.set('week', String(selectedWeekNumber));

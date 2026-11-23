@@ -10,6 +10,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import { YouthClassificationConfig, YouthAuditLog } from '../types/youthDiscipline';
 
 const COLLECTIONS = {
@@ -21,20 +22,25 @@ const CACHE_KEYS = {
   CLASSIFICATIONS: 'cached_classification_configs'
 };
 
+const classificationMemoryCache = new Map<string, string>();
+
 const safeStorage = {
   getItem: (key: string): string | null => {
+    if (classificationMemoryCache.has(key)) {
+      return classificationMemoryCache.get(key) ?? null;
+    }
     try {
       if (typeof window === 'undefined' || !window.localStorage) return null;
-      return window.localStorage.getItem(key);
+      const raw = window.localStorage.getItem(key);
+      if (raw !== null) classificationMemoryCache.set(key, raw);
+      return raw;
     } catch {
       return null;
     }
   },
   setItem: (key: string, val: string): void => {
-    try {
-      if (typeof window === 'undefined' || !window.localStorage) return;
-      window.localStorage.setItem(key, val);
-    } catch {}
+    classificationMemoryCache.set(key, val);
+    safeLocalStorageSet(key, val);
   }
 };
 

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { usePermission } from '../hooks/usePermission';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import { 
   AccountRecord, 
   RoleGroupCode, 
@@ -125,7 +126,7 @@ export default function AccountManagement() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           const validCached = parsed.filter((a: any) => Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== ''));
           setAccounts(validCached);
-          localStorage.setItem('cached_user_accounts', JSON.stringify(validCached));
+          safeLocalStorageSet('cached_user_accounts', JSON.stringify(validCached));
           if (validCached.length > 0) {
             setSelectedUserId(validCached[0].id);
           }
@@ -143,7 +144,7 @@ export default function AccountManagement() {
       if (accList && accList.length > 0) {
         const validAccs = accList.filter((a: any) => Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== ''));
         setAccounts(validAccs);
-        localStorage.setItem('cached_user_accounts', JSON.stringify(validAccs));
+        safeLocalStorageSet('cached_user_accounts', JSON.stringify(validAccs));
         setSelectedUserId(prev => {
           if (prev && validAccs.some((a: any) => a.id === prev)) return prev;
           return validAccs[0].id;

@@ -9,6 +9,7 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import { WeeklySchedule, ScheduleDay } from '../types/schedule';
 import { getWeekInfoByNumber, generateWeekId } from '../utils/schoolWeekUtils';
 
@@ -309,7 +310,7 @@ export const scheduleService = {
       list = [w3, w4];
 
       if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        safeLocalStorageSet(STORAGE_KEY, JSON.stringify(list));
       }
       try {
         await Promise.all([
@@ -338,9 +339,9 @@ export const scheduleService = {
       return numA - numB;
     });
 
-    // Đồng bộ lại localStorage cache
+    // Đồng bộ lại localStorage cache an toàn
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(list));
     }
 
     return list;
@@ -373,7 +374,7 @@ export const scheduleService = {
           list.push(normalized);
         }
         list.sort((a, b) => Number(a.week_number) - Number(b.week_number));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        safeLocalStorageSet(STORAGE_KEY, JSON.stringify(list));
       } catch (e) {
         console.error('Error saving to localStorage:', e);
       }
@@ -398,7 +399,7 @@ export const scheduleService = {
         if (localData) {
           const list: WeeklySchedule[] = JSON.parse(localData);
           const filtered = list.filter(s => s.id !== weekIdOrId && s.weekId !== weekIdOrId);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+          safeLocalStorageSet(STORAGE_KEY, JSON.stringify(filtered));
         }
       } catch (err) {
         console.error('Error updating localStorage on delete:', err);

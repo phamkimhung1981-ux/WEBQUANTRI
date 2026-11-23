@@ -40,6 +40,7 @@ import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { CANONICAL_51_VC_FORMS } from '../data/canonical51Forms';
 import { CANONICAL_OCT_17_VC_FORMS } from '../data/canonicalOctForms';
 import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
+import { idbCacheGet, idbCacheSet } from '../utils/indexedDbCache';
 
 export const CANONICAL_ALL_VC_FORMS: KpiVcForm[] = [
   ...CANONICAL_51_VC_FORMS,
@@ -140,10 +141,10 @@ export const seedVcInitialDataIfNeeded = async () => {
       console.warn('Periods seeding skipped or deferred:', pErr);
     }
 
-    // 4. Forms - Bảo đảm cache LocalStorage có đầy đủ 51 phiếu Tháng 9 và 17 phiếu Tháng 10
-    // Cập nhật LocalStorage tức thì 0ms, không spam ghi Firestore hàng loạt
+    // 4. Forms - Bảo đảm bộ nhớ đệm (RAM + IndexedDB) có đầy đủ 51 phiếu Tháng 9 và 17 phiếu Tháng 10
+    // Không ghi 2.5MB vào localStorage để tránh vượt hạn mức Storage của Firebase/trình duyệt
     const canonicalForms = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
-    safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(canonicalForms));
+    saveVcFormsCache(canonicalForms);
   } catch (error) {
     console.error('Error seeding initial VC KPI data:', error);
   }
@@ -174,40 +175,40 @@ const hasTeacherActuallyEvaluated = (form: KpiVcForm): boolean => {
   return sumSelf > 0;
 };
 
-// Local Storage Cache Helpers - Use authoritative versioned cache v7
+// Cache key dùng cho IndexedDB & in-memory (không ghi payload 2.5MB vào localStorage)
 export const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache_v7_workflow_unlocked';
 
-// Tự động dọn dẹp các cache cũ có nguy cơ chứa điểm rỗng hoặc không đồng bộ
-if (typeof window !== 'undefined' && window.localStorage) {
-  try {
-    [
-      'kpi_vc_forms_cache',
-      'kpi_vc_forms_cache_v2',
-      'kpi_vc_forms_cache_v3',
-      'kpi_vc_forms_cache_v4',
-      'kpi_vc_forms_cache_v5_authoritative',
-      'kpi_vc_forms_cache_v6_canonical_sync',
-      'kpi_vc_forms_backup_100_reset'
-    ].forEach(k => {
-      localStorage.removeItem(k);
-    });
-  } catch {}
-}
+// In-memory primary cache for synchronous 0ms reads without touching 5MB localStorage quota
+let inMemoryVcFormsCache: KpiVcForm[] | null = null;
+let idbHydrationStarted = false;
+
+const hydrateVcFormsFromIndexedDb = () => {
+  if (idbHydrationStarted || typeof window === 'undefined') return;
+  idbHydrationStarted = true;
+  idbCacheGet<KpiVcForm[]>(VC_FORMS_CACHE_KEY)
+    .then((stored) => {
+      if (Array.isArray(stored) && stored.length >= 40) {
+        const merged = deduplicateVcForms(
+          inMemoryVcFormsCache ? [...inMemoryVcFormsCache, ...stored] : stored
+        );
+        inMemoryVcFormsCache = merged;
+        window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: merged }));
+      }
+    })
+    .catch(() => {});
+};
 
 /**
  * ĐỒNG BỘ DỮ LIỆU CHUẨN TỪ GOOGLE AI STUDIO:
  * Cập nhật 100% 51 phiếu Tháng 9 và 17 phiếu Tháng 10 có điểm chấm chuẩn, phân quyền TTCM và trạng thái quy trình.
- * Ghi đồng thời vào LocalStorage và cố gắng đồng bộ lên Firestore khi được yêu cầu.
+ * Lưu vào bộ nhớ đệm RAM + IndexedDB an toàn (không làm đầy localStorage) và đồng bộ lên Firestore khi được yêu cầu.
  */
 export const syncCanonicalVcDataToStorageAndFirestore = async (force: boolean = false): Promise<{ success: boolean; count: number; message: string }> => {
   try {
     const canonicalForms = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
     
-    // 1. Lưu ngay vào Cache LocalStorage để ứng dụng hiển thị tức thì 0ms trên mọi môi trường (Xuất web, Vercel, chia sẻ)
-    safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(canonicalForms));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: canonicalForms }));
-    }
+    // 1. Lưu vào RAM + IndexedDB để hiển thị tức thì 0ms mà không chiếm hạn mức 5MB của localStorage
+    saveVcFormsCache(canonicalForms);
 
     // 2. Thử đồng bộ lên Firestore theo từng document khi force = true
     if (force) {
@@ -584,28 +585,42 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
 
 
 export const getVcFormsCache = (): KpiVcForm[] => {
+  hydrateVcFormsFromIndexedDb();
+  if (inMemoryVcFormsCache && inMemoryVcFormsCache.length >= 40) {
+    return inMemoryVcFormsCache;
+  }
+  // Đọc một lần không phá hủy từ localStorage cũ (nếu máy từng lưu bản cục bộ trước đó) để bảo toàn dữ liệu
   try {
-    const raw = localStorage.getItem(VC_FORMS_CACHE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed) && parsed.length >= 40) {
-      // Kiểm tra độ tin cậy của cache: phải có ít nhất 40 phiếu có điểm > 0
-      const scoredCount = parsed.filter(f => (f.totalScore || 0) > 0).length;
-      if (scoredCount >= 40) {
-        return deduplicateVcForms(parsed);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem(VC_FORMS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length >= 40) {
+          const scoredCount = parsed.filter(f => (f.totalScore || 0) > 0).length;
+          if (scoredCount >= 40) {
+            const deduped = deduplicateVcForms(parsed);
+            inMemoryVcFormsCache = deduped;
+            idbCacheSet(VC_FORMS_CACHE_KEY, deduped).catch(() => {});
+            return deduped;
+          }
+        }
       }
     }
   } catch (err) {
-    console.warn('Error reading VC forms cache:', err);
+    console.warn('Error reading legacy VC forms cache:', err);
   }
   const defaultList = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
-  saveVcFormsCache(defaultList);
+  inMemoryVcFormsCache = defaultList;
+  idbCacheSet(VC_FORMS_CACHE_KEY, defaultList).catch(() => {});
   return defaultList;
 };
 
 export const saveVcFormsCache = (forms: KpiVcForm[]) => {
   try {
     const uniqueForms = deduplicateVcForms(forms);
-    safeLocalStorageSet(VC_FORMS_CACHE_KEY, JSON.stringify(uniqueForms));
+    inMemoryVcFormsCache = uniqueForms;
+    // Lưu đệm vào IndexedDB thay vì localStorage để tuyệt đối không gây QuotaExceededError cho Firestore
+    idbCacheSet(VC_FORMS_CACHE_KEY, uniqueForms).catch(() => {});
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: uniqueForms }));
     }
@@ -1385,7 +1400,7 @@ const getVcRatingConfigsCache = (): KpiVcRatingConfig[] => {
 
 const saveVcRatingConfigsCache = (configs: KpiVcRatingConfig[]) => {
   try {
-    localStorage.setItem(VC_RATING_CONFIGS_CACHE_KEY, JSON.stringify(configs));
+    safeLocalStorageSet(VC_RATING_CONFIGS_CACHE_KEY, JSON.stringify(configs));
   } catch (err) {
     console.warn('Error saving VC rating configs cache:', err);
   }
@@ -1661,8 +1676,8 @@ export const resetFormsWith100Points = async (
   const now = new Date().toISOString();
   const backupKey = `kpi_vc_forms_backup_100_reset_${Date.now()}`;
 
-  // 1. Sao lưu toàn bộ dữ liệu trước khi xử lý
-  safeLocalStorageSet(backupKey, JSON.stringify(currentForms));
+  // 1. Sao lưu toàn bộ dữ liệu trước khi xử lý vào IndexedDB (không ghi vào localStorage)
+  idbCacheSet(backupKey, currentForms).catch(() => {});
 
   const updatedForms: Reset100BatchResult['updatedForms'] = [];
   const unchangedForms: Reset100BatchResult['unchangedForms'] = [];

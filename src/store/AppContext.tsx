@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { Department, DisciplineRecord, DisciplineCriterion, Notification, Report, Task, Teacher, CalendarEvent, LeaveRecord, AttendanceRecord, KpiItem, KpiRecord, KpiGroup, KpiCategory, KpiMonthlySetting, GeneralKpi, WorkAssignment, EvaluationCategory, EvaluationCriterion, SchoolStats, KpiEvaluationForm, KpiEvaluationItem, SystemModule, User } from '../types';
 import { Student, ClassInfo } from '../types/homeroom';
 import { DEFAULT_SYSTEM_MODULES, isAdminUser } from '../lib/moduleData';
@@ -12,6 +12,8 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc } from 'firebase/firestore';
 import { syncCanonicalVcDataToStorageAndFirestore } from '../services/kpiVcService';
 import { useAuth } from './AuthContext';
+import { safeLocalStorageSet } from '../utils/envUtils';
+import { idbCacheSet } from '../utils/indexedDbCache';
 
 interface AppState {
   teachers: Teacher[];
@@ -208,7 +210,12 @@ export const DEFAULT_DEPARTMENTS: Department[] = [
   { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't1792151918417_4l9424' } // BGH 01 Nguyễn Quang Sáng (Hiệu trưởng)
 ];
 
+const inMemoryCollectionCache = new Map<string, any>();
+
 export const getLocalCollectionCache = <T,>(collectionKey: string, defaultValue: T): T => {
+  if (inMemoryCollectionCache.has(collectionKey)) {
+    return inMemoryCollectionCache.get(collectionKey) as T;
+  }
   try {
     const raw = localStorage.getItem(`app_cache_${collectionKey}`);
     if (raw) {
@@ -224,7 +231,14 @@ export const getLocalCollectionCache = <T,>(collectionKey: string, defaultValue:
 
 export const setLocalCollectionCache = (collectionKey: string, data: any): void => {
   try {
-    localStorage.setItem(`app_cache_${collectionKey}`, JSON.stringify(data));
+    inMemoryCollectionCache.set(collectionKey, data);
+    // Không ghi lặp toàn bộ các collection lớn vào localStorage để tránh vượt hạn mức 5MB của Firestore/trình duyệt
+    // Lưu toàn bộ vào IndexedDB và chỉ lưu vào localStorage đối với dữ liệu nhỏ (< 120KB)
+    idbCacheSet(`app_cache_${collectionKey}`, data).catch(() => {});
+    const serialized = JSON.stringify(data);
+    if (serialized.length <= 120_000) {
+      safeLocalStorageSet(`app_cache_${collectionKey}`, serialized, { maxItemChars: 120_000 });
+    }
   } catch (e) {
     // ignore quota
   }
@@ -310,9 +324,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     error: null,
   });
 
-  // Staff KPI subscription & Auto-sync canonical data from Google AI Studio
+  const isAdminOrBghUser = Boolean(
+    user && (
+      user.id === 'admin' ||
+      user.username === 'admin' ||
+      user.role === 'admin' ||
+      user.role === 'BGH' ||
+      user.roleGroup === 'ADMIN' ||
+      user.roleGroup === 'BGH'
+    )
+  );
+
+  const schoolStatsLoadedFromDbRef = useRef<boolean>(false);
+  const lastSyncedClassesCountRef = useRef<number | null>(null);
+  const hasSeededSchoolStatsRef = useRef<boolean>(false);
+  const hasSyncedGroupIdsRef = useRef<boolean>(false);
+
+  // Staff KPI subscription & Auto-sync canonical data ONLY after user has authenticated
   useEffect(() => {
-    // Tự động đồng bộ 51 phiếu KPI có điểm từ Google AI Studio trên mọi môi trường
+    if (!user?.id) return;
+
+    // Tự động đồng bộ 51 phiếu KPI vào bộ nhớ đệm RAM + IndexedDB an toàn (không làm đầy localStorage)
     syncCanonicalVcDataToStorageAndFirestore(false).catch(err => {
       console.warn('Auto sync VC data notice:', err);
     });
@@ -321,7 +353,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setState(prev => ({ ...prev, kpiStaffForms: forms }));
     });
     return () => unsub();
-  }, []);
+  }, [user?.id]);
 
   const setKpiStaffForms = (forms: KpiStaffForm[]) => {
     setState(prev => ({ ...prev, kpiStaffForms: forms }));
@@ -338,19 +370,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    let unsubscribes: (() => void)[] = [];
+    // Chỉ mở các Firestore realtime listener khi người dùng đã đăng nhập
+    // Ngăn tạo hàng chục listener và pending mutation thừa trên màn hình đăng nhập
+    if (!user?.id) return;
+
+    let isCancelled = false;
+    const unsubscribes: (() => void)[] = [];
 
     const handleSnapshot = (colName: string, key: keyof AppState) => {
       const q = collection(db, colName);
       const unsub = onSnapshot(q, (snapshot) => {
+        if (isCancelled) return;
         let data: any = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (key === 'teachers') {
           if (!data || data.length === 0) {
             data = DEFAULT_TEACHERS;
           }
-          try {
-            localStorage.setItem('app_cached_teachers', JSON.stringify(data));
-          } catch (e) {}
+          safeLocalStorageSet('app_cached_teachers', JSON.stringify(data));
         }
         if (key === 'departments') {
           if (!data || data.length === 0) {
@@ -370,13 +406,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
               return d;
             });
           }
-          try {
-            localStorage.setItem('app_cached_departments', JSON.stringify(data));
-          } catch (e) {}
+          safeLocalStorageSet('app_cached_departments', JSON.stringify(data));
         }
 
-        // Lưu vào bộ nhớ đệm an toàn cho mọi collection
-        setLocalCollectionCache(colName, data);
+        // Lưu vào bộ nhớ đệm an toàn (IndexedDB + giới hạn dung lượng localStorage)
+        if (key !== 'teachers' && key !== 'departments') {
+          setLocalCollectionCache(colName, data);
+        }
 
         // Khi nhận dữ liệu thành công, cập nhật state và xóa lỗi
         setState(prev => ({ ...prev, [key]: data, error: null }));
@@ -441,9 +477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const loadedModules = snap.docs.map(d => ({ id: d.id, ...d.data() })) as SystemModule[];
         loadedModules.sort((a, b) => (a.order || 0) - (b.order || 0));
         setState(prev => ({ ...prev, modules: loadedModules }));
-        try {
-          localStorage.setItem('app_system_modules', JSON.stringify(loadedModules));
-        } catch (e) {}
+        safeLocalStorageSet('app_system_modules', JSON.stringify(loadedModules));
       } else {
         // Khởi tạo từ default modules nếu chưa có document nào
         setState(prev => {
@@ -461,7 +495,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Thống kê trường học THPT Sơn Lương từ Database
     const statsDocRef = doc(db, 'systemSettings', 'schoolStats');
     const unsubStats = onSnapshot(statsDocRef, (snap) => {
+      if (isCancelled) return;
       if (snap.exists()) {
+        schoolStatsLoadedFromDbRef.current = true;
         const d = snap.data() as Partial<SchoolStats>;
         setState(prev => ({
           ...prev,
@@ -474,7 +510,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             welcomeMessage: d.welcomeMessage ?? 'Chào mừng bạn!'
           }
         }));
-      } else {
+      } else if (isAdminOrBghUser && !hasSeededSchoolStatsRef.current && navigator.onLine) {
+        hasSeededSchoolStatsRef.current = true;
         setDoc(statsDocRef, {
           totalTeachers: 42,
           totalStudents: 1236,
@@ -758,7 +795,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not migrate/seed KPI Hierarchy:', e);
       }
     };
-    migrateAndSeedHierarchyIfEmpty();
 
     // Khởi tạo danh mục KPI chuẩn nếu chưa có
     const seedKpisIfEmpty = async () => {
@@ -902,7 +938,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not seed KPIs:', e);
       }
     };
-    seedKpisIfEmpty();
 
     // Khởi tạo các tiêu chí KPI đặc thù theo công việc cho 4 nhóm đối tượng: CNQL; TTCM, TPCM, TTVP; Giáo viên; Nhân viên
     const seedTaskKpisForTargetGroups = async () => {
@@ -982,7 +1017,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not seed task KPIs for target groups:', e);
       }
     };
-    seedTaskKpisForTargetGroups();
 
     // Khởi tạo 5 tiêu chí mặc định nếu chưa có trong Firestore
     const seedCriteriaIfEmpty = async () => {
@@ -1007,7 +1041,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not check or seed disciplineCriteria:', e);
       }
     };
-    seedCriteriaIfEmpty();
 
     const seedWorkAssignmentsIfEmpty = async () => {
       try {
@@ -1025,7 +1058,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not seed work assignments:', e);
       }
     };
-    seedWorkAssignmentsIfEmpty();
 
     const seedReportsIfEmpty = async () => {
       try {
@@ -1074,7 +1106,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not seed reports:', e);
       }
     };
-    seedReportsIfEmpty();
 
     const rename16MemberDepartmentToVanSuDia = async () => {
       try {
@@ -1119,7 +1150,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('Could not execute department rename migration:', e);
       }
     };
-    rename16MemberDepartmentToVanSuDia();
 
     const seedDepartmentsIfEmpty = async () => {
       try {
@@ -1279,35 +1309,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     const initData = async () => {
-      await seedDepartmentsIfEmpty();
-      await seedAndRepairTeachers();
-      setState(prev => ({ ...prev, loading: false }));
+      // Chỉ chạy kiểm tra khởi tạo/di chuyển dữ liệu MỘT LẦN mỗi phiên, chỉ cho tài khoản Admin/BGH khi đang trực tuyến
+      // Ngăn triệt để tình trạng hàng chục Pending Mutations tích tụ vào hàng đợi ghi trên máy giáo viên/mạng yếu
+      const migrationFlagKey = 'thpt_sl_startup_migrations_checked_v1';
+      let alreadyChecked = false;
+      try {
+        alreadyChecked = sessionStorage.getItem(migrationFlagKey) === '1';
+      } catch {}
+
+      if (isAdminOrBghUser && !alreadyChecked && typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          sessionStorage.setItem(migrationFlagKey, '1');
+        } catch {}
+        await migrateAndSeedHierarchyIfEmpty();
+        if (isCancelled) return;
+        await seedKpisIfEmpty();
+        if (isCancelled) return;
+        await seedTaskKpisForTargetGroups();
+        if (isCancelled) return;
+        await seedCriteriaIfEmpty();
+        if (isCancelled) return;
+        await seedWorkAssignmentsIfEmpty();
+        if (isCancelled) return;
+        await seedReportsIfEmpty();
+        if (isCancelled) return;
+        await rename16MemberDepartmentToVanSuDia();
+        if (isCancelled) return;
+        await seedDepartmentsIfEmpty();
+        if (isCancelled) return;
+        await seedAndRepairTeachers();
+      }
+      if (!isCancelled) {
+        setState(prev => ({ ...prev, loading: false }));
+      }
     };
     initData();
 
     return () => {
+      isCancelled = true;
       unsubscribes.forEach(unsub => unsub());
     };
-  }, []);
+  }, [user?.id, isAdminOrBghUser]);
 
-  // Auto-sync totalClasses from active classes collection
+  // Auto-sync totalClasses from active classes collection (strictly outside setState updater, Admin/BGH only)
   useEffect(() => {
+    if (!user?.id || !isAdminOrBghUser || !schoolStatsLoadedFromDbRef.current) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
     const activeClassesCount = state.classes ? state.classes.filter(c => c.status !== 'inactive').length : 0;
-    if (activeClassesCount > 0 && activeClassesCount !== state.schoolStats.totalClasses) {
-      setState(prev => {
-        const updatedStats = {
-          ...prev.schoolStats,
-          totalClasses: activeClassesCount
-        };
-        setDoc(doc(db, 'systemSettings', 'schoolStats'), sanitize(updatedStats), { merge: true }).catch(() => {});
-        return { ...prev, schoolStats: updatedStats };
-      });
+    if (
+      activeClassesCount > 0 &&
+      activeClassesCount !== state.schoolStats.totalClasses &&
+      lastSyncedClassesCountRef.current !== activeClassesCount
+    ) {
+      lastSyncedClassesCountRef.current = activeClassesCount;
+      const updatedStats = {
+        ...state.schoolStats,
+        totalClasses: activeClassesCount
+      };
+      setState(prev => ({ ...prev, schoolStats: updatedStats }));
+      setDoc(doc(db, 'systemSettings', 'schoolStats'), sanitize(updatedStats), { merge: true }).catch(() => {});
     }
-  }, [state.classes, state.schoolStats.totalClasses]);
+  }, [user?.id, isAdminOrBghUser, state.classes, state.schoolStats.totalClasses]);
 
-  // Tự động kiểm tra và chuẩn hóa liên kết groupId cho kpis và kpiRecords
+  // Tự động kiểm tra và chuẩn hóa liên kết groupId cho kpis (chỉ chạy tối đa 1 lần mỗi phiên cho Admin/BGH)
   useEffect(() => {
+    if (!user?.id || !isAdminOrBghUser || hasSyncedGroupIdsRef.current) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     if (state.kpiGroups.length === 0 || state.kpis.length === 0) return;
+
+    hasSyncedGroupIdsRef.current = true;
 
     const autoSyncMissingGroupIds = async () => {
       try {
@@ -1320,7 +1391,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const groupExists = targetGroupId && state.kpiGroups.some(g => g.id === targetGroupId);
 
           if (!groupExists) {
-            // Tìm theo ID hoặc tên nhóm/mã nhóm chính xác
             const matched = state.kpiGroups.find(
               g => g.id === targetGroupId ||
                    (kpi.group && g.name.trim().toLowerCase() === kpi.group.trim().toLowerCase()) ||
@@ -1363,7 +1433,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     autoSyncMissingGroupIds();
-  }, [state.kpiGroups, state.kpiCategories, state.kpis]);
+  }, [user?.id, isAdminOrBghUser, state.kpiGroups, state.kpiCategories, state.kpis]);
 
   const updateTaskStatus = async (taskId: string, status: Task['status'], progress?: number) => {
     try {
@@ -1382,7 +1452,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteTeacher = async (id: string) => {
     setState(prev => {
       const updated = prev.teachers.filter(t => t.id !== id);
-      try { localStorage.setItem('app_cached_teachers', JSON.stringify(updated)); } catch (e) {}
+      safeLocalStorageSet('app_cached_teachers', JSON.stringify(updated));
       return { ...prev, teachers: updated };
     });
     try {
@@ -1405,7 +1475,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       setState(prev => {
-        try { localStorage.setItem('app_cached_teachers', JSON.stringify([])); } catch (e) {}
+        safeLocalStorageSet('app_cached_teachers', JSON.stringify([]));
         return { ...prev, teachers: [] };
       });
       await setDoc(doc(db, 'systemSettings', 'teachersState'), { initialized: true, isEmpty: true }, { merge: true });
@@ -1454,11 +1524,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // 1. Immediately update state & localStorage
+    // 1. Immediately update state & localStorage safely
     setState(prev => ({ ...prev, teachers: currentTeachers }));
-    try {
-      localStorage.setItem('app_cached_teachers', JSON.stringify(currentTeachers));
-    } catch (e) {}
+    safeLocalStorageSet('app_cached_teachers', JSON.stringify(currentTeachers));
 
     // 2. Persist to Firestore in chunks of 200
     let quotaErrorOccurred = false;
@@ -1495,7 +1563,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateTeacher = async (id: string, data: Partial<Teacher>) => {
     setState(prev => {
       const updated = prev.teachers.map(t => t.id === id ? { ...t, ...data } : t);
-      try { localStorage.setItem('app_cached_teachers', JSON.stringify(updated)); } catch (e) {}
+      safeLocalStorageSet('app_cached_teachers', JSON.stringify(updated));
       return { ...prev, teachers: updated };
     });
     try { await updateDoc(doc(db, 'teachers', id), sanitize(data)); } catch (e) { handleDbError(e); }
@@ -1505,7 +1573,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!teacher.id) teacher.id = `t${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     setState(prev => {
       const updated = [...prev.teachers, teacher];
-      try { localStorage.setItem('app_cached_teachers', JSON.stringify(updated)); } catch (e) {}
+      safeLocalStorageSet('app_cached_teachers', JSON.stringify(updated));
       return { ...prev, teachers: updated };
     });
     try {
@@ -1516,7 +1584,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateDepartment = async (id: string, data: Partial<Department>) => {
     setState(prev => {
       const updated = prev.departments.map(d => d.id === id ? { ...d, ...data } : d);
-      try { localStorage.setItem('app_cached_departments', JSON.stringify(updated)); } catch (e) {}
+      safeLocalStorageSet('app_cached_departments', JSON.stringify(updated));
       return { ...prev, departments: updated };
     });
     try {
@@ -1530,7 +1598,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteDepartment = async (id: string) => {
     setState(prev => {
       const updated = prev.departments.filter(d => d.id !== id);
-      try { localStorage.setItem('app_cached_departments', JSON.stringify(updated)); } catch (e) {}
+      safeLocalStorageSet('app_cached_departments', JSON.stringify(updated));
       return { ...prev, departments: updated };
     });
     try { await deleteDoc(doc(db, 'departments', id)); } catch (e) { handleDbError(e); }
@@ -1541,7 +1609,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState(prev => {
       const exists = prev.departments.some(d => d.id === dept.id);
       const updated = exists ? prev.departments.map(d => d.id === dept.id ? dept : d) : [...prev.departments, dept];
-      try { localStorage.setItem('app_cached_departments', JSON.stringify(updated)); } catch (e) {}
+      safeLocalStorageSet('app_cached_departments', JSON.stringify(updated));
       return { ...prev, departments: updated };
     });
     try {

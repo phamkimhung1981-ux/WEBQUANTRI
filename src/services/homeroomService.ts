@@ -12,6 +12,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import {
   ClassInfo,
   Student,
@@ -56,12 +57,22 @@ const HOMEROOM_CACHE_KEYS = {
   AUDIT_LOGS: 'homeroom_cached_audit_logs'
 };
 
+const homeroomMemoryCache = new Map<string, any>();
+
 const safeStorage = {
   getItem<T>(key: string): T | null {
+    if (homeroomMemoryCache.has(key)) {
+      return homeroomMemoryCache.get(key) as T;
+    }
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const raw = window.localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : null;
+        if (raw) {
+          const parsed = JSON.parse(raw) as T;
+          homeroomMemoryCache.set(key, parsed);
+          return parsed;
+        }
+        return null;
       } catch (e) {
         return null;
       }
@@ -69,12 +80,11 @@ const safeStorage = {
     return null;
   },
   setItem(key: string, value: any): void {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.setItem(key, JSON.stringify(value));
-      } catch (e) {
-        // ignore
-      }
+    homeroomMemoryCache.set(key, value);
+    try {
+      safeLocalStorageSet(key, JSON.stringify(value));
+    } catch (e) {
+      // ignore
     }
   }
 };

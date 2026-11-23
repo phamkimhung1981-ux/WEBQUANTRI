@@ -13,6 +13,7 @@ import {
 import { db, auth } from '../lib/firebase';
 import { YouthDutySchedule, YouthDutyTaskConfig, YouthDutyMetadata } from '../types/youthDuty';
 import { DEFAULT_DUTY_TASKS, DEFAULT_DUTY_METADATA, DEFAULT_SAMPLE_SCHEDULES } from '../lib/youthDutyData';
+import { safeLocalStorageSet } from '../utils/envUtils';
 
 const COLLECTIONS = {
   SCHEDULES: 'do_duty_schedules',
@@ -47,14 +48,14 @@ export const youthDutyService = {
         for (const t of DEFAULT_DUTY_TASKS) {
           await setDoc(doc(db, COLLECTIONS.TASKS, t.id), sanitize(t));
         }
-        localStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(DEFAULT_DUTY_TASKS));
+        safeLocalStorageSet(CACHE_KEYS.TASKS, JSON.stringify(DEFAULT_DUTY_TASKS));
       }
 
       // 1.2 Metadata
       const metaSnap = await getDoc(doc(db, COLLECTIONS.METADATA, 'default_meta'));
       if (!metaSnap.exists()) {
         await setDoc(doc(db, COLLECTIONS.METADATA, 'default_meta'), sanitize(DEFAULT_DUTY_METADATA));
-        localStorage.setItem(CACHE_KEYS.METADATA, JSON.stringify(DEFAULT_DUTY_METADATA));
+        safeLocalStorageSet(CACHE_KEYS.METADATA, JSON.stringify(DEFAULT_DUTY_METADATA));
       }
 
       // 1.3 Schedules
@@ -63,18 +64,18 @@ export const youthDutyService = {
         for (const s of DEFAULT_SAMPLE_SCHEDULES) {
           await setDoc(doc(db, COLLECTIONS.SCHEDULES, s.id), sanitize(s));
         }
-        localStorage.setItem(CACHE_KEYS.SCHEDULES, JSON.stringify(DEFAULT_SAMPLE_SCHEDULES));
+        safeLocalStorageSet(CACHE_KEYS.SCHEDULES, JSON.stringify(DEFAULT_SAMPLE_SCHEDULES));
       }
     } catch (e) {
       console.warn('Firestore seed youthDuty error, using local fallback:', e);
       if (!localStorage.getItem(CACHE_KEYS.TASKS)) {
-        localStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(DEFAULT_DUTY_TASKS));
+        safeLocalStorageSet(CACHE_KEYS.TASKS, JSON.stringify(DEFAULT_DUTY_TASKS));
       }
       if (!localStorage.getItem(CACHE_KEYS.METADATA)) {
-        localStorage.setItem(CACHE_KEYS.METADATA, JSON.stringify(DEFAULT_DUTY_METADATA));
+        safeLocalStorageSet(CACHE_KEYS.METADATA, JSON.stringify(DEFAULT_DUTY_METADATA));
       }
       if (!localStorage.getItem(CACHE_KEYS.SCHEDULES)) {
-        localStorage.setItem(CACHE_KEYS.SCHEDULES, JSON.stringify(DEFAULT_SAMPLE_SCHEDULES));
+        safeLocalStorageSet(CACHE_KEYS.SCHEDULES, JSON.stringify(DEFAULT_SAMPLE_SCHEDULES));
       }
     }
   },
@@ -85,7 +86,7 @@ export const youthDutyService = {
       const snap = await getDocs(collection(db, COLLECTIONS.SCHEDULES));
       if (!snap.empty) {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as YouthDutySchedule));
-        localStorage.setItem(CACHE_KEYS.SCHEDULES, JSON.stringify(list));
+        safeLocalStorageSet(CACHE_KEYS.SCHEDULES, JSON.stringify(list));
         return this.filterAndSortSchedules(list, academicYear, fromWeek, toWeek);
       }
     } catch (e) {
@@ -166,7 +167,7 @@ export const youthDutyService = {
     } else {
       current.push(record);
     }
-    localStorage.setItem(CACHE_KEYS.SCHEDULES, JSON.stringify(current));
+    safeLocalStorageSet(CACHE_KEYS.SCHEDULES, JSON.stringify(current));
 
     // Firestore
     try {
@@ -181,7 +182,7 @@ export const youthDutyService = {
   async deleteSchedule(id: string, performedByRole: string = 'BI_THU_DOAN'): Promise<void> {
     const current = await this.getSchedules();
     const remaining = current.filter(s => s.id !== id);
-    localStorage.setItem(CACHE_KEYS.SCHEDULES, JSON.stringify(remaining));
+    safeLocalStorageSet(CACHE_KEYS.SCHEDULES, JSON.stringify(remaining));
 
     try {
       await deleteDoc(doc(db, COLLECTIONS.SCHEDULES, id));
@@ -248,7 +249,7 @@ export const youthDutyService = {
       const snap = await getDocs(collection(db, COLLECTIONS.TASKS));
       if (!snap.empty) {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as YouthDutyTaskConfig));
-        localStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(list));
+        safeLocalStorageSet(CACHE_KEYS.TASKS, JSON.stringify(list));
         return list.sort((a, b) => a.order - b.order);
       }
     } catch (e) {
@@ -279,7 +280,7 @@ export const youthDutyService = {
     } else {
       current.push(record);
     }
-    localStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(current));
+    safeLocalStorageSet(CACHE_KEYS.TASKS, JSON.stringify(current));
 
     try {
       await setDoc(doc(db, COLLECTIONS.TASKS, id), sanitize(record), { merge: true });
@@ -291,7 +292,7 @@ export const youthDutyService = {
   async deleteTaskConfig(id: string): Promise<void> {
     const current = await this.getTaskConfigs();
     const remaining = current.filter(t => t.id !== id);
-    localStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(remaining));
+    safeLocalStorageSet(CACHE_KEYS.TASKS, JSON.stringify(remaining));
 
     try {
       await deleteDoc(doc(db, COLLECTIONS.TASKS, id));
@@ -306,7 +307,7 @@ export const youthDutyService = {
       const snap = await getDoc(doc(db, COLLECTIONS.METADATA, 'default_meta'));
       if (snap.exists()) {
         const data = snap.data() as YouthDutyMetadata;
-        localStorage.setItem(CACHE_KEYS.METADATA, JSON.stringify(data));
+        safeLocalStorageSet(CACHE_KEYS.METADATA, JSON.stringify(data));
         return data;
       }
     } catch (e) {
@@ -326,7 +327,7 @@ export const youthDutyService = {
   },
 
   async saveMetadata(metadata: YouthDutyMetadata): Promise<void> {
-    localStorage.setItem(CACHE_KEYS.METADATA, JSON.stringify(metadata));
+    safeLocalStorageSet(CACHE_KEYS.METADATA, JSON.stringify(metadata));
     try {
       await setDoc(doc(db, COLLECTIONS.METADATA, 'default_meta'), sanitize(metadata), { merge: true });
     } catch (e) {

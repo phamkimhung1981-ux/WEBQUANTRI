@@ -1,54 +1,24 @@
 /**
- * Environment Utility for THPT Sơn Lương Teacher Management System
- * 
- * Determines whether Edit & Delete features should be accessible on the UI.
- * 
- * Rules:
- * 1. Google AI Studio Development Environment (DEV / development mode): Returns `true`
- *    - Admin and developers can edit and manage data.
- * 2. Published Production Environment (Vercel / npm run build / PROD mode): Returns `false`
- *    - Hides all Edit, Delete, Bulk Delete, and Reset buttons across all modules.
- * 3. Environment Variable Override: `VITE_ALLOW_EDIT_DELETE` ('true' | 'false').
+ * Environment & Safe Storage Utilities for THPT Sơn Lương Teacher Management System
  */
-/**
- * Phân biệt môi trường phát triển Google AI Studio và website đã xuất bản (Production / Xuất web / Shared Web).
- * 
- * - Google AI Studio Development Environment:
- *   + Chạy trong môi trường dev của AI Studio (hostname chứa 'ais-dev-') hoặc localhost.
- *   + Trả về false -> Giữ nguyên chức năng xóa cho quản trị viên và người có quyền theo phân quyền hiện có.
- * 
- * - Website đã xuất bản / Xuất web / Production:
- *   + import.meta.env.PROD === true (Bản build production, Vercel, Netlify, Docker...)
- *   + Hoặc URL là Shared App URL 'ais-pre-' (Link web xuất bản được chia sẻ cho người dùng ngoài Google AI Studio)
- *   + Hoặc tên miền triển khai chính thức khác ngoài môi trường dev của AI Studio.
- *   + Trả về true -> Ẩn hoàn toàn các chức năng xóa khỏi giao diện người dùng.
- */
+
 export function isProductionWeb(): boolean {
-  // 1. Kiểm tra build production chuẩn của Vite (Vercel, Netlify, npm run build)
   if (import.meta.env.PROD) {
     return true;
   }
 
-  // 2. Kiểm tra biến môi trường override nếu có
   if (typeof import.meta.env.VITE_IS_PRODUCTION !== 'undefined') {
     return import.meta.env.VITE_IS_PRODUCTION === 'true';
   }
 
-  // 3. Kiểm tra môi trường runtime trong trình duyệt
   if (typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname || '';
-    
-    // Nếu đang chạy trong môi trường phát triển của Google AI Studio (ais-dev-) hoặc localhost dev
     if (hostname.includes('ais-dev-') || hostname === 'localhost' || hostname === '127.0.0.1') {
       return false;
     }
-
-    // Nếu đang chạy trên URL xuất bản chia sẻ của Google AI Studio (ais-pre-...)
     if (hostname.includes('ais-pre-')) {
       return true;
     }
-
-    // Nếu chạy trên bất kỳ domain nào khác ngoài ais-dev-
     if (hostname && !hostname.includes('ais-dev-')) {
       return true;
     }
@@ -58,38 +28,134 @@ export function isProductionWeb(): boolean {
 }
 
 export function canEditOrDelete(): boolean {
-  // 1. Explicit environment variable override if defined
   if (typeof import.meta.env.VITE_ALLOW_EDIT_DELETE !== 'undefined') {
     return import.meta.env.VITE_ALLOW_EDIT_DELETE === 'true';
   }
-
-  // 2. Default to true so authorized users can edit and delete individual records across environments
   return true;
 }
 
-export function safeLocalStorageSet(key: string, value: string): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
+/**
+ * Estimate current localStorage usage in UTF-16 bytes (safe, read-only).
+ */
+export function getLocalStorageUsageBytes(): number {
+  if (typeof window === 'undefined' || !window.localStorage) return 0;
   try {
-    localStorage.setItem(key, value);
-  } catch (e) {
-    console.warn('localStorage setItem quota exceeded, clearing old non-essential cache items:', e);
-    try {
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && k !== key && (
-          k.startsWith('app_cache_') || 
-          k.startsWith('app_cached_') || 
-          k.startsWith('sws_') || 
-          k.startsWith('kpi_vc_forms_cache') ||
-          k.startsWith('kpi_cbql_forms_cache')
-        )) {
-          localStorage.removeItem(k);
-        }
+    let totalChars = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) {
+        const v = localStorage.getItem(k) || '';
+        totalChars += k.length + v.length;
       }
-      localStorage.setItem(key, value);
-    } catch (err) {
-      console.warn('LocalStorage full, skipped local cache write safely:', err);
     }
+    return totalChars * 2;
+  } catch {
+    return 0;
   }
 }
 
+/**
+ * Non-destructive check to verify whether window.localStorage can safely accept
+ * at least `requiredBytes` of free headroom without throwing QuotaExceededError.
+ * NEVER deletes or alters any existing keys (login, user data, or firestore_* keys).
+ */
+export function probeLocalStorageHeadroom(requiredBytes: number = 256 * 1024): boolean {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+  const probeKey = '__thpt_sl_storage_probe__';
+  try {
+    // 1 UTF-16 char = 2 bytes; test with half the byte count in ASCII chars
+    const charCount = Math.max(1024, Math.floor(requiredBytes / 2));
+    const payload = 'x'.repeat(charCount);
+    localStorage.setItem(probeKey, payload);
+    localStorage.removeItem(probeKey);
+    return true;
+  } catch {
+    try {
+      localStorage.removeItem(probeKey);
+    } catch {
+      // ignore cleanup error
+    }
+    return false;
+  }
+}
+
+/**
+ * Detect whether an error is a browser storage quota error (QuotaExceededError)
+ * or a Firestore internal state failure caused by WebStorage / IndexedDB quota exhaustion.
+ */
+export function isStorageQuotaError(err: unknown): boolean {
+  if (!err) return false;
+  const name = typeof err === 'object' && err !== null && 'name' in err ? String((err as any).name) : '';
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null && 'message' in err
+        ? String((err as any).message)
+        : String(err);
+  const lower = `${name} ${message}`.toLowerCase();
+  return (
+    name === 'QuotaExceededError' ||
+    name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    lower.includes('quotaexceedederror') ||
+    lower.includes('exceeded the quota') ||
+    lower.includes('firestore_mutations_') ||
+    lower.includes('firestore_clients_') ||
+    (lower.includes('internal assertion failed') && (lower.includes('b815') || lower.includes('storage') || lower.includes('quota')))
+  );
+}
+
+/**
+ * Safe localStorage writer with strict size budget & non-destructive behavior.
+ *
+ * Guarantees:
+ * - NEVER clears all localStorage.
+ * - NEVER deletes login data, user preferences, custom permissions, or Firestore pending mutations (`firestore_*`).
+ * - Refuses to write oversized optional cache payloads (> maxItemChars) so localStorage
+ *   always retains ample headroom for Firebase/Firestore and authentication.
+ */
+const MAX_DEFAULT_CACHE_ITEM_CHARS = 180_000; // ~360 KB UTF-16 max per cache item
+const MAX_TOTAL_LOCALSTORAGE_BYTES = 2_400_000; // ~2.4 MB ceiling so >= 2.5 MB remains free
+
+export function safeLocalStorageSet(
+  key: string,
+  value: string,
+  options?: { allowLarge?: boolean; maxItemChars?: number }
+): boolean {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+
+  // Never allow oversized optional cache blobs to exhaust the 5MB localStorage quota
+  const maxChars = options?.maxItemChars ?? MAX_DEFAULT_CACHE_ITEM_CHARS;
+  if (!options?.allowLarge && value.length > maxChars) {
+    return false;
+  }
+
+  try {
+    // Check total budget before writing optional cache keys (skip for small preference/auth keys < 16KB)
+    if (value.length > 8_000) {
+      const currentBytes = getLocalStorageUsageBytes();
+      const existingItem = localStorage.getItem(key);
+      const existingBytes = existingItem ? existingItem.length * 2 : 0;
+      const projectedBytes = currentBytes - existingBytes + value.length * 2;
+      if (projectedBytes > MAX_TOTAL_LOCALSTORAGE_BYTES) {
+        return false;
+      }
+    }
+
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    // Non-destructive: DO NOT wipe localStorage, user data, auth data, or firestore_* keys.
+    console.warn(`LocalStorage quota protection skipped optional write for "${key}":`, e);
+    if (typeof window !== 'undefined' && isStorageQuotaError(e)) {
+      window.dispatchEvent(
+        new CustomEvent('app_storage_warning', {
+          detail: {
+            key,
+            message: 'Bộ nhớ cục bộ trình duyệt đã gần đầy. Hệ thống tự động bỏ qua lưu đệm cục bộ và tiếp tục đồng bộ trực tuyến an toàn.'
+          }
+        })
+      );
+    }
+    return false;
+  }
+}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { safeLocalStorageSet } from '../utils/envUtils';
 import {
   Users,
   PlusCircle,
@@ -189,23 +190,23 @@ export default function Homeroom() {
   // Persistence helpers
   const setSelectedSchoolYear = (val: string) => {
     setSelectedSchoolYearState(val);
-    localStorage.setItem('homeroom_selected_school_year', val);
+    safeLocalStorageSet('homeroom_selected_school_year', val);
   };
   const setSelectedGrade = (val: string) => {
     setSelectedGradeState(val);
-    localStorage.setItem('homeroom_selected_grade', val);
+    safeLocalStorageSet('homeroom_selected_grade', val);
   };
   const setSelectedClassId = (val: string) => {
     setSelectedClassIdState(val);
-    localStorage.setItem('homeroom_selected_class_id', val);
+    safeLocalStorageSet('homeroom_selected_class_id', val);
   };
   const setSelectedWeek = (val: number) => {
     setSelectedWeekState(val);
-    localStorage.setItem('homeroom_selected_week', String(val));
+    safeLocalStorageSet('homeroom_selected_week', String(val));
   };
   const setSelectedMonth = (val: string) => {
     setSelectedMonthState(val);
-    localStorage.setItem('homeroom_selected_month', val);
+    safeLocalStorageSet('homeroom_selected_month', val);
   };
 
   // Active Main Tab
@@ -237,7 +238,7 @@ export default function Homeroom() {
   const [studentTableScope, setStudentTableScopeState] = useState<'week' | 'month' | 'year'>('month');
   const setStudentTableScope = (val: 'week' | 'month' | 'year') => {
     setStudentTableScopeState(val);
-    localStorage.setItem('homeroom_student_table_scope', val);
+    safeLocalStorageSet('homeroom_student_table_scope', val);
   };
   const [postSaveWarningModalOpen, setPostSaveWarningModalOpen] = useState(false);
   const [postSaveWarningRecord, setPostSaveWarningRecord] = useState<ConductRecord | null>(null);
@@ -343,7 +344,7 @@ export default function Homeroom() {
       const isCurrentInFiltered = filteredClasses.some(c => c.id === selectedClassId);
       if (!isCurrentInFiltered) {
         setSelectedClassIdState(filteredClasses[0].id);
-        localStorage.setItem('homeroom_selected_class_id', filteredClasses[0].id);
+        safeLocalStorageSet('homeroom_selected_class_id', filteredClasses[0].id);
       }
     }
   }, [selectedGrade, classes]);
