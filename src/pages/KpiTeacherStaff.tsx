@@ -821,8 +821,8 @@ export default function KpiTeacherStaff() {
             <Home size={15} /> Trang chủ
           </button>
 
-          {/* Tạo phiếu mới (Chỉ hiển thị trong môi trường phát triển Google AI Studio) */}
-          {import.meta.env.DEV && (
+          {/* Tạo phiếu mới (Dựa trên quyền TẠO MỚI trong ma trận phân quyền KPI Giáo viên) */}
+          {(moduleCanCreate || isAdmin) && (
             <button
               type="button"
               onClick={handleOpenCreateModal}
@@ -952,12 +952,13 @@ export default function KpiTeacherStaff() {
             {myFormInPeriod ? (
               <button
                 type="button"
-                onClick={() => handleOpenDoc(myFormInPeriod, 'self_eval')}
+                onClick={() => handleOpenDoc(myFormInPeriod, (moduleCanEdit || isAdmin) ? 'self_eval' : 'view')}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
               >
-                <Edit3 size={15} /> Mở phiếu tự chấm điểm
+                {(moduleCanEdit || isAdmin) ? <Edit3 size={15} /> : <Eye size={15} />}
+                {(moduleCanEdit || isAdmin) ? 'Mở phiếu tự chấm điểm' : 'Xem phiếu đánh giá'}
               </button>
-            ) : import.meta.env.DEV ? (
+            ) : (moduleCanCreate || isAdmin) ? (
               <button
                 type="button"
                 onClick={handleOpenCreateModal}
@@ -1622,7 +1623,7 @@ export default function KpiTeacherStaff() {
                         <div className="flex flex-col items-center justify-center gap-2">
                           <FileText size={32} className="text-slate-300" />
                           <p className="font-semibold text-slate-600">Chưa có phiếu đánh giá KPI.</p>
-                          {import.meta.env.DEV && (
+                          {(moduleCanCreate || isAdmin) && (
                             <p className="text-xs text-slate-400">Nhấn nút "+ Tạo phiếu đánh giá mới" để bắt đầu.</p>
                           )}
                         </div>

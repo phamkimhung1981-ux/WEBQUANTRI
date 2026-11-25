@@ -32,7 +32,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { usePermission } from '../hooks/usePermission';
-import { safeLocalStorageSet } from '../utils/envUtils';
 import { 
   AccountRecord, 
   RoleGroupCode, 
@@ -111,28 +110,18 @@ export default function AccountManagement() {
 
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 4000);
+    setTimeout(() => setToastMessage(null), type === 'error' ? 6000 : 4000);
   };
 
-  // Load accounts and teachers
+  // Load accounts and teachers strictly from Firestore (no stale localStorage account cache)
   const loadData = async () => {
     setLoading(true);
-
-    // Instant local cache load so interface is never empty
     try {
-      const cached = localStorage.getItem('cached_user_accounts');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const validCached = parsed.filter((a: any) => Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== ''));
-          setAccounts(validCached);
-          safeLocalStorageSet('cached_user_accounts', JSON.stringify(validCached));
-          if (validCached.length > 0) {
-            setSelectedUserId(validCached[0].id);
-          }
-        }
-      }
-    } catch (e) {}
+      localStorage.removeItem('cached_user_accounts');
+      localStorage.removeItem('custom_user_permissions_map');
+    } catch {
+      // ignore storage errors
+    }
 
     try {
       const [accList, teachersSnap, logs] = await Promise.all([
@@ -144,7 +133,6 @@ export default function AccountManagement() {
       if (accList && accList.length > 0) {
         const validAccs = accList.filter((a: any) => Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== ''));
         setAccounts(validAccs);
-        safeLocalStorageSet('cached_user_accounts', JSON.stringify(validAccs));
         setSelectedUserId(prev => {
           if (prev && validAccs.some((a: any) => a.id === prev)) return prev;
           return validAccs[0].id;
@@ -160,7 +148,7 @@ export default function AccountManagement() {
       if (logs) setAuditLogs(logs);
     } catch (e: any) {
       console.error('Error loading account data:', e);
-      showToast('Lỗi khi tải dữ liệu tài khoản: ' + e?.message, 'error');
+      showToast('Lỗi khi tải dữ liệu tài khoản từ Firestore: ' + (e?.message || 'Vui lòng thử lại.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -182,18 +170,28 @@ export default function AccountManagement() {
       const targetAcc = accounts.find(a => a.id === selectedUserId);
       if (targetAcc) {
         const baseRolePerms = DEFAULT_ROLE_GROUPS[targetAcc.roleGroup]?.permissions || DEFAULT_ROLE_GROUPS.TEACHER.permissions;
-        if (targetAcc.hasCustomPermissions && targetAcc.customPermissions) {
-          // Merge custom over base
-          const merged: ModulePermissionsMap = JSON.parse(JSON.stringify(baseRolePerms));
+        if (targetAcc.hasCustomPermissions && targetAcc.customPermissions && Object.keys(targetAcc.customPermissions).length > 0) {
+          // Strict custom matrix parity with usePermission(): omitted modules default to denied (except home.view)
+          const strictCustom: Partial<ModulePermissionsMap> = {};
           SYSTEM_MODULES_LIST.forEach(m => {
-            if (targetAcc.customPermissions && targetAcc.customPermissions[m.code]) {
-              merged[m.code] = {
-                ...merged[m.code],
-                ...targetAcc.customPermissions[m.code]
-              };
-            }
+            const modPerm = targetAcc.customPermissions?.[m.code];
+            strictCustom[m.code] = modPerm
+              ? {
+                  view: !!modPerm.view,
+                  create: !!modPerm.create,
+                  edit: !!modPerm.edit,
+                  delete: !!modPerm.delete,
+                  approve: !!modPerm.approve,
+                  export: !!modPerm.export,
+                  lock: !!modPerm.lock
+                }
+              : createEmptyModulePermissions(false);
           });
-          setMatrixPermissions(merged);
+          strictCustom.home = {
+            ...(strictCustom.home || createEmptyModulePermissions(false)),
+            view: true
+          };
+          setMatrixPermissions(strictCustom as ModulePermissionsMap);
         } else {
           setMatrixPermissions(JSON.parse(JSON.stringify(baseRolePerms)));
         }
@@ -519,19 +517,22 @@ export default function AccountManagement() {
           }
         };
 
-        // 1. Write to Firestore & Local Storage via service (protected with 1.2s timeout)
+        // 1. Authoritative write to Firebase Firestore (throws if Firestore write fails)
         await accountService.saveUserPermissions(
-          targetId, 
-          finalPermissions, 
+          targetId,
+          finalPermissions,
           user?.name || 'Quản trị viên',
           {
             username: targetAccount.username,
             teacherCode: targetAccount.teacherCode,
-            fullName: targetAccount.fullName
+            fullName: targetAccount.fullName,
+            email: targetAccount.email,
+            firebaseUid: targetAccount.firebaseUid,
+            roleGroup: targetAccount.roleGroup
           }
         );
 
-        // 2. Optimistically update local accounts state so UI immediately retains changes
+        // 2. Update UI state ONLY AFTER Firestore write succeeds
         setAccounts(prev => prev.map(acc => {
           if (acc.id === targetId || acc.username === targetAccount.username) {
             return {
@@ -544,7 +545,7 @@ export default function AccountManagement() {
         }));
 
         setMatrixIsDirty(false);
-        showToast(`Đã lưu thành công ma trận phân quyền cho ${targetAccount.fullName} (${targetAccount.username})!`, 'success');
+        showToast(`Đã lưu thành công ma trận phân quyền lên Firebase Firestore cho ${targetAccount.fullName} (${targetAccount.username})!`, 'success');
       } else {
         // Role group mode: Ensure home view remains true
         const finalRolePermissions: ModulePermissionsMap = {
@@ -556,7 +557,7 @@ export default function AccountManagement() {
         };
         await accountService.saveRoleGroupPermissions(selectedRoleGroup, finalRolePermissions, user?.name || 'Quản trị viên');
         setMatrixIsDirty(false);
-        showToast(`Đã lưu thành công cấu hình phân quyền cho nhóm ${DEFAULT_ROLE_GROUPS[selectedRoleGroup]?.name || selectedRoleGroup}!`, 'success');
+        showToast(`Đã lưu thành công cấu hình phân quyền lên Firebase Firestore cho nhóm ${DEFAULT_ROLE_GROUPS[selectedRoleGroup]?.name || selectedRoleGroup}!`, 'success');
       }
     } catch (err: any) {
       console.error('Lỗi khi lưu ma trận phân quyền:', err);
@@ -575,16 +576,19 @@ export default function AccountManagement() {
     setIsSavingMatrix(true);
     try {
       await accountService.resetUserPermissionsToRoleGroup(
-        targetAccount.id, 
+        targetAccount.id,
         user?.name || 'Quản trị viên',
         {
           username: targetAccount.username,
           teacherCode: targetAccount.teacherCode,
-          fullName: targetAccount.fullName
+          fullName: targetAccount.fullName,
+          email: targetAccount.email,
+          firebaseUid: targetAccount.firebaseUid,
+          roleGroup: targetAccount.roleGroup
         }
       );
-      
-      // Optimistically update
+
+      // Update UI state ONLY AFTER Firestore reset succeeds
       setAccounts(prev => prev.map(acc => {
         if (acc.id === targetAccount.id) {
           return {
@@ -669,7 +673,18 @@ export default function AccountManagement() {
       return;
     }
     try {
-      await accountService.resetUserPermissionsToRoleGroup(acc.id, user?.name || 'Quản trị viên');
+      await accountService.resetUserPermissionsToRoleGroup(
+        acc.id,
+        user?.name || 'Quản trị viên',
+        {
+          username: acc.username,
+          teacherCode: acc.teacherCode,
+          fullName: acc.fullName,
+          email: acc.email,
+          firebaseUid: acc.firebaseUid,
+          roleGroup: acc.roleGroup
+        }
+      );
       showToast(`Đã thu hồi quyền riêng cho ${acc.fullName}!`, 'success');
       await loadData();
     } catch (err: any) {

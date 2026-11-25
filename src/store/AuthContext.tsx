@@ -1,28 +1,26 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { User, Role, Teacher } from '../types';
-import { db } from '../lib/firebase';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
+import { User, Role } from '../types';
+import { auth, db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { isAdminUser } from '../lib/moduleData';
-import { AccountRecord, RoleGroupCode } from '../types/permission';
-import { 
-  detectRoleGroupByPosition, 
-  hashPassword, 
-  accountService, 
-  getStoredUserPassword, 
+import { RoleGroupCode, ModulePermissionsMap, normalizeEmail, normalizeIdentifier } from '../types/permission';
+import {
+  detectRoleGroupByPosition,
+  hashPassword,
+  accountService,
+  getStoredUserPassword,
   setStoredUserPassword,
-  getStoredUserCustomPermissions,
-  setStoredUserCustomPermissions,
-  syncPermissionsFromServer,
   getLiveUserPermissionsFromFirestore,
-  getTeacherKeyAliases
+  subscribeUserLivePermissions,
+  subscribeRoleGroupConfigsVersion
 } from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
 export interface AppUser extends User {
+  firebaseUid?: string;
   roleGroup?: RoleGroupCode;
   accountStatus?: 'Đang hoạt động' | 'Đã khóa' | 'Vô hiệu hóa' | 'Chưa có tài khoản';
   hasCustomPermissions?: boolean;
-  customPermissions?: any;
+  customPermissions?: Partial<ModulePermissionsMap>;
   teacherCode?: string;
   departmentName?: string;
   lastLoginAt?: string;
@@ -33,10 +31,14 @@ export interface AppUser extends User {
 interface AuthContextType {
   user: AppUser | null;
   authLoading: boolean;
+  permissionsReady: boolean;
+  permissionsVersion: number;
+  permissionSyncError: string | null;
   isAdmin: boolean;
   login: (username: string, password?: string) => Promise<boolean>;
   logout: () => void;
   updateUser: (data: Partial<AppUser>) => Promise<void>;
+  refreshPermissions: () => Promise<void>;
   changePassword: (oldPass: string, newPass: string) => Promise<{ success: boolean; message: string }>;
   switchRoleForDemo?: (role: Role | RoleGroupCode) => void;
   error: string | null;
@@ -48,30 +50,143 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Session lifetime: 8 hours of active work
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
+function formatSyncError(code: string | null): string | null {
+  if (!code) return null;
+  if (code === 'resource-exhausted') {
+    return 'Cơ sở dữ liệu Firebase Firestore tạm thời đạt hạn mức đọc miễn phí trong ngày (Quota Exceeded). Hệ thống đang giữ nguyên phiên hiện tại; vui lòng làm mới lại sau khi hạn mức được mở lại.';
+  }
+  if (code === 'permission-denied') {
+    return 'Không thể đọc dữ liệu phân quyền từ Firebase Firestore (Permission Denied). Vui lòng liên hệ Quản trị viên kiểm tra Firebase Security Rules.';
+  }
+  return 'Không thể đồng bộ phân quyền mới nhất từ máy chủ Firebase. Vui lòng kiểm tra kết nối mạng và tải lại trang.';
+}
+
+function clearLegacyLocalCaches(): void {
+  try {
+    localStorage.removeItem('authUser');
+    localStorage.removeItem('authSessionExpiry');
+    localStorage.removeItem('custom_user_permissions_map');
+    localStorage.removeItem('cached_user_accounts');
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [permissionsReady, setPermissionsReady] = useState<boolean>(false);
+  const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
+  const [permissionSyncError, setPermissionSyncError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const userRef = useRef<AppUser | null>(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const clearError = () => setError(null);
 
-  // Restore user from sessionStorage if exists, enforce session expiration, and refresh live permissions
+  const bumpPermissionsVersion = useCallback(() => {
+    setPermissionsVersion((v) => v + 1);
+  }, []);
+
+  // Re-render permission consumers whenever Firestore role_group_configs updates
   useEffect(() => {
+    return subscribeRoleGroupConfigsVersion(() => {
+      bumpPermissionsVersion();
+    });
+  }, [bumpPermissionsVersion]);
+
+  const forceLogoutWithReason = useCallback((reason: string) => {
+    setUser(null);
+    setPermissionsReady(true);
+    setPermissionSyncError(null);
+    try {
+      sessionStorage.removeItem('authUser');
+      sessionStorage.removeItem('authSessionExpiry');
+      sessionStorage.clear();
+    } catch {
+      // ignore
+    }
+    clearLegacyLocalCaches();
+    setError(reason);
+    bumpPermissionsVersion();
+  }, [bumpPermissionsVersion]);
+
+  // Manual or programmatic fresh sync from Firestore
+  const refreshPermissions = useCallback(async () => {
+    const current = userRef.current;
+    if (!current || !current.id) return;
+    if (current.id === 'admin' || normalizeIdentifier(current.username) === 'admin') {
+      await accountService.loadRoleGroupConfigs(true).catch(() => {});
+      setPermissionsReady(true);
+      setPermissionSyncError(null);
+      bumpPermissionsVersion();
+      return;
+    }
+
+    const [, livePerms] = await Promise.all([
+      accountService.loadRoleGroupConfigs(true).catch(() => {}),
+      getLiveUserPermissionsFromFirestore(current.id, current.username, current.teacherCode, {
+        firebaseUid: current.firebaseUid || auth.currentUser?.uid,
+        email: current.email,
+        forceServer: true
+      })
+    ]);
+
+    if (livePerms.accountStatus === 'Đã khóa' || livePerms.accountStatus === 'Vô hiệu hóa') {
+      forceLogoutWithReason(
+        `Tài khoản "${current.username}" đã bị ${livePerms.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
+      );
+      return;
+    }
+
+    if (livePerms.errorCode === null) {
+      setPermissionSyncError(null);
+      const acc = livePerms.accountData;
+      const freshUser: AppUser = {
+        ...current,
+        firebaseUid: acc?.firebaseUid || current.firebaseUid || auth.currentUser?.uid,
+        name: acc?.fullName || current.name,
+        roleGroup: livePerms.roleGroup || acc?.roleGroup || current.roleGroup,
+        accountStatus: livePerms.accountStatus || acc?.status || current.accountStatus,
+        hasCustomPermissions: livePerms.hasCustom,
+        customPermissions: livePerms.hasCustom && livePerms.permissions ? livePerms.permissions : undefined,
+        position: acc?.position || current.position,
+        departmentName: acc?.departmentName || current.departmentName
+      };
+      setUser(freshUser);
+      try {
+        sessionStorage.setItem('authUser', JSON.stringify(freshUser));
+      } catch {
+        // ignore
+      }
+    } else {
+      setPermissionSyncError(formatSyncError(livePerms.errorCode));
+    }
+
+    setPermissionsReady(true);
+    bumpPermissionsVersion();
+  }, [bumpPermissionsVersion, forceLogoutWithReason]);
+
+  // Restore user from sessionStorage if exists, enforce session expiration, and await authoritative Firestore permissions
+  useEffect(() => {
+    let cancelled = false;
+
     const initAuth = async () => {
       try {
-        // Clear any legacy localStorage to prevent unauthorized persistent auto-login across sessions/Vercel
-        localStorage.removeItem('authUser');
-        localStorage.removeItem('authSessionExpiry');
-
-        // Synchronize canonical & customized permissions from server (ensures web export consistency)
-        await syncPermissionsFromServer();
+        // Always purge legacy localStorage caches so permissions can NEVER be read from stale browser storage
+        clearLegacyLocalCaches();
 
         const stored = sessionStorage.getItem('authUser');
         const sessionExpiryStr = sessionStorage.getItem('authSessionExpiry');
-        
+
         if (!stored) {
-          // Mandatory login: User is null when not authenticated
-          setUser(null);
+          if (!cancelled) {
+            setUser(null);
+            setPermissionsReady(true);
+          }
           return;
         }
 
@@ -82,108 +197,172 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.warn('User session expired. Logging out.');
             sessionStorage.removeItem('authUser');
             sessionStorage.removeItem('authSessionExpiry');
-            setUser(null);
-            setError('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+            if (!cancelled) {
+              setUser(null);
+              setPermissionsReady(true);
+              setError('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+            }
             return;
           }
         }
 
         const initialUser: AppUser = JSON.parse(stored);
-        
-        // Ensure initialUser has custom permissions from custom_user_permissions_map if missing
-        if (!initialUser.hasCustomPermissions || !initialUser.customPermissions) {
-          const customMap = getStoredUserCustomPermissions();
-          const uId = (initialUser.id || '').toLowerCase().trim();
-          const uName = (initialUser.username || '').toLowerCase().trim();
-          const uCode = (initialUser.teacherCode || '').toLowerCase().trim();
-          
-          const aliases = new Set<string>([uId, uName, uCode].filter(Boolean));
-          [uId, uName, uCode].filter(Boolean).forEach(k => getTeacherKeyAliases(k).forEach(a => aliases.add(a)));
 
-          let p: any = null;
-          for (const alias of Array.from(aliases)) {
-            if (customMap[alias] && Object.keys(customMap[alias]).length > 0) {
-              p = customMap[alias];
-              break;
-            }
+        if (initialUser.id === 'admin' || normalizeIdentifier(initialUser.username) === 'admin') {
+          await accountService.loadRoleGroupConfigs(true).catch(() => {});
+          if (!cancelled) {
+            setUser(initialUser);
+            setPermissionsReady(true);
+            setPermissionSyncError(null);
+            bumpPermissionsVersion();
           }
-
-          if (p && Object.keys(p).length > 0) {
-            initialUser.hasCustomPermissions = true;
-            initialUser.customPermissions = p;
-          }
+          return;
         }
-        setUser(initialUser);
 
-        // Preload any custom role group configurations into memory
-        accountService.loadRoleGroupConfigs().catch(() => {});
+        // Keep user authenticated while awaiting fresh Firestore permissions BEFORE unlocking PermissionGuard
+        if (!cancelled) {
+          setUser(initialUser);
+          setPermissionsReady(false);
+        }
 
-        // Live refresh from Firestore in background (so F5 never uses stale status or permissions)
-        if (initialUser && initialUser.id) {
+        // Fetch authoritative role_group_configs AND live user permissions directly from Firestore server
+        const [, livePerms] = await Promise.all([
+          accountService.loadRoleGroupConfigs(true).catch(() => {}),
+          getLiveUserPermissionsFromFirestore(initialUser.id, initialUser.username, initialUser.teacherCode, {
+            firebaseUid: initialUser.firebaseUid || auth.currentUser?.uid,
+            email: initialUser.email,
+            forceServer: true
+          })
+        ]);
+
+        if (cancelled) return;
+
+        // Enforce real-time account lock / deactivation
+        if (livePerms.accountStatus === 'Đã khóa' || livePerms.accountStatus === 'Vô hiệu hóa') {
+          forceLogoutWithReason(
+            `Tài khoản "${initialUser.username}" đã bị ${livePerms.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
+          );
+          return;
+        }
+
+        if (livePerms.errorCode === null) {
+          // Authoritative Firestore response: strictly apply Firestore permissions (never preserve revoked session permissions)
+          const acc = livePerms.accountData;
+          const freshUser: AppUser = {
+            ...initialUser,
+            firebaseUid: acc?.firebaseUid || initialUser.firebaseUid || auth.currentUser?.uid,
+            name: acc?.fullName || initialUser.name,
+            roleGroup: livePerms.roleGroup || acc?.roleGroup || initialUser.roleGroup,
+            accountStatus: livePerms.accountStatus || acc?.status || initialUser.accountStatus,
+            hasCustomPermissions: livePerms.hasCustom,
+            customPermissions: livePerms.hasCustom && livePerms.permissions ? livePerms.permissions : undefined,
+            position: acc?.position || initialUser.position,
+            departmentName: acc?.departmentName || initialUser.departmentName
+          };
+          setUser(freshUser);
+          setPermissionSyncError(null);
           try {
-            // First check live permissions directly
-            const livePerms = await getLiveUserPermissionsFromFirestore(
-              initialUser.id,
-              initialUser.username,
-              initialUser.teacherCode
-            );
-
-            let d: any = null;
-            const accDoc = await getDoc(doc(db, 'user_accounts', initialUser.id));
-            if (accDoc.exists()) {
-              d = accDoc.data();
-            } else if (initialUser.username) {
-              const qAcc = query(collection(db, 'user_accounts'), where('username', '==', initialUser.username.toLowerCase()));
-              const snap = await getDocs(qAcc);
-              if (!snap.empty) {
-                d = snap.docs[0].data();
-              }
-            }
-
-            if (d) {
-              // Check if account has been locked or deactivated
-              if (d.status === 'Đã khóa' || d.status === 'Vô hiệu hóa') {
-                console.warn(`Tài khoản ${d.username} đang ở trạng thái ${d.status}. Chấm dứt phiên.`);
-                setUser(null);
-                sessionStorage.removeItem('authUser');
-                sessionStorage.removeItem('authSessionExpiry');
-                setError(`Tài khoản "${d.username}" đã bị ${d.status.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`);
-                return;
-              }
-            }
-
-            const hasCust = livePerms.hasCustom || !!(d?.hasCustomPermissions || (d?.customPermissions && Object.keys(d.customPermissions).length > 0));
-            const custPerm = livePerms.permissions || d?.customPermissions || initialUser.customPermissions || null;
-
-            const freshUser: AppUser = {
-              ...initialUser,
-              name: d?.fullName || initialUser.name,
-              roleGroup: d?.roleGroup || initialUser.roleGroup,
-              accountStatus: d?.status || initialUser.accountStatus,
-              hasCustomPermissions: hasCust,
-              customPermissions: hasCust ? custPerm : undefined,
-              position: d?.position || initialUser.position,
-              departmentName: d?.departmentName || initialUser.departmentName
-            };
-            setUser(freshUser);
             sessionStorage.setItem('authUser', JSON.stringify(freshUser));
-          } catch (fetchErr) {
-            console.warn('Could not refresh user permissions from Firestore:', fetchErr);
+          } catch {
+            // ignore
           }
+        } else {
+          // Firestore temporarily unavailable / quota exceeded: surface warning clearly without silently dropping verified session
+          setPermissionSyncError(formatSyncError(livePerms.errorCode));
         }
+
+        setPermissionsReady(true);
+        bumpPermissionsVersion();
       } catch (e) {
         console.error('Error initializing auth:', e);
-        setUser(null);
+        if (!cancelled) {
+          setUser(null);
+          setPermissionsReady(true);
+        }
       } finally {
-        setAuthLoading(false);
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
       }
     };
 
     initAuth();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [bumpPermissionsVersion, forceLogoutWithReason]);
 
-  const doSuccessfulLogin = async (cleanUsername: string, extraDocData?: any): Promise<boolean> => {
-    if (cleanUsername === 'admin') {
+  // Real-time Firestore listener so Admin permission grants/revokes propagate IMMEDIATELY to active user sessions
+  useEffect(() => {
+    if (!user?.id) return;
+    if (user.id === 'admin' || normalizeIdentifier(user.username) === 'admin') return;
+
+    const unsub = subscribeUserLivePermissions(
+      {
+        userId: user.id,
+        firebaseUid: user.firebaseUid || auth.currentUser?.uid,
+        username: user.username,
+        teacherCode: user.teacherCode,
+        email: user.email,
+        roleGroup: user.roleGroup
+      },
+      (update) => {
+        if (update.accountStatus === 'Đã khóa' || update.accountStatus === 'Vô hiệu hóa') {
+          forceLogoutWithReason(
+            `Tài khoản "${user.username}" đã bị ${update.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
+          );
+          return;
+        }
+
+        setPermissionSyncError(null);
+        setUser((prev) => {
+          if (!prev || prev.id !== user.id) return prev;
+          const nextHasCustom =
+            update.hasCustom !== undefined ? update.hasCustom : prev.hasCustomPermissions;
+          const nextCustomPerms =
+            update.hasCustom !== undefined
+              ? update.hasCustom && update.permissions
+                ? update.permissions
+                : undefined
+              : prev.customPermissions;
+
+          const nextUser: AppUser = {
+            ...prev,
+            name: update.fullName || prev.name,
+            roleGroup: update.roleGroup || prev.roleGroup,
+            accountStatus: update.accountStatus || prev.accountStatus,
+            position: update.position || prev.position,
+            departmentName: update.departmentName || prev.departmentName,
+            hasCustomPermissions: nextHasCustom,
+            customPermissions: nextCustomPerms
+          };
+
+          try {
+            sessionStorage.setItem('authUser', JSON.stringify(nextUser));
+          } catch {
+            // ignore
+          }
+          return nextUser;
+        });
+        setPermissionsReady(true);
+        bumpPermissionsVersion();
+      },
+      (errCode) => {
+        setPermissionSyncError(formatSyncError(errCode));
+      }
+    );
+
+    return () => {
+      unsub();
+    };
+  }, [user?.id, user?.username, user?.teacherCode, user?.firebaseUid, user?.email, user?.roleGroup, bumpPermissionsVersion, forceLogoutWithReason]);
+
+  const doSuccessfulLogin = async (cleanIdentifier: string, extraDocData?: any): Promise<boolean> => {
+    clearLegacyLocalCaches();
+    setPermissionSyncError(null);
+
+    if (cleanIdentifier === 'admin') {
+      await accountService.loadRoleGroupConfigs(true).catch(() => {});
       const adminUser: AppUser = {
         id: 'admin',
         name: 'Quản trị viên Hệ thống',
@@ -196,85 +375,108 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
       setUser(adminUser);
+      setPermissionsReady(true);
       sessionStorage.setItem('authUser', JSON.stringify(adminUser));
       sessionStorage.setItem('authSessionExpiry', String(expiryTime));
+      bumpPermissionsVersion();
       return true;
     }
 
-    const foundDefaultTeacher = DEFAULT_TEACHERS.find(t => 
-      t.username && String(t.username).trim().toLowerCase() === cleanUsername
+    const emailLookup = normalizeEmail(cleanIdentifier);
+    const foundDefaultTeacher = DEFAULT_TEACHERS.find(
+      (t) =>
+        (t.username && normalizeIdentifier(t.username) === cleanIdentifier) ||
+        (t.code && normalizeIdentifier(t.code) === cleanIdentifier) ||
+        (emailLookup && t.email && normalizeEmail(t.email) === emailLookup)
     );
-    const foundByName = !foundDefaultTeacher ? DEFAULT_TEACHERS.find(t => 
-      (t.code && t.code.toLowerCase() === cleanUsername) ||
-      (t.name && t.name.toLowerCase().includes(cleanUsername))
-    ) : null;
 
-    const teacher = foundDefaultTeacher || foundByName;
+    const teacher = foundDefaultTeacher || null;
+    const currentFirebaseUid = auth.currentUser?.uid || extraDocData?.firebaseUid;
 
-    if (teacher) {
-      if (teacher.accountStatus === 'Đã khóa') {
-        setError('Tài khoản của thầy/cô đã bị khóa. Vui lòng liên hệ Ban Giám hiệu.');
+    if (teacher || extraDocData) {
+      const canonicalId = String(extraDocData?.id || teacher?.id || cleanIdentifier).trim();
+      const canonicalUsername = normalizeIdentifier(
+        extraDocData?.username || teacher?.username || cleanIdentifier
+      );
+      const canonicalCode = String(extraDocData?.teacherCode || teacher?.code || '').trim();
+      const canonicalEmail = normalizeEmail(extraDocData?.email || teacher?.email);
+
+      // Load fresh role-group matrix AND authoritative live user permissions from Firestore before completing login
+      const [, livePerms] = await Promise.all([
+        accountService.loadRoleGroupConfigs(true).catch(() => {}),
+        getLiveUserPermissionsFromFirestore(canonicalId, canonicalUsername, canonicalCode, {
+          firebaseUid: currentFirebaseUid,
+          email: canonicalEmail,
+          forceServer: true
+        })
+      ]);
+
+      const accFromLive = livePerms.accountData;
+      const effectiveStatus =
+        livePerms.accountStatus ||
+        accFromLive?.status ||
+        extraDocData?.status ||
+        extraDocData?.accountStatus ||
+        teacher?.accountStatus ||
+        'Đang hoạt động';
+
+      if (effectiveStatus === 'Đã khóa' || effectiveStatus === 'Vô hiệu hóa') {
+        setError(
+          `Tài khoản của thầy/cô hiện đang ở trạng thái "${effectiveStatus}". Vui lòng liên hệ Ban Giám hiệu hoặc Quản trị viên.`
+        );
         return false;
       }
-      const roleGroup = detectRoleGroupByPosition(teacher.position, teacher.departmentId);
-      
-      const tId = teacher.id;
-      const tUser = (teacher.username || cleanUsername).toLowerCase().trim();
-      const tCode = teacher.code ? teacher.code.toLowerCase().trim() : '';
 
-      // Direct Firestore fetch of user permissions
-      const livePerms = await getLiveUserPermissionsFromFirestore(tId, tUser, tCode);
-      const customPermsFromDoc = extraDocData?.customPermissions || null;
-      const finalCustomPerms = livePerms.permissions || customPermsFromDoc || null;
-      const hasCustom = livePerms.hasCustom || !!(extraDocData?.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
+      if (livePerms.errorCode) {
+        setPermissionSyncError(formatSyncError(livePerms.errorCode));
+      }
 
-      const appUser: AppUser = {
-        id: teacher.id,
-        name: teacher.name,
-        username: teacher.username || cleanUsername,
-        role: teacher.role || 'GIAO_VIEN',
-        roleGroup,
-        position: teacher.position || 'Giáo viên',
-        departmentId: teacher.departmentId,
-        departmentName: teacher.departmentName,
-        accountStatus: teacher.accountStatus || 'Đang hoạt động',
-        teacherCode: teacher.code,
-        email: teacher.email,
-        phone: teacher.phone,
-        hasCustomPermissions: hasCustom,
-        customPermissions: hasCustom ? finalCustomPerms : undefined
-      };
-      const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
-      setUser(appUser);
-      sessionStorage.setItem('authUser', JSON.stringify(appUser));
-      sessionStorage.setItem('authSessionExpiry', String(expiryTime));
-      return true;
-    }
+      const detectedRoleGroup = detectRoleGroupByPosition(
+        accFromLive?.position || extraDocData?.position || teacher?.position,
+        accFromLive?.departmentId || extraDocData?.departmentId || teacher?.departmentId
+      );
+      const authoritativeRoleGroup: RoleGroupCode =
+        livePerms.roleGroup || accFromLive?.roleGroup || extraDocData?.roleGroup || detectedRoleGroup;
 
-    if (extraDocData) {
-      const eId = extraDocData.id || cleanUsername;
-      const livePerms = await getLiveUserPermissionsFromFirestore(eId, cleanUsername, extraDocData.teacherCode);
-      const finalCustomPerms = livePerms.permissions || extraDocData.customPermissions || null;
-      const hasCustom = livePerms.hasCustom || !!(extraDocData.hasCustomPermissions || (finalCustomPerms && Object.keys(finalCustomPerms).length > 0));
+      // Authoritative permissions: prefer live Firestore result; fallback to Firestore extraDocData only if live read found no record
+      let hasCustom = false;
+      let finalCustomPerms: Partial<ModulePermissionsMap> | undefined = undefined;
+      if (livePerms.errorCode === null && livePerms.source !== 'none') {
+        hasCustom = livePerms.hasCustom;
+        finalCustomPerms = livePerms.hasCustom && livePerms.permissions ? livePerms.permissions : undefined;
+      } else if (extraDocData) {
+        const extraValid =
+          Boolean(extraDocData.hasCustomPermissions) &&
+          Boolean(extraDocData.customPermissions) &&
+          Object.keys(extraDocData.customPermissions).length > 0;
+        hasCustom = extraValid;
+        finalCustomPerms = extraValid ? extraDocData.customPermissions : undefined;
+      }
 
       const appUser: AppUser = {
-        id: eId,
-        name: extraDocData.fullName || extraDocData.name || cleanUsername,
-        username: cleanUsername,
-        role: extraDocData.role || 'GIAO_VIEN',
-        roleGroup: extraDocData.roleGroup || detectRoleGroupByPosition(extraDocData.position, extraDocData.departmentId),
-        position: extraDocData.position || 'Giáo viên',
-        departmentId: extraDocData.departmentId,
-        departmentName: extraDocData.departmentName,
-        accountStatus: extraDocData.status || extraDocData.accountStatus || 'Đang hoạt động',
-        teacherCode: extraDocData.teacherCode,
+        id: canonicalId,
+        firebaseUid: accFromLive?.firebaseUid || currentFirebaseUid,
+        name: accFromLive?.fullName || extraDocData?.fullName || extraDocData?.name || teacher?.name || canonicalUsername,
+        username: canonicalUsername,
+        role: (extraDocData?.role || teacher?.role || 'GIAO_VIEN') as Role,
+        roleGroup: authoritativeRoleGroup,
+        position: accFromLive?.position || extraDocData?.position || teacher?.position || 'Giáo viên',
+        departmentId: accFromLive?.departmentId || extraDocData?.departmentId || teacher?.departmentId,
+        departmentName: accFromLive?.departmentName || extraDocData?.departmentName || teacher?.departmentName,
+        accountStatus: effectiveStatus as AppUser['accountStatus'],
+        teacherCode: canonicalCode || undefined,
+        email: accFromLive?.email || extraDocData?.email || teacher?.email,
+        phone: accFromLive?.phone || extraDocData?.phone || teacher?.phone,
         hasCustomPermissions: hasCustom,
-        customPermissions: hasCustom ? finalCustomPerms : undefined
+        customPermissions: finalCustomPerms
       };
+
       const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
       setUser(appUser);
+      setPermissionsReady(true);
       sessionStorage.setItem('authUser', JSON.stringify(appUser));
       sessionStorage.setItem('authSessionExpiry', String(expiryTime));
+      bumpPermissionsVersion();
       return true;
     }
 
@@ -284,7 +486,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (usernameInput: string, passwordInput?: string): Promise<boolean> => {
     setError(null);
-    const cleanUsername = usernameInput.trim().toLowerCase();
+    const cleanUsername = normalizeIdentifier(usernameInput);
     if (!cleanUsername) {
       setError('Vui lòng nhập tên đăng nhập.');
       return false;
@@ -298,63 +500,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const inputPasswordTrim = passwordInput.trim();
     const hashedInput = await hashPassword(inputPasswordTrim);
 
-    // Sync latest matrix permissions so login immediately receives customized permissions
-    await syncPermissionsFromServer();
-
     let matchedDocData: any = null;
 
-    // 1. Check custom changed password in localStorage cache (0ms instant)
+    // 1. Check custom changed password cache (only password hash — permissions are ALWAYS fetched live from Firestore in doSuccessfulLogin)
     const customPass = getStoredUserPassword(cleanUsername);
     if (customPass) {
-      const isCustomMatch = (
+      const isCustomMatch =
         inputPasswordTrim === customPass.plain ||
         inputPasswordTrim === customPass.hash ||
-        hashedInput === customPass.hash
-      );
+        hashedInput === customPass.hash;
 
       if (isCustomMatch) {
         return await doSuccessfulLogin(cleanUsername);
       }
     }
 
-    // 2. Query Firestore user_accounts & teachers to check if password was updated on Firestore
+    // 2. Query Firestore user_accounts & teachers (6s timeout to prevent premature drops on Vercel cold starts)
     try {
       const checkFirestoreAuthPromise = async (): Promise<boolean> => {
         if (cleanUsername === 'admin') {
           const accAdminDoc = await getDoc(doc(db, 'user_accounts', 'admin'));
           if (accAdminDoc.exists()) {
-            matchedDocData = accAdminDoc.data();
+            matchedDocData = { id: accAdminDoc.id, ...accAdminDoc.data() };
           }
         } else {
           const qAcc = query(collection(db, 'user_accounts'), where('username', '==', cleanUsername));
           const snapAcc = await getDocs(qAcc);
           if (!snapAcc.empty) {
-            matchedDocData = snapAcc.docs[0].data();
+            matchedDocData = { id: snapAcc.docs[0].id, ...snapAcc.docs[0].data() };
+          } else if (cleanUsername.includes('@')) {
+            const qEmail = query(
+              collection(db, 'user_accounts'),
+              where('normalizedEmail', '==', normalizeEmail(cleanUsername))
+            );
+            const snapEmail = await getDocs(qEmail);
+            if (!snapEmail.empty) {
+              matchedDocData = { id: snapEmail.docs[0].id, ...snapEmail.docs[0].data() };
+            }
           } else {
             const accDirect = await getDoc(doc(db, 'user_accounts', cleanUsername));
             if (accDirect.exists()) {
-              matchedDocData = accDirect.data();
+              matchedDocData = { id: accDirect.id, ...accDirect.data() };
             } else {
               const qTea = query(collection(db, 'teachers'), where('username', '==', cleanUsername));
               const snapTea = await getDocs(qTea);
               if (!snapTea.empty) {
-                matchedDocData = snapTea.docs[0].data();
+                matchedDocData = { id: snapTea.docs[0].id, ...snapTea.docs[0].data() };
               }
             }
           }
         }
 
         if (matchedDocData) {
-          const storedPass = matchedDocData.password || matchedDocData.accountPassword || matchedDocData.plainPassword;
+          const storedPass =
+            matchedDocData.password || matchedDocData.accountPassword || matchedDocData.plainPassword;
           const storedPlain = matchedDocData.plainPassword;
           if (storedPass || storedPlain) {
-            const isMatch = (
+            const isMatch =
               inputPasswordTrim === storedPass ||
               hashedInput === storedPass ||
-              (storedPlain && inputPasswordTrim === storedPlain)
-            );
+              (storedPlain && inputPasswordTrim === storedPlain);
             if (isMatch) {
-              // Store locally so subsequent logins are 0ms instant
               setStoredUserPassword(cleanUsername, inputPasswordTrim, hashedInput);
               return true;
             }
@@ -363,7 +569,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       };
 
-      const timeoutP = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1200));
+      const timeoutP = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 6000));
       const isFirestoreMatched = await Promise.race([checkFirestoreAuthPromise(), timeoutP]);
       if (isFirestoreMatched) {
         return await doSuccessfulLogin(cleanUsername, matchedDocData);
@@ -372,34 +578,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.warn('Firestore password check warning:', e);
     }
 
-    // 3. Check default passwords (if password has NOT been changed)
+    // 3. Check default passwords (only if password has NOT been changed)
     let isDefaultMatch = false;
     if (cleanUsername === 'admin') {
       if (inputPasswordTrim === 'admin' || inputPasswordTrim === '123456') {
         isDefaultMatch = true;
       }
     } else {
-      const foundDefaultTeacher = DEFAULT_TEACHERS.find(t => 
-        t.username && String(t.username).trim().toLowerCase() === cleanUsername
+      const foundDefaultTeacher = DEFAULT_TEACHERS.find(
+        (t) =>
+          (t.username && normalizeIdentifier(t.username) === cleanUsername) ||
+          (t.code && normalizeIdentifier(t.code) === cleanUsername) ||
+          (t.email && normalizeEmail(t.email) === normalizeEmail(cleanUsername))
       );
       if (foundDefaultTeacher) {
         const storedPass = foundDefaultTeacher.accountPassword || foundDefaultTeacher.password || '123456';
         if (storedPass === inputPasswordTrim || inputPasswordTrim === '123456' || inputPasswordTrim === 'admin') {
           isDefaultMatch = true;
         }
-      } else {
-        const foundByName = DEFAULT_TEACHERS.find(t => 
-          (t.code && t.code.toLowerCase() === cleanUsername) ||
-          (t.name && t.name.toLowerCase().includes(cleanUsername))
-        );
-        if (foundByName) {
-          isDefaultMatch = true;
-        }
       }
     }
 
     if (isDefaultMatch) {
-      // If user had changed password previously, don't allow default password anymore
       if (customPass) {
         setError('Mật khẩu không chính xác. Thầy/Cô đã thay đổi mật khẩu, vui lòng nhập mật khẩu mới.');
         return false;
@@ -407,7 +607,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await doSuccessfulLogin(cleanUsername, matchedDocData);
     }
 
-    // 4. If nothing matched
     if (customPass) {
       setError('Mật khẩu không chính xác. Thầy/Cô đã thay đổi mật khẩu, vui lòng nhập mật khẩu mới.');
     } else {
@@ -418,29 +617,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUser = async (data: Partial<AppUser>) => {
     if (!user) return;
-    const updatedUser = { ...user, ...data };
+    // Prevent client-side profile updates from mutating authoritative RBAC fields directly
+    const { role: _r, roleGroup: _rg, hasCustomPermissions: _hc, customPermissions: _cp, ...safeData } = data;
+    const updatedUser = { ...user, ...safeData };
     setUser(updatedUser);
     sessionStorage.setItem('authUser', JSON.stringify(updatedUser));
 
     try {
       if (user.id === 'admin') {
         const adminRef = doc(db, 'settings', 'admin_profile');
-        await setDoc(adminRef, {
-          name: updatedUser.name,
-          avatar: updatedUser.avatar || '',
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
+        await setDoc(
+          adminRef,
+          {
+            name: updatedUser.name,
+            avatar: updatedUser.avatar || '',
+            updatedAt: new Date().toISOString()
+          },
+          { merge: true }
+        );
       } else if (user.id) {
         const teacherRef = doc(db, 'teachers', user.id);
         const updatePayload: Record<string, any> = {};
-        if (data.avatar !== undefined) updatePayload.avatar = data.avatar;
-        if (data.name !== undefined) updatePayload.name = data.name;
+        if (safeData.avatar !== undefined) updatePayload.avatar = safeData.avatar;
+        if (safeData.name !== undefined) updatePayload.name = safeData.name;
         if (Object.keys(updatePayload).length > 0) {
           await updateDoc(teacherRef, updatePayload);
         }
       }
     } catch (err) {
-      console.warn("Could not sync user profile update to Firestore:", err);
+      console.warn('Could not sync user profile update to Firestore:', err);
     }
   };
 
@@ -449,8 +654,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return await accountService.changePassword(user.username, oldPass, newPass, user.name);
   };
 
+  const isAdmin = Boolean(
+    user?.id === 'admin' ||
+      normalizeIdentifier(user?.username) === 'admin' ||
+      user?.role === 'admin' ||
+      user?.role === 'ADMIN' ||
+      user?.roleGroup === 'ADMIN'
+  );
+
+  // Hardened: ONLY true system administrators may simulate another role for preview;
+  // regular teachers/staff can NEVER escalate privileges client-side.
   const switchRoleForDemo = (newRole: Role | RoleGroupCode) => {
-    if (!user) return;
+    if (!user || !isAdmin) {
+      console.warn('Blocked unauthorized role switch attempt.');
+      return;
+    }
     const rg = (newRole === 'admin' ? 'ADMIN' : newRole) as RoleGroupCode;
     const updated = {
       ...user,
@@ -459,29 +677,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     setUser(updated);
     sessionStorage.setItem('authUser', JSON.stringify(updated));
+    bumpPermissionsVersion();
   };
 
   const logout = () => {
     setUser(null);
-    sessionStorage.removeItem('authUser');
-    sessionStorage.removeItem('authSessionExpiry');
-    sessionStorage.clear();
-    localStorage.removeItem('authUser');
-    localStorage.removeItem('authSessionExpiry');
-    localStorage.removeItem('custom_user_permissions_map');
-    localStorage.removeItem('cached_user_accounts');
+    setPermissionsReady(false);
+    setPermissionSyncError(null);
+    try {
+      sessionStorage.removeItem('authUser');
+      sessionStorage.removeItem('authSessionExpiry');
+      sessionStorage.clear();
+    } catch {
+      // ignore
+    }
+    clearLegacyLocalCaches();
+    bumpPermissionsVersion();
   };
 
-  const isAdmin = Boolean(
-    user?.id === 'admin' || 
-    user?.username === 'admin' || 
-    user?.role === 'admin' || 
-    user?.role === 'ADMIN' || 
-    user?.roleGroup === 'ADMIN'
-  );
-
   return (
-    <AuthContext.Provider value={{ user, authLoading, isAdmin, login, logout, updateUser, changePassword, switchRoleForDemo, error, clearError }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        authLoading,
+        permissionsReady,
+        permissionsVersion,
+        permissionSyncError,
+        isAdmin,
+        login,
+        logout,
+        updateUser,
+        refreshPermissions,
+        changePassword,
+        switchRoleForDemo,
+        error,
+        clearError
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

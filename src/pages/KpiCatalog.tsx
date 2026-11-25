@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { canEditOrDelete } from '../utils/envUtils';
 import { useAppContext } from '../store/AppContext';
 import { useAuth } from '../store/AuthContext';
+import { usePermission } from '../hooks/usePermission';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import Avatar from '../components/ui/Avatar';
@@ -146,11 +147,21 @@ export default function KpiCatalog() {
   // Tab: 'catalog' | 'tracking' | 'records'
   const [activeTab, setActiveTab] = useState<'catalog' | 'tracking' | 'records'>('catalog');
 
-  // Permissions (Allow BGH, admin, or fallback for testing)
-  const isBghOrAdmin = !user || user.role === 'BGH' || (user as any).role === 'ADMIN' || user.id === 'admin';
-  const isTtcm = user?.role === 'TTCM';
-  const canManageCatalog = canEditOrDelete() && isBghOrAdmin;
-  const canAssignOrVerify = isBghOrAdmin || isTtcm;
+  // Permissions strictly driven by Firestore RBAC matrix (`kpi_catalog`)
+  const {
+    isAdmin: isSystemAdmin,
+    isBGH,
+    isTTCM,
+    canCreate,
+    canEdit,
+    canApprove
+  } = usePermission();
+  const isBghOrAdmin = isSystemAdmin || isBGH;
+  const isTtcm = isTTCM;
+  const canManageCatalog =
+    canEditOrDelete() && (isSystemAdmin || canCreate('kpi_catalog') || canEdit('kpi_catalog'));
+  const canAssignOrVerify =
+    isSystemAdmin || canCreate('kpi_catalog') || canApprove('kpi_catalog');
 
   // Catalog filters
   const [searchTerm, setSearchTerm] = useState('');

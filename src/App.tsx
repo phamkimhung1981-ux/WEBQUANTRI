@@ -41,8 +41,20 @@ import {
 import { logClientError, ClientErrorRecord } from './utils/errorLogger';
 
 function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; children: React.ReactNode }) {
-  const { canAccessModule, isAdmin } = usePermission();
-  if (isAdmin || moduleCode === 'home' || canAccessModule(moduleCode)) {
+  const { canAccessModule, isAdmin, permissionsReady } = usePermission();
+  if (isAdmin || moduleCode === 'home') {
+    return <>{children}</>;
+  }
+  if (!permissionsReady) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-3" />
+        <p className="text-sm font-bold text-slate-700">Đang đồng bộ phân quyền tài khoản từ máy chủ...</p>
+        <p className="text-xs text-slate-400 mt-1">Vui lòng chờ trong giây lát</p>
+      </div>
+    );
+  }
+  if (canAccessModule(moduleCode)) {
     return <>{children}</>;
   }
   return (
@@ -77,7 +89,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { user, authLoading } = useAuth();
+  const { user, authLoading, permissionSyncError, refreshPermissions } = useAuth();
+  const [dismissedSyncError, setDismissedSyncError] = React.useState<string | null>(null);
 
   if (authLoading) {
     return (
@@ -98,8 +111,41 @@ function AppRoutes() {
     );
   }
 
+  const showSyncAlert = Boolean(permissionSyncError && permissionSyncError !== dismissedSyncError);
+
   return (
     <Layout>
+      {showSyncAlert && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-xs flex items-start justify-between gap-3"
+        >
+          <div className="flex items-start gap-2.5 text-xs leading-relaxed">
+            <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-900">Cảnh báo đồng bộ phân quyền từ máy chủ</p>
+              <p className="text-amber-800">{permissionSyncError}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => refreshPermissions()}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer"
+            >
+              <RefreshCw size={12} /> Thử lại
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedSyncError(permissionSyncError)}
+              aria-label="Đóng cảnh báo"
+              className="p-1 rounded-lg text-amber-700 hover:bg-amber-100 cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
       <Routes>
         <Route path="/" element={<PermissionGuard moduleCode="home"><Dashboard /></PermissionGuard>} />
         

@@ -63,7 +63,8 @@ export interface RoleGroupConfig {
 export type AccountStatus = 'Đang hoạt động' | 'Đã khóa' | 'Vô hiệu hóa';
 
 export interface AccountRecord {
-  id: string; // Matches teacher id or 'admin'
+  id: string; // Canonical account ID (matches teacher id, Firebase UID, or 'admin')
+  firebaseUid?: string; // Linked Firebase Authentication UID (if signed in via Firebase Auth)
   teacherId?: string;
   teacherCode?: string;
   fullName: string;
@@ -81,9 +82,44 @@ export interface AccountRecord {
   lastLoginAt?: string;
   avatar?: string;
   email?: string;
+  normalizedEmail?: string;
   phone?: string;
   lockReason?: string;
   deactivateReason?: string;
+}
+
+/**
+ * Standardized Firestore permission document stored in `user_custom_permissions/{canonicalId}`
+ */
+export interface UserPermissionDocument {
+  canonicalId: string;
+  userId: string;
+  firebaseUid?: string;
+  teacherId?: string;
+  username: string;
+  teacherCode?: string;
+  email?: string;
+  fullName?: string;
+  roleGroup?: RoleGroupCode;
+  hasCustomPermissions: boolean;
+  permissions: Partial<ModulePermissionsMap> | null;
+  updatedAt: string;
+  updatedBy: string;
+  schemaVersion?: number;
+}
+
+/**
+ * Normalize username / teacher code identifiers (trim + lowercase)
+ */
+export function normalizeIdentifier(value?: string | null): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+/**
+ * Normalize email addresses before comparison (trim + lowercase)
+ */
+export function normalizeEmail(value?: string | null): string {
+  return String(value ?? '').trim().toLowerCase();
 }
 
 export interface AccountAuditLog {

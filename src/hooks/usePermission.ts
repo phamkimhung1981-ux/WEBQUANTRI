@@ -1,33 +1,33 @@
 import { useMemo } from 'react';
 import { useAuth } from '../store/AuthContext';
-import { 
-  ModuleCode, 
-  PermissionAction, 
-  RoleGroupCode, 
-  DEFAULT_ROLE_GROUPS, 
+import {
+  ModuleCode,
+  PermissionAction,
+  RoleGroupCode,
+  DEFAULT_ROLE_GROUPS,
   ModuleActionPermissions,
-  SYSTEM_MODULES_LIST 
+  SYSTEM_MODULES_LIST,
+  normalizeIdentifier
 } from '../types/permission';
-import { detectRoleGroupByPosition, getStoredUserCustomPermissions, getTeacherKeyAliases } from '../services/accountService';
+import { detectRoleGroupByPosition } from '../services/accountService';
 
 export function usePermission() {
-  const { user } = useAuth();
+  const { user, permissionsReady, permissionsVersion, permissionSyncError } = useAuth();
 
   // True system administrator ONLY (admin user account)
   const isSystemAdmin = useMemo(() => {
     if (!user) return false;
-    const cleanUser = String(user.username || user.id || '').toLowerCase().trim();
-    return cleanUser === 'admin' || user.role === 'admin' || (user as any).roleGroup === 'ADMIN';
+    const cleanUser = normalizeIdentifier(user.username || user.id);
+    return cleanUser === 'admin' || user.role === 'admin' || user.role === 'ADMIN' || user.roleGroup === 'ADMIN';
   }, [user]);
 
-  // Determine user's effective role group
+  // Determine user's effective role group from authoritative Firestore user state
   const roleGroup: RoleGroupCode = useMemo(() => {
     if (!user) return 'TEACHER';
-    const cleanUser = String(user.username || user.id || '').toLowerCase().trim();
-    if (cleanUser === 'admin' || user.role === 'admin' || (user as any).roleGroup === 'ADMIN') {
+    const cleanUser = normalizeIdentifier(user.username || user.id);
+    if (cleanUser === 'admin' || user.role === 'admin' || user.role === 'ADMIN' || user.roleGroup === 'ADMIN') {
       return 'ADMIN';
     }
-    // Check if user has explicit accountRole or roleGroup
     const anyUser = user as any;
     if (anyUser.roleGroup && DEFAULT_ROLE_GROUPS[anyUser.roleGroup as RoleGroupCode]) {
       return anyUser.roleGroup as RoleGroupCode;
@@ -38,57 +38,27 @@ export function usePermission() {
     if (user.role === 'BGH') return 'BGH';
     if (user.role === 'TTCM') return 'TTCM';
 
-    // Fallback to position detection
     return detectRoleGroupByPosition(user.position, user.departmentId);
   }, [user]);
 
-  // Compute effective permissions for all modules
+  // Compute effective permissions strictly from Firestore-backed user state + Firestore-backed DEFAULT_ROLE_GROUPS.
+  // ZERO localStorage or static JSON reads.
   const effectivePermissions = useMemo(() => {
-    const anyUser = user as any;
-    let hasCustom = !!anyUser?.hasCustomPermissions;
-    let customPerms = anyUser?.customPermissions as Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
+    const hasCustom = Boolean(
+      user?.hasCustomPermissions &&
+        user?.customPermissions &&
+        Object.keys(user.customPermissions).length > 0
+    );
+    const customPerms = hasCustom
+      ? (user?.customPermissions as Partial<Record<ModuleCode, ModuleActionPermissions>>)
+      : undefined;
 
-    // Build comprehensive candidate keys for stored custom permissions map lookup
-    const uId = (user?.id || '').toLowerCase().trim();
-    const uName = (user?.username || '').toLowerCase().trim();
-    const uCode = (anyUser?.teacherCode || '').toLowerCase().trim();
-
-    const candidateKeysSet = new Set<string>();
-    [uId, uName, uCode].filter(Boolean).forEach(k => {
-      candidateKeysSet.add(k);
-      getTeacherKeyAliases(k).forEach(a => candidateKeysSet.add(a));
-    });
-
-    const storedMap = getStoredUserCustomPermissions();
-    let matchedFromMap: Partial<Record<ModuleCode, ModuleActionPermissions>> | undefined;
-
-    for (const key of Array.from(candidateKeysSet)) {
-      if (storedMap[key] && Object.keys(storedMap[key]).length > 0) {
-        matchedFromMap = storedMap[key];
-        break;
-      }
-    }
-
-    if (matchedFromMap) {
-      hasCustom = true;
-      if (!customPerms || Object.keys(customPerms).length === 0) {
-        customPerms = matchedFromMap;
-      }
-    }
-
-    // Default Deny / Strict Baseline: If user has NO custom permissions and is NOT BGH/ADMIN,
-    // strictly fall back to TEACHER baseline permissions to prevent role group (TTCM, GVCN, etc.) permission leakage.
-    let effectiveRoleGroup = roleGroup;
-    if (!hasCustom && !isSystemAdmin && roleGroup !== 'BGH') {
-      effectiveRoleGroup = 'TEACHER';
-    }
-
-    const baseConfig = DEFAULT_ROLE_GROUPS[effectiveRoleGroup] || DEFAULT_ROLE_GROUPS.TEACHER;
+    const baseConfig = DEFAULT_ROLE_GROUPS[roleGroup] || DEFAULT_ROLE_GROUPS.TEACHER;
     const basePermissions = baseConfig.permissions;
 
     const result: Record<ModuleCode, ModuleActionPermissions> = {} as any;
 
-    SYSTEM_MODULES_LIST.forEach(mod => {
+    SYSTEM_MODULES_LIST.forEach((mod) => {
       const baseMod = basePermissions[mod.code] || {
         view: false,
         create: false,
@@ -100,7 +70,7 @@ export function usePermission() {
       };
 
       if (hasCustom && customPerms && customPerms[mod.code] !== undefined) {
-        // Individual custom override takes precedence: strictly use custom matrix settings
+        // Individual custom override takes strict precedence
         const modPerm = customPerms[mod.code];
         result[mod.code] = {
           view: !!modPerm?.view,
@@ -112,7 +82,7 @@ export function usePermission() {
           lock: !!modPerm?.lock
         };
       } else if (hasCustom) {
-        // If teacher has a custom permission assignment but this module is not in it, strictly deny
+        // Default Deny for modules omitted from an explicit custom permission matrix
         result[mod.code] = {
           view: false,
           create: false,
@@ -126,7 +96,7 @@ export function usePermission() {
         result[mod.code] = { ...baseMod };
       }
 
-      // Trang chủ / Bảng điều khiển là không gian làm việc chính, luôn mở cho mọi tài khoản đã đăng nhập
+      // Trang chủ / Bảng điều khiển luôn mở cho tài khoản đã đăng nhập
       if (mod.code === 'home') {
         result[mod.code] = {
           view: true,
@@ -154,7 +124,7 @@ export function usePermission() {
     });
 
     return result;
-  }, [user, roleGroup, isSystemAdmin]);
+  }, [user, roleGroup, isSystemAdmin, permissionsVersion]);
 
   /**
    * Check if user has specific permission on module
@@ -163,7 +133,7 @@ export function usePermission() {
     if (!user) return false;
     if (isSystemAdmin) return true;
     if (moduleCode === 'home' && action === 'view') return true;
-    
+
     const modPerm = effectivePermissions[moduleCode];
     if (!modPerm) return false;
     return !!modPerm[action];
@@ -173,6 +143,7 @@ export function usePermission() {
    * Helper shortcuts
    */
   const canAccessModule = (moduleCode: ModuleCode) => {
+    if (!user) return false;
     if (moduleCode === 'home') return true;
     return hasPermission(moduleCode, 'view');
   };
@@ -189,14 +160,12 @@ export function usePermission() {
   const isScopeAllowedForTeacher = (targetTeacherId: string, targetDepartmentId?: string): boolean => {
     if (!user) return false;
     if (isSystemAdmin || roleGroup === 'BGH') return true;
-    
-    // TTCM can only evaluate teachers in their department
+
     if (roleGroup === 'TTCM') {
       if (!user.departmentId) return false;
       return user.departmentId === targetDepartmentId;
     }
 
-    // Teacher can only self-evaluate
     return user.id === targetTeacherId;
   };
 
@@ -206,8 +175,7 @@ export function usePermission() {
   const isScopeAllowedForHomeroom = (className?: string): boolean => {
     if (!user) return false;
     if (isSystemAdmin || roleGroup === 'BGH' || roleGroup === 'DOAN') return true;
-    
-    // GVCN check
+
     const anyUser = user as any;
     if (roleGroup === 'GVCN' && anyUser.homeroomClass) {
       return anyUser.homeroomClass === className;
@@ -219,6 +187,8 @@ export function usePermission() {
     user,
     roleGroup,
     roleGroupConfig: DEFAULT_ROLE_GROUPS[roleGroup],
+    permissionsReady,
+    permissionSyncError,
     isAdmin: isSystemAdmin,
     isSystemAdmin,
     isBGH: roleGroup === 'BGH' || isSystemAdmin,

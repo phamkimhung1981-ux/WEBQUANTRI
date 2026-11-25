@@ -5,7 +5,10 @@ import {
   AccountStatus, 
   AccountAuditLog,
   ModulePermissionsMap,
-  RoleGroupConfig
+  RoleGroupConfig,
+  UserPermissionDocument,
+  normalizeIdentifier,
+  normalizeEmail
 } from '../types/permission';
 import { db } from '../lib/firebase';
 import { 
@@ -13,13 +16,17 @@ import {
   doc, 
   getDocs, 
   getDoc, 
+  getDocFromServer,
+  getDocsFromServer,
   setDoc, 
   updateDoc, 
   deleteDoc,
+  onSnapshot,
   query, 
   where,
   orderBy,
-  limit
+  limit,
+  Unsubscribe
 } from 'firebase/firestore';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { Teacher } from '../types';
@@ -30,151 +37,579 @@ const AUDIT_COLLECTION = 'account_audit_logs';
 const ROLE_GROUPS_COLLECTION = 'role_group_configs';
 export const CUSTOM_PERMISSIONS_COLLECTION = 'user_custom_permissions';
 
+// Reactive version counter for role_group_configs loaded from Firestore
+let roleGroupConfigsVersion = 0;
+let roleGroupConfigsLoaded = false;
+const roleGroupListeners = new Set<(version: number) => void>();
+
+export function getRoleGroupConfigsVersion(): number {
+  return roleGroupConfigsVersion;
+}
+
+export function isRoleGroupConfigsLoaded(): boolean {
+  return roleGroupConfigsLoaded;
+}
+
+export function subscribeRoleGroupConfigsVersion(listener: (version: number) => void): () => void {
+  roleGroupListeners.add(listener);
+  return () => {
+    roleGroupListeners.delete(listener);
+  };
+}
+
+function notifyRoleGroupVersionChange(): void {
+  roleGroupConfigsVersion += 1;
+  roleGroupListeners.forEach((fn) => {
+    try {
+      fn(roleGroupConfigsVersion);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+function extractFirestoreErrorCode(err: unknown): string | null {
+  if (!err) return null;
+  const code = (err as any)?.code;
+  if (typeof code === 'string' && code.length > 0) return code;
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  if (lower.includes('quota') || lower.includes('resource-exhausted')) return 'resource-exhausted';
+  if (lower.includes('permission-denied') || lower.includes('missing or insufficient permissions')) return 'permission-denied';
+  if (lower.includes('offline') || lower.includes('unavailable')) return 'unavailable';
+  return 'unknown';
+}
+
+function formatFirestoreWriteError(err: unknown, contextLabel: string): Error {
+  const code = extractFirestoreErrorCode(err);
+  if (code === 'resource-exhausted') {
+    return new Error(
+      `Không thể lưu ${contextLabel} lên Firebase Firestore do cơ sở dữ liệu đã đạt giới hạn hạn mức miễn phí trong ngày (Quota Exceeded). Vui lòng thử lại sau khi hạn mức được làm mới hoặc nâng cấp gói Firebase.`
+    );
+  }
+  if (code === 'permission-denied') {
+    return new Error(
+      `Không có quyền ghi ${contextLabel} lên Firebase Firestore (Permission Denied). Vui lòng kiểm tra Firebase Security Rules.`
+    );
+  }
+  if (code === 'unavailable') {
+    return new Error(
+      `Không thể kết nối tới Firebase Firestore để lưu ${contextLabel}. Vui lòng kiểm tra kết nối mạng và thử lại.`
+    );
+  }
+  const msg = err instanceof Error ? err.message : String(err || 'Lỗi không xác định');
+  return new Error(`Lỗi lưu ${contextLabel} lên Firebase Firestore: ${msg}`);
+}
+
 /**
- * Returns all key aliases (id, lowercased id, code, username, fullName) for a given identifier
+ * Helper to fetch a Firestore doc preferring fresh server state (bypassing stale local cache),
+ * falling back cleanly to cache only when offline/network-unavailable.
+ */
+async function getDocPreferServer(ref: ReturnType<typeof doc>, forceServer = true) {
+  if (forceServer && typeof navigator !== 'undefined' && navigator.onLine !== false) {
+    try {
+      return await getDocFromServer(ref);
+    } catch (serverErr) {
+      const code = extractFirestoreErrorCode(serverErr);
+      // Do NOT hide quota or permission errors as silent empty reads — still attempt cache fallback for read continuity
+      if (code === 'unavailable' || code === 'failed-precondition') {
+        return await getDoc(ref);
+      }
+      // If quota exceeded or other server error, try cache if available, otherwise rethrow so caller knows
+      try {
+        const cached = await getDoc(ref);
+        if (cached.exists()) return cached;
+      } catch {
+        // ignore cache miss
+      }
+      throw serverErr;
+    }
+  }
+  return await getDoc(ref);
+}
+
+/**
+ * Returns normalized lookup keys (exact-case IDs + lowercased username/code/email)
+ * WITHOUT ever using fullName as a unique identifier.
  */
 export function getTeacherKeyAliases(idOrUserOrCode?: string): string[] {
   if (!idOrUserOrCode) return [];
-  const clean = idOrUserOrCode.toLowerCase().trim();
+  const trimmed = String(idOrUserOrCode).trim();
+  const clean = trimmed.toLowerCase();
   if (!clean) return [];
 
-  const aliases = new Set<string>([clean]);
+  const aliases = new Set<string>([trimmed, clean]);
 
-  // Check DEFAULT_TEACHERS
+  // Match DEFAULT_TEACHERS ONLY by stable unique identifiers (id, code, username, email) — NEVER by name
   for (const t of DEFAULT_TEACHERS) {
-    const tId = (t.id || '').toLowerCase().trim();
-    const tCode = (t.code || '').toLowerCase().trim();
-    const tUser = (t.username || '').toLowerCase().trim();
-    const tName = (t.name || '').toLowerCase().trim();
+    const tIdRaw = String(t.id || '').trim();
+    const tId = tIdRaw.toLowerCase();
+    const tCode = normalizeIdentifier(t.code);
+    const tUser = normalizeIdentifier(t.username);
+    const tEmail = normalizeEmail(t.email);
 
-    if (clean === tId || clean === tCode || clean === tUser || clean === tName) {
+    if (
+      clean === tId ||
+      (tCode && clean === tCode) ||
+      (tUser && clean === tUser) ||
+      (tEmail && clean === tEmail)
+    ) {
+      if (tIdRaw) aliases.add(tIdRaw);
       if (tId) aliases.add(tId);
       if (tCode) aliases.add(tCode);
       if (tUser) aliases.add(tUser);
     }
   }
 
-  // Check cached accounts in localStorage
-  try {
-    const rawCached = typeof window !== 'undefined' ? localStorage.getItem('cached_user_accounts') : null;
-    if (rawCached) {
-      const cachedAccounts: AccountRecord[] = JSON.parse(rawCached);
-      for (const a of cachedAccounts) {
-        const aId = (a.id || '').toLowerCase().trim();
-        const aCode = (a.teacherCode || '').toLowerCase().trim();
-        const aUser = (a.username || '').toLowerCase().trim();
-        const aName = (a.fullName || '').toLowerCase().trim();
-
-        if (clean === aId || clean === aCode || clean === aUser || clean === aName) {
-          if (aId) aliases.add(aId);
-          if (aCode) aliases.add(aCode);
-          if (aUser) aliases.add(aUser);
-        }
-      }
-    }
-  } catch (e) {}
-
   return Array.from(aliases);
 }
 
+export interface AccountIdentityInput {
+  userId?: string;
+  firebaseUid?: string;
+  username?: string;
+  teacherCode?: string;
+  email?: string;
+}
+
 /**
- * Direct real-time fetch of user permissions from Firebase Firestore.
- * Prioritizes Firestore document, updates local caches, and ensures no stale defaults are used.
+ * Resolve ordered, deduplicated Firestore document ID candidates for a user identity.
+ * Priority: Firebase UID (exact) -> Canonical Account/Teacher ID (exact) -> Normalized Username -> Normalized Teacher Code.
+ */
+export function resolvePermissionDocIds(identity: AccountIdentityInput): string[] {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const push = (val?: string | null) => {
+    const v = String(val ?? '').trim();
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    ordered.push(v);
+  };
+
+  const uidRaw = String(identity.firebaseUid || '').trim();
+  const idRaw = String(identity.userId || '').trim();
+  const userNorm = normalizeIdentifier(identity.username);
+  const codeNorm = normalizeIdentifier(identity.teacherCode);
+  const emailNorm = normalizeEmail(identity.email);
+
+  // 1. Primary canonical keys (exact case first so Firebase UIDs / mixed-case doc IDs never miss)
+  if (uidRaw) push(uidRaw);
+  if (idRaw) push(idRaw);
+  if (idRaw && idRaw.toLowerCase() !== idRaw) push(idRaw.toLowerCase());
+
+  // 2. Normalized username & teacher code
+  if (userNorm) push(userNorm);
+  if (codeNorm) push(codeNorm);
+
+  // 3. Cross-link against canonical DEFAULT_TEACHERS only by exact id/username/code/email (never by name)
+  for (const t of DEFAULT_TEACHERS) {
+    const tId = String(t.id || '').trim();
+    const tUser = normalizeIdentifier(t.username);
+    const tCode = normalizeIdentifier(t.code);
+    const tEmail = normalizeEmail(t.email);
+    const matched =
+      (idRaw && (tId === idRaw || tId.toLowerCase() === idRaw.toLowerCase())) ||
+      (userNorm && tUser === userNorm) ||
+      (codeNorm && tCode === codeNorm) ||
+      (emailNorm && tEmail && tEmail === emailNorm);
+    if (matched) {
+      push(tId);
+      if (tUser) push(tUser);
+      if (tCode) push(tCode);
+      break;
+    }
+  }
+
+  return ordered;
+}
+
+function parseTimestampMs(ts?: string): number {
+  if (!ts) return 0;
+  const parsed = Date.parse(ts);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export interface LivePermissionsResult {
+  hasCustom: boolean;
+  permissions: Partial<ModulePermissionsMap> | null;
+  roleGroup?: RoleGroupCode;
+  accountStatus?: AccountStatus;
+  accountData?: Partial<AccountRecord> | null;
+  updatedAt?: string;
+  source: 'user_custom_permissions' | 'user_accounts' | 'teachers' | 'none';
+  errorCode: string | null;
+}
+
+/**
+ * Authoritative real-time fetch of user permissions directly from Firebase Firestore.
+ * - Never relies on localStorage or static custom_permissions.json.
+ * - Evaluates all canonical doc keys in parallel and selects the newest record by `updatedAt`
+ *   (so an outdated alias doc can NEVER shadow a newer canonical permission grant/revoke).
+ * - Preserves exact case for Firebase UID / Firestore doc IDs and normalizes username/email/code.
  */
 export async function getLiveUserPermissionsFromFirestore(
   userId: string,
   username?: string,
-  teacherCode?: string
-): Promise<{ hasCustom: boolean; permissions: Partial<ModulePermissionsMap> | null }> {
-  const cleanId = (userId || '').trim();
-  const cleanUser = (username || '').toLowerCase().trim();
-  const cleanCode = (teacherCode || '').toLowerCase().trim();
+  teacherCode?: string,
+  options?: { firebaseUid?: string; email?: string; forceServer?: boolean }
+): Promise<LivePermissionsResult> {
+  const cleanId = String(userId || '').trim();
+  const cleanUid = String(options?.firebaseUid || '').trim();
+  const cleanUser = normalizeIdentifier(username);
+  const cleanCode = normalizeIdentifier(teacherCode);
+  const cleanEmail = normalizeEmail(options?.email);
+  const forceServer = options?.forceServer !== false;
 
-  const rawKeys = [cleanUser, cleanId, cleanCode].filter(Boolean);
-  const allAliasesSet = new Set<string>();
-  rawKeys.forEach(k => {
-    getTeacherKeyAliases(k).forEach(alias => allAliasesSet.add(alias));
+  const docIds = resolvePermissionDocIds({
+    userId: cleanId,
+    firebaseUid: cleanUid,
+    username: cleanUser,
+    teacherCode: cleanCode,
+    email: cleanEmail
   });
-  const keysToTry = Array.from(allAliasesSet);
 
-  // Helper to persist custom perms locally under all key aliases
-  const persistAliasesLocally = (perms: Partial<ModulePermissionsMap>) => {
-    keysToTry.forEach(alias => setStoredUserCustomPermissions(alias, perms));
-  };
+  let lastErrorCode: string | null = null;
+  let accountData: Partial<AccountRecord> | null = null;
 
-  // 1. Try dedicated 'user_custom_permissions' collection
-  for (const k of keysToTry) {
-    try {
-      const pDoc = await getDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, k));
-      if (pDoc.exists()) {
-        const data = pDoc.data();
-        if (data && data.permissions && Object.keys(data.permissions).length > 0) {
-          const perms = data.permissions as Partial<ModulePermissionsMap>;
-          persistAliasesLocally(perms);
-          return { hasCustom: true, permissions: perms };
-        } else if (data && data.hasCustomPermissions === false) {
-          return { hasCustom: false, permissions: null };
+  // 1. Fetch candidate docs from `user_custom_permissions` in parallel (typically 2-3 reads max)
+  const permCandidates: Array<{
+    docId: string;
+    data: any;
+    updatedMs: number;
+    priority: number;
+  }> = [];
+
+  if (docIds.length > 0) {
+    const settledPerms = await Promise.allSettled(
+      docIds.map(async (k, idx) => {
+        const snap = await getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, k), forceServer);
+        return { k, idx, snap };
+      })
+    );
+
+    for (const r of settledPerms) {
+      if (r.status === 'fulfilled') {
+        const { k, idx, snap } = r.value;
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data) {
+            permCandidates.push({
+              docId: k,
+              data,
+              updatedMs: parseTimestampMs(data.updatedAt),
+              priority: idx
+            });
+          }
         }
+      } else {
+        const code = extractFirestoreErrorCode(r.reason);
+        if (code) lastErrorCode = code;
       }
-    } catch (e) {}
-  }
-
-  // 2. Try 'user_accounts' collection
-  for (const k of keysToTry) {
-    try {
-      const accDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, k));
-      if (accDoc.exists()) {
-        const data = accDoc.data();
-        if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
-          const perms = data.customPermissions as Partial<ModulePermissionsMap>;
-          persistAliasesLocally(perms);
-          return { hasCustom: true, permissions: perms };
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 3. Query user_accounts by username if not found yet
-  if (cleanUser) {
-    try {
-      const q = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', cleanUser));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const data = snap.docs[0].data();
-        if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
-          const perms = data.customPermissions as Partial<ModulePermissionsMap>;
-          persistAliasesLocally(perms);
-          return { hasCustom: true, permissions: perms };
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 4. Try 'teachers' collection for all key aliases
-  for (const k of keysToTry) {
-    try {
-      const tDoc = await getDoc(doc(db, 'teachers', k));
-      if (tDoc.exists()) {
-        const data = tDoc.data();
-        if (data && (data.hasCustomPermissions || (data.customPermissions && Object.keys(data.customPermissions).length > 0))) {
-          const perms = data.customPermissions as Partial<ModulePermissionsMap>;
-          persistAliasesLocally(perms);
-          return { hasCustom: true, permissions: perms };
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 5. Fallback: check stored custom permissions map synced from server / custom_permissions.json
-  const localMap = getStoredUserCustomPermissions();
-  for (const k of keysToTry) {
-    const matched = localMap[k.toLowerCase()];
-    if (matched && Object.keys(matched).length > 0) {
-      return { hasCustom: true, permissions: matched };
     }
   }
 
-  return { hasCustom: false, permissions: null };
+  // 2. Also fetch primary account doc (`user_accounts/{cleanId}` or by username/email) for authoritative status & roleGroup
+  try {
+    const primaryAccId = cleanId || cleanUid;
+    if (primaryAccId) {
+      const accSnap = await getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, primaryAccId), forceServer);
+      if (accSnap.exists()) {
+        accountData = { id: accSnap.id, ...(accSnap.data() as any) };
+      }
+    }
+    if (!accountData && cleanUid && cleanUid !== cleanId) {
+      const qUid = query(collection(db, ACCOUNTS_COLLECTION), where('firebaseUid', '==', cleanUid), limit(1));
+      const snapUid = await getDocs(qUid);
+      if (!snapUid.empty) {
+        accountData = { id: snapUid.docs[0].id, ...(snapUid.docs[0].data() as any) };
+      }
+    }
+    if (!accountData && cleanUser) {
+      const qUser = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', cleanUser), limit(1));
+      const snapUser = await getDocs(qUser);
+      if (!snapUser.empty) {
+        accountData = { id: snapUser.docs[0].id, ...(snapUser.docs[0].data() as any) };
+      }
+    }
+    if (!accountData && cleanEmail) {
+      const qEmail = query(collection(db, ACCOUNTS_COLLECTION), where('normalizedEmail', '==', cleanEmail), limit(1));
+      const snapEmail = await getDocs(qEmail);
+      if (!snapEmail.empty) {
+        accountData = { id: snapEmail.docs[0].id, ...(snapEmail.docs[0].data() as any) };
+      }
+    }
+  } catch (accErr) {
+    const code = extractFirestoreErrorCode(accErr);
+    if (code) lastErrorCode = code;
+  }
+
+  // If accountData was discovered under a different canonical ID than we queried, check its custom_permissions doc too
+  if (accountData?.id && !docIds.includes(accountData.id)) {
+    try {
+      const extraSnap = await getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, accountData.id), forceServer);
+      if (extraSnap.exists()) {
+        const data = extraSnap.data();
+        if (data) {
+          permCandidates.push({
+            docId: accountData.id,
+            data,
+            updatedMs: parseTimestampMs(data.updatedAt),
+            priority: -1
+          });
+        }
+      }
+    } catch (extraErr) {
+      const code = extractFirestoreErrorCode(extraErr);
+      if (code) lastErrorCode = code;
+    }
+  }
+
+  // Evaluate newest authoritative record across `user_custom_permissions` & `user_accounts`
+  if (permCandidates.length > 0) {
+    permCandidates.sort((a, b) => {
+      if (b.updatedMs !== a.updatedMs) return b.updatedMs - a.updatedMs;
+      // Tie-break: prefer explicit canonical doc (`priority` lower) and prefer valid permissions if timestamps identical
+      const aHas = a.data?.hasCustomPermissions === true && a.data?.permissions && Object.keys(a.data.permissions).length > 0 ? 1 : 0;
+      const bHas = b.data?.hasCustomPermissions === true && b.data?.permissions && Object.keys(b.data.permissions).length > 0 ? 1 : 0;
+      if (bHas !== aHas) return bHas - aHas;
+      return a.priority - b.priority;
+    });
+
+    const winner = permCandidates[0];
+    const accUpdatedMs = parseTimestampMs(accountData?.updatedAt);
+    const accHasValidCustom =
+      Boolean(accountData?.hasCustomPermissions) &&
+      Boolean(accountData?.customPermissions) &&
+      Object.keys(accountData?.customPermissions || {}).length > 0;
+
+    // If user_accounts was updated strictly MORE RECENTLY than user_custom_permissions, respect user_accounts
+    if (accountData && accUpdatedMs > winner.updatedMs && accountData.hasCustomPermissions !== undefined) {
+      return {
+        hasCustom: accHasValidCustom,
+        permissions: accHasValidCustom ? (accountData.customPermissions as Partial<ModulePermissionsMap>) : null,
+        roleGroup: accountData.roleGroup,
+        accountStatus: accountData.status,
+        accountData,
+        updatedAt: accountData.updatedAt,
+        source: 'user_accounts',
+        errorCode: null
+      };
+    }
+
+    const winnerHasValidCustom =
+      winner.data.hasCustomPermissions !== false &&
+      Boolean(winner.data.permissions) &&
+      Object.keys(winner.data.permissions).length > 0;
+
+    return {
+      hasCustom: winnerHasValidCustom,
+      permissions: winnerHasValidCustom ? (winner.data.permissions as Partial<ModulePermissionsMap>) : null,
+      roleGroup: accountData?.roleGroup || winner.data.roleGroup,
+      accountStatus: accountData?.status,
+      accountData,
+      updatedAt: winner.data.updatedAt,
+      source: 'user_custom_permissions',
+      errorCode: null
+    };
+  }
+
+  // 3. Fallback to `user_accounts` customPermissions if no `user_custom_permissions` doc exists yet
+  if (accountData) {
+    const accHasValidCustom =
+      Boolean(accountData.hasCustomPermissions) &&
+      Boolean(accountData.customPermissions) &&
+      Object.keys(accountData.customPermissions || {}).length > 0;
+    return {
+      hasCustom: accHasValidCustom,
+      permissions: accHasValidCustom ? (accountData.customPermissions as Partial<ModulePermissionsMap>) : null,
+      roleGroup: accountData.roleGroup,
+      accountStatus: accountData.status,
+      accountData,
+      updatedAt: accountData.updatedAt,
+      source: 'user_accounts',
+      errorCode: null
+    };
+  }
+
+  // 4. Final Firestore fallback: check `teachers/{cleanId}` once (for legacy records only saved on teachers)
+  if (cleanId) {
+    try {
+      const tDoc = await getDocPreferServer(doc(db, 'teachers', cleanId), forceServer);
+      if (tDoc.exists()) {
+        const data = tDoc.data();
+        const tHasValidCustom =
+          Boolean(data?.hasCustomPermissions) &&
+          Boolean(data?.customPermissions) &&
+          Object.keys(data?.customPermissions || {}).length > 0;
+        return {
+          hasCustom: tHasValidCustom,
+          permissions: tHasValidCustom ? (data.customPermissions as Partial<ModulePermissionsMap>) : null,
+          updatedAt: data?.accountUpdatedAt,
+          source: 'teachers',
+          errorCode: null
+        };
+      }
+    } catch (tErr) {
+      const code = extractFirestoreErrorCode(tErr);
+      if (code) lastErrorCode = code;
+    }
+  }
+
+  return {
+    hasCustom: false,
+    permissions: null,
+    accountData: null,
+    source: 'none',
+    errorCode: lastErrorCode
+  };
+}
+
+/**
+ * Subscribe in real time to Firestore permission & account changes for the currently logged-in user.
+ * Ensures that whenever an Admin grants/revokes KPI permissions or changes roleGroup/status,
+ * active web sessions update immediately without stale caches.
+ */
+export function subscribeUserLivePermissions(
+  identity: AccountIdentityInput & { roleGroup?: RoleGroupCode },
+  onUpdate: (update: {
+    hasCustom?: boolean;
+    permissions?: Partial<ModulePermissionsMap> | null;
+    roleGroup?: RoleGroupCode;
+    accountStatus?: AccountStatus;
+    fullName?: string;
+    position?: string;
+    departmentName?: string;
+    updatedAt?: string;
+  }) => void,
+  onError?: (errorCode: string) => void
+): Unsubscribe {
+  const unsubs: Unsubscribe[] = [];
+  const canonicalId = String(identity.userId || identity.firebaseUid || '').trim();
+  const cleanUser = normalizeIdentifier(identity.username);
+
+  let latestPermUpdatedMs = 0;
+
+  const handlePermSnapshot = (data: any) => {
+    if (!data) return;
+    const tsMs = parseTimestampMs(data.updatedAt);
+    if (tsMs > 0 && tsMs < latestPermUpdatedMs) return;
+    if (tsMs > 0) latestPermUpdatedMs = tsMs;
+
+    const hasValid =
+      data.hasCustomPermissions !== false &&
+      Boolean(data.permissions) &&
+      Object.keys(data.permissions).length > 0;
+
+    onUpdate({
+      hasCustom: hasValid,
+      permissions: hasValid ? (data.permissions as Partial<ModulePermissionsMap>) : null,
+      updatedAt: data.updatedAt
+    });
+  };
+
+  if (canonicalId && canonicalId !== 'admin') {
+    unsubs.push(
+      onSnapshot(
+        doc(db, CUSTOM_PERMISSIONS_COLLECTION, canonicalId),
+        (snap) => {
+          if (snap.exists()) {
+            handlePermSnapshot(snap.data());
+          }
+        },
+        (err) => {
+          const code = extractFirestoreErrorCode(err);
+          if (code && onError) onError(code);
+        }
+      )
+    );
+
+    if (cleanUser && cleanUser !== canonicalId) {
+      unsubs.push(
+        onSnapshot(
+          doc(db, CUSTOM_PERMISSIONS_COLLECTION, cleanUser),
+          (snap) => {
+            if (snap.exists()) {
+              handlePermSnapshot(snap.data());
+            }
+          },
+          (err) => {
+            const code = extractFirestoreErrorCode(err);
+            if (code && onError) onError(code);
+          }
+        )
+      );
+    }
+
+    unsubs.push(
+      onSnapshot(
+        doc(db, ACCOUNTS_COLLECTION, canonicalId),
+        (snap) => {
+          if (!snap.exists()) return;
+          const d = snap.data();
+          if (!d) return;
+          const accTsMs = parseTimestampMs(d.updatedAt);
+          const payload: any = {
+            roleGroup: d.roleGroup,
+            accountStatus: d.status,
+            fullName: d.fullName,
+            position: d.position,
+            departmentName: d.departmentName,
+            updatedAt: d.updatedAt
+          };
+          if (d.hasCustomPermissions !== undefined && accTsMs >= latestPermUpdatedMs) {
+            if (accTsMs > 0) latestPermUpdatedMs = accTsMs;
+            const hasValid =
+              Boolean(d.hasCustomPermissions) &&
+              Boolean(d.customPermissions) &&
+              Object.keys(d.customPermissions || {}).length > 0;
+            payload.hasCustom = hasValid;
+            payload.permissions = hasValid ? d.customPermissions : null;
+          }
+          onUpdate(payload);
+        },
+        (err) => {
+          const code = extractFirestoreErrorCode(err);
+          if (code && onError) onError(code);
+        }
+      )
+    );
+  }
+
+  // Subscribe to the user's role group template doc (1 doc only)
+  const rg = identity.roleGroup;
+  if (rg && rg !== 'ADMIN' && DEFAULT_ROLE_GROUPS[rg]) {
+    unsubs.push(
+      onSnapshot(
+        doc(db, ROLE_GROUPS_COLLECTION, rg),
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data?.permissions && DEFAULT_ROLE_GROUPS[rg]) {
+              DEFAULT_ROLE_GROUPS[rg].permissions = {
+                ...DEFAULT_ROLE_GROUPS[rg].permissions,
+                ...data.permissions
+              };
+              roleGroupConfigsLoaded = true;
+              notifyRoleGroupVersionChange();
+            }
+          }
+        },
+        () => {
+          // ignore non-critical role template watch errors
+        }
+      )
+    );
+  }
+
+  return () => {
+    unsubs.forEach((u) => {
+      try {
+        u();
+      } catch {
+        // ignore unsubscribe errors
+      }
+    });
+  };
 }
 
 // Determine initial role group based on teacher's position
@@ -252,182 +687,164 @@ export function setStoredUserPassword(username: string, plainPass: string, hashe
   } catch (e) {}
 }
 
+/**
+ * Legacy helper retained for API compatibility only.
+ * Permissions are now strictly sourced from Firebase Firestore (never localStorage).
+ */
 export function getStoredUserCustomPermissions(): Record<string, Partial<ModulePermissionsMap>> {
-  try {
-    const raw = localStorage.getItem('custom_user_permissions_map');
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    return {};
-  }
+  return {};
 }
 
-export function setStoredUserCustomPermissions(idOrUsername: string, perms: Partial<ModulePermissionsMap> | null): void {
-  if (!idOrUsername) return;
+export function setStoredUserCustomPermissions(_idOrUsername: string, _perms: Partial<ModulePermissionsMap> | null): void {
+  // Clean up any stale legacy localStorage permission cache to avoid split-brain
   try {
-    const map = getStoredUserCustomPermissions();
-    const key = idOrUsername.toLowerCase().trim();
-    if (perms === null) {
-      delete map[key];
-    } else {
-      map[key] = perms;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem('custom_user_permissions_map');
     }
-    localStorage.setItem('custom_user_permissions_map', JSON.stringify(map));
-  } catch (e) {}
+  } catch {
+    // ignore storage restriction
+  }
 }
 
 /**
- * Synchronize permission definitions and custom matrices from server / static file.
- * Guarantees cross-device, web export, and clean browser consistency.
+ * Legacy server sync helper — now delegates strictly to Firebase Firestore `role_group_configs`.
+ * Never reads static `/custom_permissions.json` or `/api/permissions` so AI Studio and Vercel
+ * always share the exact same Firestore Single Source of Truth.
  */
 export async function syncPermissionsFromServer(): Promise<{ roleGroups: any; userCustom: any }> {
   try {
-    let data: any = null;
-    try {
-      const res = await fetch('/api/permissions');
-      if (res.ok) {
-        data = await res.json();
-      }
-    } catch (e) {}
-
-    if (!data || !data.userCustom) {
-      try {
-        const resStatic = await fetch('/custom_permissions.json');
-        if (resStatic.ok) {
-          data = await resStatic.json();
-        }
-      } catch (e) {}
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem('custom_user_permissions_map');
     }
-
-    if (data) {
-      // 1. Sync custom role groups into in-memory DEFAULT_ROLE_GROUPS
-      if (data.roleGroups && typeof data.roleGroups === 'object') {
-        Object.keys(data.roleGroups).forEach(code => {
-          const rg = code as RoleGroupCode;
-          if (DEFAULT_ROLE_GROUPS[rg] && data.roleGroups[code]) {
-            DEFAULT_ROLE_GROUPS[rg].permissions = {
-              ...DEFAULT_ROLE_GROUPS[rg].permissions,
-              ...data.roleGroups[code]
-            };
-            try {
-              localStorage.setItem(`custom_role_group_permissions_${code}`, JSON.stringify(DEFAULT_ROLE_GROUPS[rg].permissions));
-            } catch (e) {}
-          }
-        });
-      }
-
-      // 2. Sync individual customized permissions into local storage map
-      if (data.userCustom && typeof data.userCustom === 'object') {
-        const localMap = getStoredUserCustomPermissions();
-        Object.entries(data.userCustom).forEach(([key, val]) => {
-          const cleanKey = key.toLowerCase().trim();
-          if (val === null) {
-            delete localMap[cleanKey];
-          } else if (val) {
-            localMap[cleanKey] = val as Partial<ModulePermissionsMap>;
-          }
-        });
-        try {
-          localStorage.setItem('custom_user_permissions_map', JSON.stringify(localMap));
-        } catch (e) {}
-      }
-
-      return {
-        roleGroups: data.roleGroups || {},
-        userCustom: data.userCustom || {}
-      };
-    }
-  } catch (err) {
-    console.warn('Could not sync permissions from server:', err);
+  } catch {
+    // ignore
   }
+  await accountService.loadRoleGroupConfigs();
   return { roleGroups: {}, userCustom: {} };
 }
 
 export const accountService = {
   /**
-   * Fetch all accounts. If the accounts collection is empty in Firestore,
-   * it seeds the canonical accounts from DEFAULT_TEACHERS and admin.
+   * Fetch all accounts directly from Firebase Firestore and merge live `user_custom_permissions`.
+   * Never seeds default accounts over Firestore on read error; only seeds if collection is genuinely empty.
    */
   async getAccounts(): Promise<AccountRecord[]> {
     try {
-      // Sync latest permissions from server disk / static JSON before reading accounts
-      await syncPermissionsFromServer();
+      // Load Firestore role group configs first
+      await this.loadRoleGroupConfigs();
 
-      // Check cached_user_accounts first for instant availability
-      let cachedAccounts: AccountRecord[] = [];
-      try {
-        const rawCached = localStorage.getItem('cached_user_accounts');
-        if (rawCached) {
-          cachedAccounts = JSON.parse(rawCached);
-        }
-      } catch (e) {}
+      let accSnap: any = null;
+      let permSnap: any = null;
+      let firestoreReadError: unknown = null;
 
-      let snap: any = null;
       try {
-        const fetchPromise = getDocs(collection(db, ACCOUNTS_COLLECTION));
-        const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 5000));
-        snap = await Promise.race([fetchPromise, timeoutP]);
+        const [aRes, pRes] = await Promise.all([
+          getDocs(collection(db, ACCOUNTS_COLLECTION)),
+          getDocs(collection(db, CUSTOM_PERMISSIONS_COLLECTION)).catch(() => null)
+        ]);
+        accSnap = aRes;
+        permSnap = pRes;
       } catch (e) {
+        firestoreReadError = e;
         console.warn('Firestore getAccounts error:', e);
       }
 
-      if (snap && !snap.empty) {
-        const customMap = getStoredUserCustomPermissions();
-        const rawAccounts = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as AccountRecord));
-        // LỌC BỎ HOÀN TOÀN TÀI KHOẢN RÁC / GHOST (không có tên hoặc username rỗng)
-        const validRawAccounts = rawAccounts.filter(acc => 
+      // Build map of newest custom permission docs from `user_custom_permissions`
+      const permDocByKey = new Map<string, { hasCustom: boolean; permissions: Partial<ModulePermissionsMap> | null; updatedMs: number }>();
+      if (permSnap && !permSnap.empty) {
+        permSnap.docs.forEach((d: any) => {
+          const data = d.data();
+          if (!data) return;
+          const updatedMs = parseTimestampMs(data.updatedAt);
+          const hasValid =
+            data.hasCustomPermissions !== false &&
+            Boolean(data.permissions) &&
+            Object.keys(data.permissions).length > 0;
+          const entry = {
+            hasCustom: hasValid,
+            permissions: hasValid ? (data.permissions as Partial<ModulePermissionsMap>) : null,
+            updatedMs
+          };
+          const keys = [
+            String(d.id || '').trim(),
+            String(data.canonicalId || '').trim(),
+            String(data.userId || '').trim(),
+            String(data.firebaseUid || '').trim(),
+            normalizeIdentifier(data.username),
+            normalizeIdentifier(data.teacherCode)
+          ].filter(Boolean);
+          keys.forEach((k) => {
+            const prev = permDocByKey.get(k);
+            if (!prev || updatedMs >= prev.updatedMs) {
+              permDocByKey.set(k, entry);
+            }
+          });
+        });
+      }
+
+      if (accSnap && !accSnap.empty) {
+        const rawAccounts = accSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as AccountRecord));
+        const validRawAccounts = rawAccounts.filter((acc) =>
           Boolean(acc && acc.fullName && acc.fullName.trim() !== '' && acc.username && acc.username.trim() !== '')
         );
 
-        // Deduplicate theo username để tránh trùng lặp
+        // Deduplicate by normalized username, preferring canonical teacher/account doc IDs
         const dedupMap = new Map<string, AccountRecord>();
         for (const a of validRawAccounts) {
-          const uKey = (a.username || '').toLowerCase().trim();
+          const uKey = normalizeIdentifier(a.username);
           if (!dedupMap.has(uKey)) {
             dedupMap.set(uKey, a);
           } else {
             const existing = dedupMap.get(uKey)!;
-            dedupMap.set(uKey, { ...existing, ...a });
+            const existingTs = parseTimestampMs(existing.updatedAt);
+            const currTs = parseTimestampMs(a.updatedAt);
+            dedupMap.set(uKey, currTs >= existingTs ? { ...existing, ...a } : { ...a, ...existing });
           }
         }
 
-        const accounts = Array.from(dedupMap.values()).map(acc => {
-          const aliases = getTeacherKeyAliases(acc.id);
-          if (acc.username) getTeacherKeyAliases(acc.username).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
-          if (acc.teacherCode) getTeacherKeyAliases(acc.teacherCode).forEach(a => aliases.indexOf(a) === -1 && aliases.push(a));
+        const accounts = Array.from(dedupMap.values()).map((acc) => {
+          const candidateKeys = resolvePermissionDocIds({
+            userId: acc.id,
+            firebaseUid: acc.firebaseUid,
+            username: acc.username,
+            teacherCode: acc.teacherCode,
+            email: acc.email
+          });
 
-          let customPerm: any = acc.customPermissions || null;
-          if (!customPerm) {
-            for (const alias of aliases) {
-              if (customMap[alias] && Object.keys(customMap[alias]).length > 0) {
-                customPerm = customMap[alias];
-                break;
-              }
+          let bestPerm: { hasCustom: boolean; permissions: Partial<ModulePermissionsMap> | null; updatedMs: number } | null = null;
+          for (const k of candidateKeys) {
+            const match = permDocByKey.get(k);
+            if (match && (!bestPerm || match.updatedMs >= bestPerm.updatedMs)) {
+              bestPerm = match;
             }
           }
 
-          const hasCustom = !!(acc.hasCustomPermissions || (customPerm && Object.keys(customPerm).length > 0));
-
-          if (hasCustom && customPerm) {
-            acc.hasCustomPermissions = true;
-            acc.customPermissions = customPerm;
-            aliases.forEach(a => setStoredUserCustomPermissions(a, customPerm));
+          const accTs = parseTimestampMs(acc.updatedAt);
+          if (bestPerm && bestPerm.updatedMs >= accTs) {
+            return {
+              ...acc,
+              hasCustomPermissions: bestPerm.hasCustom,
+              customPermissions: bestPerm.hasCustom && bestPerm.permissions ? bestPerm.permissions : undefined
+            };
           }
-          return acc;
+
+          const accHasCustom =
+            Boolean(acc.hasCustomPermissions) &&
+            Boolean(acc.customPermissions) &&
+            Object.keys(acc.customPermissions || {}).length > 0;
+          return {
+            ...acc,
+            hasCustomPermissions: accHasCustom,
+            customPermissions: accHasCustom ? acc.customPermissions : undefined
+          };
         });
-        try {
-          localStorage.setItem('cached_user_accounts', JSON.stringify(accounts));
-        } catch (e) {}
+
         return accounts;
       }
 
-      // If Firestore fetch returned empty or timed out, but we have cached accounts, return cached!
-      if (cachedAccounts && cachedAccounts.length > 0) {
-        const cleanCached = cachedAccounts.filter(a => 
-          Boolean(a && a.fullName && a.fullName.trim() !== '' && a.username && a.username.trim() !== '')
-        );
-        if (cleanCached.length > 0) {
-          return cleanCached;
-        }
+      // If Firestore errored (e.g. quota exceeded / network offline), do NOT overwrite Firestore with defaults
+      if (firestoreReadError) {
+        throw formatFirestoreWriteError(firestoreReadError, 'danh sách tài khoản');
       }
 
       // Otherwise seed default accounts list from DEFAULT_TEACHERS
@@ -958,7 +1375,7 @@ export const accountService = {
   },
 
   /**
-   * Copy permissions from a source account to a target account
+   * Copy permissions from a source account to a target account (reading live from Firestore)
    */
   async copyUserPermissions(
     sourceAccountId: string,
@@ -972,38 +1389,72 @@ export const accountService = {
       throw new Error('Không thể sao chép quyền cho chính tài khoản đó.');
     }
 
-    // 1. Get source account permissions
-    const sourceDoc = await getDoc(doc(db, ACCOUNTS_COLLECTION, sourceAccountId));
+    // 1. Get source & target accounts from Firestore
+    const [sourceDoc, targetDoc] = await Promise.all([
+      getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, sourceAccountId), true),
+      getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, targetAccountId), true)
+    ]);
+
     if (!sourceDoc.exists()) {
       throw new Error('Tài khoản nguồn không tồn tại trên hệ thống.');
     }
     const sourceData = sourceDoc.data() as AccountRecord;
-    
-    // Determine permissions from source: either its custom permissions, or role group default
-    let permsToCopy: ModulePermissionsMap;
-    const baseRolePerms = DEFAULT_ROLE_GROUPS[sourceData.roleGroup]?.permissions || DEFAULT_ROLE_GROUPS.TEACHER.permissions;
-    permsToCopy = JSON.parse(JSON.stringify(baseRolePerms));
-    
-    if (sourceData.hasCustomPermissions && sourceData.customPermissions) {
-      Object.keys(sourceData.customPermissions).forEach(k => {
-        const mCode = k as any;
-        if (sourceData.customPermissions && sourceData.customPermissions[mCode]) {
+    const targetData = targetDoc.exists() ? (targetDoc.data() as AccountRecord) : null;
+
+    const liveSource = await getLiveUserPermissionsFromFirestore(
+      sourceAccountId,
+      sourceData.username,
+      sourceData.teacherCode,
+      { firebaseUid: sourceData.firebaseUid, email: sourceData.email, forceServer: true }
+    );
+
+    const baseRolePerms =
+      DEFAULT_ROLE_GROUPS[sourceData.roleGroup]?.permissions || DEFAULT_ROLE_GROUPS.TEACHER.permissions;
+    const permsToCopy: ModulePermissionsMap = JSON.parse(JSON.stringify(baseRolePerms));
+
+    const effectiveSourceCustom = liveSource.hasCustom ? liveSource.permissions : null;
+    if (effectiveSourceCustom) {
+      Object.keys(permsToCopy).forEach((k) => {
+        const mCode = k as keyof ModulePermissionsMap;
+        if (effectiveSourceCustom[mCode]) {
           permsToCopy[mCode] = {
-            ...permsToCopy[mCode],
-            ...sourceData.customPermissions[mCode]
+            view: !!effectiveSourceCustom[mCode]?.view,
+            create: !!effectiveSourceCustom[mCode]?.create,
+            edit: !!effectiveSourceCustom[mCode]?.edit,
+            delete: !!effectiveSourceCustom[mCode]?.delete,
+            approve: !!effectiveSourceCustom[mCode]?.approve,
+            export: !!effectiveSourceCustom[mCode]?.export,
+            lock: !!effectiveSourceCustom[mCode]?.lock
+          };
+        } else {
+          permsToCopy[mCode] = {
+            view: false,
+            create: false,
+            edit: false,
+            delete: false,
+            approve: false,
+            export: false,
+            lock: false
           };
         }
       });
     }
 
-    // 2. Save copied permissions to target account
-    await this.saveUserPermissions(targetAccountId, permsToCopy, performedBy);
+    // 2. Save copied permissions to target account in Firestore (with full normalized metadata)
+    await this.saveUserPermissions(targetAccountId, permsToCopy, performedBy, {
+      username: targetData?.username,
+      teacherCode: targetData?.teacherCode,
+      fullName: targetData?.fullName,
+      email: targetData?.email,
+      firebaseUid: targetData?.firebaseUid,
+      roleGroup: targetData?.roleGroup
+    });
 
     // 3. Log audit
     await this.addAuditLog({
       action: 'UPDATE_PERMISSIONS',
-      targetUsername: targetAccountId,
-      targetFullName: `Tài khoản đích (ID: ${targetAccountId})`,
+      targetUsername: targetData?.username || targetAccountId,
+      targetFullName: targetData?.fullName || `Tài khoản đích (ID: ${targetAccountId})`,
       performedBy,
       details: `Sao chép toàn bộ ma trận phân quyền từ ${sourceData.fullName} (${sourceData.username})`
     });
@@ -1012,344 +1463,280 @@ export const accountService = {
   },
 
   /**
-   * Save custom fine-grained permissions for an individual account
+   * Save custom fine-grained permissions for an individual account directly to Firebase Firestore.
+   * GUARANTEED PERSISTENCE: awaits canonical Firestore writes and throws if Firestore fails
+   * (never fakes success via localStorage or /api/permissions).
    */
   async saveUserPermissions(
     id: string,
     permissions: Partial<ModulePermissionsMap>,
     performedBy: string,
-    extraInfo?: { username?: string; teacherCode?: string; fullName?: string }
+    extraInfo?: {
+      username?: string;
+      teacherCode?: string;
+      fullName?: string;
+      email?: string;
+      firebaseUid?: string;
+      roleGroup?: RoleGroupCode;
+    }
   ): Promise<void> {
-    if (!id || typeof id !== 'string') {
+    const canonicalId = String(id || '').trim();
+    if (!canonicalId) {
       throw new Error('ID tài khoản không hợp lệ.');
     }
     const now = new Date().toISOString();
 
-    let targetName = extraInfo?.fullName || id;
-    let targetUser = extraInfo?.username ? extraInfo.username.toLowerCase().trim() : '';
-    let teacherCode = extraInfo?.teacherCode ? extraInfo.teacherCode.toLowerCase().trim() : '';
-    let teacherId = id;
+    let targetName = extraInfo?.fullName || canonicalId;
+    let targetUser = normalizeIdentifier(extraInfo?.username);
+    let teacherCode = normalizeIdentifier(extraInfo?.teacherCode);
+    let normalizedEmail = normalizeEmail(extraInfo?.email);
+    let firebaseUid = String(extraInfo?.firebaseUid || '').trim();
+    let roleGroup = extraInfo?.roleGroup;
+    let teacherId = canonicalId;
 
-    // 0. Instant local persistence under ALL key aliases
-    const allAliases = new Set<string>();
-    getTeacherKeyAliases(id).forEach(a => allAliases.add(a));
-    if (targetUser) getTeacherKeyAliases(targetUser).forEach(a => allAliases.add(a));
-    if (teacherCode) getTeacherKeyAliases(teacherCode).forEach(a => allAliases.add(a));
-    allAliases.forEach(alias => setStoredUserCustomPermissions(alias, permissions));
-
-    // 1. Fetch current account info for logging and sync if not provided (with timeout)
-    if (!targetUser) {
+    // Fetch existing Firestore account metadata if username/code/uid not fully supplied
+    if (!targetUser || !teacherCode) {
       try {
-        const getAccPromise = getDoc(doc(db, ACCOUNTS_COLLECTION, id));
-        const timeoutGet = new Promise<null>(res => setTimeout(() => res(null), 1000));
-        const accDoc: any = await Promise.race([getAccPromise, timeoutGet]);
-        if (accDoc && accDoc.exists && accDoc.exists()) {
-          const d = accDoc.data();
-          if (d.fullName) targetName = d.fullName;
-          if (d.username) {
-            targetUser = d.username.toLowerCase().trim();
-            getTeacherKeyAliases(d.username).forEach(a => allAliases.add(a));
-          }
-          if (d.teacherCode) {
-            teacherCode = d.teacherCode.toLowerCase().trim();
-            getTeacherKeyAliases(d.teacherCode).forEach(a => allAliases.add(a));
-          }
-          if (d.teacherId) {
-            teacherId = d.teacherId;
-            getTeacherKeyAliases(d.teacherId).forEach(a => allAliases.add(a));
-          }
-          allAliases.forEach(alias => setStoredUserCustomPermissions(alias, permissions));
+        const accDoc = await getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, canonicalId), false);
+        if (accDoc.exists()) {
+          const d = accDoc.data() as AccountRecord;
+          if (d.fullName && (!extraInfo?.fullName || targetName === canonicalId)) targetName = d.fullName;
+          if (!targetUser && d.username) targetUser = normalizeIdentifier(d.username);
+          if (!teacherCode && d.teacherCode) teacherCode = normalizeIdentifier(d.teacherCode);
+          if (!normalizedEmail && d.email) normalizedEmail = normalizeEmail(d.email);
+          if (!firebaseUid && d.firebaseUid) firebaseUid = String(d.firebaseUid).trim();
+          if (!roleGroup && d.roleGroup) roleGroup = d.roleGroup;
+          if (d.teacherId) teacherId = String(d.teacherId).trim();
         }
-      } catch (e) {
-        console.warn('Could not read existing account doc:', e);
+      } catch {
+        // continue with provided metadata
       }
     }
 
-    // 2. Update active logged-in user in sessionStorage & localStorage if it matches
-    try {
-      ['sessionStorage', 'localStorage'].forEach(storageType => {
-        const storage = storageType === 'sessionStorage' ? sessionStorage : localStorage;
-        const stored = storage.getItem('authUser');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const pId = parsed.id?.toLowerCase();
-          const pUser = parsed.username?.toLowerCase();
-          const pCode = parsed.teacherCode?.toLowerCase();
-          if (
-            pId === id.toLowerCase() || 
-            (targetUser && pUser === targetUser) || 
-            (teacherCode && pCode === teacherCode) ||
-            pId === teacherId.toLowerCase()
-          ) {
-            parsed.hasCustomPermissions = true;
-            parsed.customPermissions = permissions;
-            storage.setItem('authUser', JSON.stringify(parsed));
-          }
-        }
-      });
-    } catch (e) {}
+    // Build standardized UserPermissionDocument (schemaVersion 2)
+    const permDocPayload: UserPermissionDocument = {
+      canonicalId,
+      userId: canonicalId,
+      ...(firebaseUid ? { firebaseUid } : {}),
+      teacherId,
+      username: targetUser,
+      ...(teacherCode ? { teacherCode } : {}),
+      ...(normalizedEmail ? { email: normalizedEmail } : {}),
+      fullName: targetName,
+      ...(roleGroup ? { roleGroup } : {}),
+      hasCustomPermissions: true,
+      permissions,
+      updatedAt: now,
+      updatedBy: performedBy,
+      schemaVersion: 2
+    };
 
-    // 3. Update cached_user_accounts in localStorage
-    try {
-      const cached = localStorage.getItem('cached_user_accounts');
-      if (cached) {
-        const list = JSON.parse(cached);
-        const updated = list.map((a: any) => {
-          if (
-            a.id === id || 
-            (targetUser && a.username?.toLowerCase() === targetUser) || 
-            a.id === teacherId
-          ) {
-            return {
-              ...a,
-              hasCustomPermissions: true,
-              customPermissions: permissions
-            };
-          }
-          return a;
-        });
-        localStorage.setItem('cached_user_accounts', JSON.stringify(updated));
-      }
-    } catch (e) {}
-
-    // 4. Save to server persistence API (for cross-device / exported web)
-    try {
-      const payload: Record<string, any> = { [id]: permissions };
-      if (targetUser) payload[targetUser] = permissions;
-      if (teacherCode) payload[teacherCode] = permissions;
-      fetch('/api/permissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userCustom: payload })
-      }).catch(() => {});
-    } catch (e) {}
-
-    // 5. Persist to Firestore across all relevant collections (awaiting allSettled)
-    const firestoreWriteTasks: Promise<any>[] = [];
-
-    // 5a. Save to dedicated CUSTOM_PERMISSIONS_COLLECTION
-    firestoreWriteTasks.push(
-      setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, id), {
-        userId: id,
-        username: targetUser,
-        teacherCode: teacherCode,
-        fullName: targetName,
-        hasCustomPermissions: true,
-        permissions,
-        updatedAt: now,
-        updatedBy: performedBy
-      }, { merge: true })
-    );
-
-    if (targetUser && targetUser !== id) {
-      firestoreWriteTasks.push(
-        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, targetUser), {
-          userId: id,
-          username: targetUser,
-          teacherCode: teacherCode,
-          fullName: targetName,
+    // Primary authoritative writes MUST succeed on Firebase Firestore
+    const primaryWrites: Promise<void>[] = [
+      setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, canonicalId), permDocPayload, { merge: true }),
+      setDoc(
+        doc(db, ACCOUNTS_COLLECTION, canonicalId),
+        {
           hasCustomPermissions: true,
-          permissions,
-          updatedAt: now,
-          updatedBy: performedBy
-        }, { merge: true })
+          customPermissions: permissions,
+          ...(targetUser ? { username: targetUser } : {}),
+          ...(normalizedEmail ? { normalizedEmail } : {}),
+          ...(firebaseUid ? { firebaseUid } : {}),
+          updatedAt: now
+        },
+        { merge: true }
+      )
+    ];
+
+    // Also sync synchronized alias docs in `user_custom_permissions` with identical `updatedAt`
+    const aliasDocIds = new Set<string>();
+    if (firebaseUid && firebaseUid !== canonicalId) aliasDocIds.add(firebaseUid);
+    if (targetUser && targetUser !== canonicalId) aliasDocIds.add(targetUser);
+    if (teacherCode && teacherCode !== canonicalId && teacherCode !== targetUser) aliasDocIds.add(teacherCode);
+
+    aliasDocIds.forEach((aliasId) => {
+      primaryWrites.push(
+        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, aliasId), permDocPayload, { merge: true })
       );
+    });
+
+    try {
+      await Promise.all(primaryWrites);
+    } catch (err) {
+      throw formatFirestoreWriteError(err, 'ma trận phân quyền');
     }
 
-    if (teacherCode && teacherCode !== id && teacherCode !== targetUser) {
-      firestoreWriteTasks.push(
-        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, teacherCode), {
-          userId: id,
-          username: targetUser,
-          teacherCode: teacherCode,
-          fullName: targetName,
+    // Secondary best-effort sync to teachers doc & audit log (never fails primary save)
+    const secondaryTasks: Promise<any>[] = [
+      setDoc(
+        doc(db, 'teachers', teacherId || canonicalId),
+        {
           hasCustomPermissions: true,
-          permissions,
-          updatedAt: now,
-          updatedBy: performedBy
-        }, { merge: true })
-      );
-    }
-
-    // 5b. Save to ACCOUNTS_COLLECTION
-    firestoreWriteTasks.push(
-      setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
-        hasCustomPermissions: true,
-        customPermissions: permissions,
-        updatedAt: now
-      }, { merge: true })
-    );
-
-    if (targetUser && targetUser !== id) {
-      firestoreWriteTasks.push(
-        deleteDoc(doc(db, ACCOUNTS_COLLECTION, targetUser)).catch(() => {})
-      );
-    }
-
-    // 5c. Save to teachers collection
-    const tId = teacherId || id;
-    firestoreWriteTasks.push(
-      setDoc(doc(db, 'teachers', tId), {
-        hasCustomPermissions: true,
-        customPermissions: permissions,
-        accountUpdatedAt: now
-      }, { merge: true })
-    );
-
-    // 5d. Add audit log
-    firestoreWriteTasks.push(
+          customPermissions: permissions,
+          accountUpdatedAt: now
+        },
+        { merge: true }
+      ).catch(() => {}),
       this.addAuditLog({
         action: 'UPDATE_PERMISSIONS',
-        targetUsername: targetUser || id,
+        targetUsername: targetUser || canonicalId,
         targetFullName: targetName,
         performedBy,
         details: `Thiết lập ma trận phân quyền tùy biến riêng (18 modules)`
-      })
-    );
+      }).catch(() => {})
+    ];
 
+    if (targetUser && targetUser !== canonicalId) {
+      // Clean up legacy duplicate user_accounts doc keyed by username if any exists
+      secondaryTasks.push(deleteDoc(doc(db, ACCOUNTS_COLLECTION, targetUser)).catch(() => {}));
+    }
+
+    await Promise.allSettled(secondaryTasks);
+
+    // Clean any legacy localStorage map & refresh current tab sessionStorage only if editing self
+    setStoredUserCustomPermissions(canonicalId, null);
     try {
-      const waitWritePromise = Promise.allSettled(firestoreWriteTasks);
-      const timeoutSync = new Promise<void>(res => setTimeout(res, 3500));
-      await Promise.race([waitWritePromise, timeoutSync]);
-    } catch (err) {
-      console.warn('Firestore sync for permissions error:', err);
+      const stored = sessionStorage.getItem('authUser');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const pId = String(parsed.id || '').trim();
+        const pUser = normalizeIdentifier(parsed.username);
+        if (pId === canonicalId || (targetUser && pUser === targetUser)) {
+          parsed.hasCustomPermissions = true;
+          parsed.customPermissions = permissions;
+          sessionStorage.setItem('authUser', JSON.stringify(parsed));
+        }
+      }
+    } catch {
+      // ignore
     }
   },
 
   /**
-   * Reset user's custom permissions back to standard role group defaults
+   * Reset user's custom permissions back to standard role group defaults in Firebase Firestore.
+   * Automatically resolves all associated keys (canonicalId, firebaseUid, username, teacherCode)
+   * so no orphaned alias document can ever resurrect revoked permissions.
    */
   async resetUserPermissionsToRoleGroup(
-    id: string, 
+    id: string,
     performedBy: string,
-    extraInfo?: { username?: string; teacherCode?: string; fullName?: string }
+    extraInfo?: {
+      username?: string;
+      teacherCode?: string;
+      fullName?: string;
+      email?: string;
+      firebaseUid?: string;
+      roleGroup?: RoleGroupCode;
+    }
   ): Promise<void> {
-    if (!id) throw new Error('ID tài khoản không hợp lệ.');
+    const canonicalId = String(id || '').trim();
+    if (!canonicalId) throw new Error('ID tài khoản không hợp lệ.');
     const now = new Date().toISOString();
 
-    let targetName = extraInfo?.fullName || id;
-    let targetUser = extraInfo?.username ? extraInfo.username.toLowerCase().trim() : '';
-    let teacherCode = extraInfo?.teacherCode ? extraInfo.teacherCode.toLowerCase().trim() : '';
-    let teacherId = id;
+    let targetName = extraInfo?.fullName || canonicalId;
+    let targetUser = normalizeIdentifier(extraInfo?.username);
+    let teacherCode = normalizeIdentifier(extraInfo?.teacherCode);
+    let firebaseUid = String(extraInfo?.firebaseUid || '').trim();
+    let teacherId = canonicalId;
 
-    setStoredUserCustomPermissions(id, null);
-    if (targetUser) setStoredUserCustomPermissions(targetUser, null);
-    if (teacherCode) setStoredUserCustomPermissions(teacherCode, null);
+    // Always resolve missing identifiers from Firestore / DEFAULT_TEACHERS so all alias docs are revoked
+    if (!targetUser || !teacherCode || !firebaseUid) {
+      try {
+        const accDoc = await getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, canonicalId), false);
+        if (accDoc.exists()) {
+          const d = accDoc.data() as AccountRecord;
+          if (d.fullName && targetName === canonicalId) targetName = d.fullName;
+          if (!targetUser && d.username) targetUser = normalizeIdentifier(d.username);
+          if (!teacherCode && d.teacherCode) teacherCode = normalizeIdentifier(d.teacherCode);
+          if (!firebaseUid && d.firebaseUid) firebaseUid = String(d.firebaseUid).trim();
+          if (d.teacherId) teacherId = String(d.teacherId).trim();
+        }
+      } catch {
+        // ignore lookup failure, fallback to DEFAULT_TEACHERS below
+      }
+    }
 
-    // Remove from server persistence API
+    const allDocIds = resolvePermissionDocIds({
+      userId: canonicalId,
+      firebaseUid,
+      username: targetUser,
+      teacherCode,
+      email: extraInfo?.email
+    });
+
+    const resetPayload = {
+      canonicalId,
+      userId: canonicalId,
+      ...(firebaseUid ? { firebaseUid } : {}),
+      username: targetUser,
+      ...(teacherCode ? { teacherCode } : {}),
+      hasCustomPermissions: false,
+      permissions: null,
+      updatedAt: now,
+      updatedBy: performedBy,
+      schemaVersion: 2
+    };
+
+    const primaryResets: Promise<void>[] = [
+      ...allDocIds.map((docId) =>
+        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, docId), resetPayload, { merge: true })
+      ),
+      setDoc(
+        doc(db, ACCOUNTS_COLLECTION, canonicalId),
+        {
+          hasCustomPermissions: false,
+          customPermissions: null,
+          updatedAt: now
+        },
+        { merge: true }
+      )
+    ];
+
     try {
-      const payload: Record<string, any> = { [id]: null };
-      if (targetUser) payload[targetUser] = null;
-      if (teacherCode) payload[teacherCode] = null;
-      fetch('/api/permissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userCustom: payload })
-      }).catch(() => {});
-    } catch (e) {}
+      await Promise.all(primaryResets);
+    } catch (err) {
+      throw formatFirestoreWriteError(err, 'thu hồi phân quyền');
+    }
 
-    const firestoreResetTasks: Promise<any>[] = [];
-
-    // Reset in CUSTOM_PERMISSIONS_COLLECTION
-    firestoreResetTasks.push(
-      setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, id), {
-        hasCustomPermissions: false,
-        permissions: null,
-        updatedAt: now,
-        updatedBy: performedBy
-      }, { merge: true })
-    );
-
-    if (targetUser && targetUser !== id) {
-      firestoreResetTasks.push(
-        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, targetUser), {
+    await Promise.allSettled([
+      setDoc(
+        doc(db, 'teachers', teacherId || canonicalId),
+        {
           hasCustomPermissions: false,
-          permissions: null,
-          updatedAt: now,
-          updatedBy: performedBy
-        }, { merge: true })
-      );
-    }
-
-    if (teacherCode && teacherCode !== id && teacherCode !== targetUser) {
-      firestoreResetTasks.push(
-        setDoc(doc(db, CUSTOM_PERMISSIONS_COLLECTION, teacherCode), {
-          hasCustomPermissions: false,
-          permissions: null,
-          updatedAt: now,
-          updatedBy: performedBy
-        }, { merge: true })
-      );
-    }
-
-    // Reset in ACCOUNTS_COLLECTION
-    firestoreResetTasks.push(
-      setDoc(doc(db, ACCOUNTS_COLLECTION, id), {
-        hasCustomPermissions: false,
-        customPermissions: null,
-        updatedAt: now
-      }, { merge: true })
-    );
-
-    if (targetUser && targetUser !== id) {
-      firestoreResetTasks.push(
-        deleteDoc(doc(db, ACCOUNTS_COLLECTION, targetUser)).catch(() => {})
-      );
-    }
-
-    const tId = teacherId || id;
-    firestoreResetTasks.push(
-      setDoc(doc(db, 'teachers', tId), {
-        hasCustomPermissions: false,
-        customPermissions: null,
-        accountUpdatedAt: now
-      }, { merge: true })
-    );
-
-    firestoreResetTasks.push(
+          customPermissions: null,
+          accountUpdatedAt: now
+        },
+        { merge: true }
+      ).catch(() => {}),
       this.addAuditLog({
         action: 'UPDATE_PERMISSIONS',
-        targetUsername: targetUser || id,
+        targetUsername: targetUser || canonicalId,
         targetFullName: targetName,
         performedBy,
         details: `Khôi phục phân quyền về mặc định theo nhóm quyền`
-      })
-    );
+      }).catch(() => {})
+    ]);
 
+    setStoredUserCustomPermissions(canonicalId, null);
     try {
-      const waitResetPromise = Promise.allSettled(firestoreResetTasks);
-      const timeoutP = new Promise<void>(res => setTimeout(res, 3500));
-      await Promise.race([waitResetPromise, timeoutP]);
-    } catch (e) {
-      console.warn('Reset sync error:', e);
-    }
-
-    try {
-      ['sessionStorage', 'localStorage'].forEach(storageType => {
-        const storage = storageType === 'sessionStorage' ? sessionStorage : localStorage;
-        const stored = storage.getItem('authUser');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const pId = parsed.id?.toLowerCase();
-          const pUser = parsed.username?.toLowerCase();
-          const pCode = parsed.teacherCode?.toLowerCase();
-          if (
-            pId === id.toLowerCase() || 
-            (targetUser && pUser === targetUser) || 
-            (teacherCode && pCode === teacherCode) ||
-            pId === teacherId.toLowerCase()
-          ) {
-            parsed.hasCustomPermissions = false;
-            parsed.customPermissions = null;
-            storage.setItem('authUser', JSON.stringify(parsed));
-          }
+      const stored = sessionStorage.getItem('authUser');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const pId = String(parsed.id || '').trim();
+        const pUser = normalizeIdentifier(parsed.username);
+        if (pId === canonicalId || (targetUser && pUser === targetUser)) {
+          parsed.hasCustomPermissions = false;
+          delete parsed.customPermissions;
+          sessionStorage.setItem('authUser', JSON.stringify(parsed));
         }
-      });
-    } catch (e) {}
+      }
+    } catch {
+      // ignore
+    }
   },
 
   /**
-   * Save customized base matrix for a role group
+   * Save customized base matrix for a role group directly to Firebase Firestore.
    */
   async saveRoleGroupPermissions(
     roleGroup: RoleGroupCode,
@@ -1357,84 +1744,63 @@ export const accountService = {
     performedBy: string
   ): Promise<void> {
     const now = new Date().toISOString();
-    
-    // In-memory and local storage immediate update
-    if (DEFAULT_ROLE_GROUPS[roleGroup]) {
-      DEFAULT_ROLE_GROUPS[roleGroup].permissions = permissions;
-    }
-    try {
-      localStorage.setItem(`custom_role_group_permissions_${roleGroup}`, JSON.stringify(permissions));
-    } catch (e) {}
 
-    // Save to server persistence API
     try {
-      fetch('/api/permissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roleGroups: { [roleGroup]: permissions } })
-      }).catch(() => {});
-    } catch (e) {}
-
-    const firestoreSyncPromise = (async () => {
-      try {
-        await setDoc(doc(db, ROLE_GROUPS_COLLECTION, roleGroup), {
+      await setDoc(
+        doc(db, ROLE_GROUPS_COLLECTION, roleGroup),
+        {
           code: roleGroup,
           permissions,
           updatedAt: now,
           updatedBy: performedBy
-        }, { merge: true });
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      throw formatFirestoreWriteError(err, `phân quyền nhóm ${roleGroup}`);
+    }
 
-        await this.addAuditLog({
-          action: 'UPDATE_PERMISSIONS',
-          targetUsername: roleGroup,
-          targetFullName: `Nhóm quyền ${roleGroup}`,
-          performedBy,
-          details: `Cập nhật cấu hình phân quyền mẫu cho nhóm ${DEFAULT_ROLE_GROUPS[roleGroup]?.name || roleGroup}`
-        });
-      } catch (err) {
-        console.warn('Background Firestore sync for role group:', err);
-      }
-    })();
+    if (DEFAULT_ROLE_GROUPS[roleGroup]) {
+      DEFAULT_ROLE_GROUPS[roleGroup].permissions = permissions;
+    }
+    roleGroupConfigsLoaded = true;
+    notifyRoleGroupVersionChange();
 
-    const timeoutP = new Promise<void>(res => setTimeout(res, 1200));
-    await Promise.race([firestoreSyncPromise, timeoutP]);
+    await this.addAuditLog({
+      action: 'UPDATE_PERMISSIONS',
+      targetUsername: roleGroup,
+      targetFullName: `Nhóm quyền ${roleGroup}`,
+      performedBy,
+      details: `Cập nhật cấu hình phân quyền mẫu cho nhóm ${DEFAULT_ROLE_GROUPS[roleGroup]?.name || roleGroup}`
+    }).catch(() => {});
   },
 
   /**
-   * Load customized role group configurations from Firestore
+   * Load customized role group configurations directly from Firebase Firestore.
+   * Never reads stale localStorage or static JSON; notifies reactive subscribers on completion.
    */
-  async loadRoleGroupConfigs(): Promise<void> {
-    // Sync from server / custom_permissions.json first (ensures web export has configured permissions)
-    await syncPermissionsFromServer();
-
+  async loadRoleGroupConfigs(forceServer = false): Promise<void> {
     try {
-      (Object.keys(DEFAULT_ROLE_GROUPS) as RoleGroupCode[]).forEach(code => {
-        const raw = localStorage.getItem(`custom_role_group_permissions_${code}`);
-        if (raw) {
-          const perms = JSON.parse(raw);
-          if (perms && DEFAULT_ROLE_GROUPS[code]) {
-            DEFAULT_ROLE_GROUPS[code].permissions = perms;
-          }
-        }
-      });
-    } catch (e) {}
+      const colRef = collection(db, ROLE_GROUPS_COLLECTION);
+      const snap =
+        forceServer && typeof navigator !== 'undefined' && navigator.onLine !== false
+          ? await getDocsFromServer(colRef).catch(() => getDocs(colRef))
+          : await getDocs(colRef);
 
-    try {
-      const snapPromise = getDocs(collection(db, ROLE_GROUPS_COLLECTION));
-      const timeoutP = new Promise<null>(res => setTimeout(() => res(null), 1500));
-      const snap: any = await Promise.race([snapPromise, timeoutP]);
       if (snap && !snap.empty) {
-        snap.docs.forEach((d: any) => {
+        snap.docs.forEach((d) => {
           const data = d.data();
           const code = (data.code || d.id) as RoleGroupCode;
           if (DEFAULT_ROLE_GROUPS[code] && data.permissions) {
-            DEFAULT_ROLE_GROUPS[code].permissions = data.permissions;
-            try {
-              localStorage.setItem(`custom_role_group_permissions_${code}`, JSON.stringify(data.permissions));
-            } catch (e) {}
+            DEFAULT_ROLE_GROUPS[code].permissions = {
+              ...DEFAULT_ROLE_GROUPS[code].permissions,
+              ...data.permissions
+            };
           }
         });
       }
+      roleGroupConfigsLoaded = true;
+      notifyRoleGroupVersionChange();
     } catch (e) {
       console.warn('Could not load role group configs from Firestore:', e);
     }
