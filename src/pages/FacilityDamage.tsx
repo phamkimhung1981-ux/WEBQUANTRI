@@ -245,7 +245,7 @@ export default function FacilityDamagePage() {
     link.setAttribute('download', `Danh_sach_bao_hong_csvc_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    if (link.parentNode) link.parentNode.removeChild(link);
   };
 
   const handlePrintAll = () => {

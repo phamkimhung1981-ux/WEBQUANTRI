@@ -81,7 +81,9 @@ export default function KpiPrintReportModal({
         ? `KPI_Thang_${month}_${teacher?.name.replace(/\s+/g, '_') || 'CBGVNV'}.doc`
         : `Bang_Tong_Hop_KPI_Thang_${month}_NamHoc_${academicYear}.doc`);
     fileDownload.click();
-    document.body.removeChild(fileDownload);
+    if (fileDownload.parentNode) {
+      fileDownload.parentNode.removeChild(fileDownload);
+    }
   };
 
   return (

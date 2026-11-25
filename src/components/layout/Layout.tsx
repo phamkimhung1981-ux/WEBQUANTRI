@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import BackToHomeButton from '../ui/BackToHomeButton';
+import ModuleErrorBoundary from '../ui/ModuleErrorBoundary';
 
 function getModuleTitle(pathname: string): string {
   if (pathname === '/') return 'Giao diện chính / Dashboard';
@@ -29,6 +30,7 @@ function getModuleTitle(pathname: string): string {
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const isDashboard = location.pathname === '/';
   const currentModuleTitle = getModuleTitle(location.pathname);
 
@@ -70,7 +72,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         )}
 
         <main className={`flex-1 relative focus:outline-none custom-scrollbar ${isDashboard ? 'p-0 overflow-x-hidden' : 'pb-8'}`}>
-          {children}
+          <ModuleErrorBoundary
+            moduleName={currentModuleTitle}
+            resetKey={location.pathname}
+            onNavigateHome={() => navigate('/')}
+          >
+            {children}
+          </ModuleErrorBoundary>
           
           {/* Footer for non-dashboard pages */}
           {!isDashboard && (

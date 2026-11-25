@@ -34,7 +34,7 @@ function saveWorkbook(workbook: XLSX.WorkBook, fileName: string) {
     document.body.appendChild(link);
     link.click();
     setTimeout(() => {
-      document.body.removeChild(link);
+      if (link.parentNode) link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
     }, 250);
   } catch (err) {
@@ -623,7 +623,7 @@ export async function exportDisciplineSessionToDocx({
     link.click();
 
     setTimeout(() => {
-      document.body.removeChild(link);
+      if (link.parentNode) link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
     }, 500);
 

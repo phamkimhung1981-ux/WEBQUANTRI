@@ -38,6 +38,7 @@ import {
   enableFirestoreMemoryFallback,
   isFirestoreRuntimeStorageError
 } from './lib/firebase';
+import { logClientError, ClientErrorRecord } from './utils/errorLogger';
 
 function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; children: React.ReactNode }) {
   const { canAccessModule, isAdmin } = usePermission();
@@ -270,19 +271,27 @@ function StorageHealthBanner() {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  errorRecord: ClientErrorRecord | null;
   isStorageError: boolean;
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
-  props: { children: React.ReactNode };
-  state: ErrorBoundaryState = { hasError: false, error: null, isStorageError: false };
+  declare props: { children: React.ReactNode };
+  declare setState: (
+    state:
+      | Partial<ErrorBoundaryState>
+      | ((prevState: Readonly<ErrorBoundaryState>) => Partial<ErrorBoundaryState> | null)
+      | null,
+    callback?: () => void
+  ) => void;
+  state: ErrorBoundaryState = { hasError: false, error: null, errorRecord: null, isStorageError: false };
 
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null, isStorageError: false };
+    this.state = { hasError: false, error: null, errorRecord: null, isStorageError: false };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     const isStorage = isFirestoreRuntimeStorageError(error);
     if (isStorage) {
       enableFirestoreMemoryFallback(
@@ -293,7 +302,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    const record = logClientError({
+      error,
+      componentStack: errorInfo.componentStack,
+      source: 'app_error_boundary'
+    });
+    this.setState({ errorRecord: record });
   }
 
   handleSafeRecovery = () => {
@@ -307,6 +321,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
 
   render() {
     if (this.state.hasError) {
+      const rec = this.state.errorRecord;
       return (
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center font-sans">
           <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl max-w-md w-full">
@@ -333,9 +348,18 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-slate-600 mb-6">
-                {this.state.error?.message || "Vui lòng thử lại sau hoặc tải lại trang."}
-              </p>
+              <div className="space-y-3 mb-6">
+                <p className="text-sm text-slate-600">
+                  {this.state.error?.message || "Vui lòng thử lại sau hoặc tải lại trang."}
+                </p>
+                {rec && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-left text-[11px] text-slate-600 space-y-1 font-mono">
+                    <p><strong className="text-slate-800">Mã lỗi:</strong> {rec.errorName} ({rec.componentName})</p>
+                    <p><strong className="text-slate-800">Phiên bản:</strong> {rec.appVersion}</p>
+                    <p><strong className="text-slate-800">Trình duyệt:</strong> {rec.browserName} {rec.browserVersion}</p>
+                  </div>
+                )}
+              </div>
             )}
             <button 
               onClick={this.handleSafeRecovery} 

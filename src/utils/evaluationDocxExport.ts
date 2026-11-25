@@ -791,7 +791,7 @@ export async function exportEvaluationToDocx({
     link.click();
 
     setTimeout(() => {
-      document.body.removeChild(link);
+      if (link.parentNode) link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
     }, 500);
 

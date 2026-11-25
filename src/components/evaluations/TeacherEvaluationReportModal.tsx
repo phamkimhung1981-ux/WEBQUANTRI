@@ -13,9 +13,10 @@ interface TeacherEvaluationReportModalProps {
 export default function TeacherEvaluationReportModal({ record, onClose }: TeacherEvaluationReportModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = useReactToPrint({ 
-    content: () => printRef.current 
-  } as any);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Danh_gia_${record?.teacherName || 'CBGVNV'}`
+  });
 
   const handleExportPDF = () => {
     if (!printRef.current) return;

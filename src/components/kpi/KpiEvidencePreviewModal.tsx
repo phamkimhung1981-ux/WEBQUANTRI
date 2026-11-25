@@ -28,7 +28,9 @@ export default function KpiEvidencePreviewModal({
     a.download = file.fileName;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    if (a.parentNode) {
+      a.parentNode.removeChild(a);
+    }
   };
 
   return (

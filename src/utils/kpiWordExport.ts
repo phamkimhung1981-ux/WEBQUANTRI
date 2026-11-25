@@ -537,7 +537,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
-      document.body.removeChild(a);
+      if (a.parentNode) a.parentNode.removeChild(a);
       URL.revokeObjectURL(url);
     }, 500);
 
@@ -835,7 +835,7 @@ export const exportCbqlFormToWord = async (form: KpiCbqlForm): Promise<void> => 
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
-      document.body.removeChild(a);
+      if (a.parentNode) a.parentNode.removeChild(a);
       URL.revokeObjectURL(url);
     }, 500);
 

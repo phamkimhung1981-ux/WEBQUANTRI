@@ -802,7 +802,7 @@ export default function KpiCatalog() {
     link.setAttribute("download", `DanhMuc_KPI_THPT_SonLuong_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    if (link.parentNode) link.parentNode.removeChild(link);
   };
 
   return (

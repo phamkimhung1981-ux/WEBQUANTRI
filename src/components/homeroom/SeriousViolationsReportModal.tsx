@@ -77,7 +77,9 @@ export default function SeriousViolationsReportModal({
     link.setAttribute('download', `Bao_cao_vi_pham_nghiem_trong_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    if (link.parentNode) {
+      link.parentNode.removeChild(link);
+    }
   };
 
   return (
