@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   GraduationCap,
   BookOpen,
@@ -27,17 +27,38 @@ import {
   Trophy,
   Eye,
   Percent,
-  ChevronRight
+  ChevronRight,
+  Save,
+  AlertTriangle,
+  CloudOff,
+  Clock,
+  Loader2,
+  Check
 } from 'lucide-react';
 import BackButton from '../components/ui/BackButton';
 import { Card } from '../components/ui/Card';
 import { useAuth } from '../store/AuthContext';
+import { useUnsavedChanges } from '../store/UnsavedChangesContext';
 import { usePermission } from '../hooks/usePermission';
 import { homeroomService } from '../services/homeroomService';
 import { academicService, DEFAULT_SUBJECTS } from '../services/academicService';
-import { academicEmulationService } from '../services/academicEmulationService';
+import {
+  academicEmulationService,
+  computeEmulationRecord,
+  classifyAcademicFirestoreError,
+  normalizeAcademicYear
+} from '../services/academicEmulationService';
 import { StudentAcademicRecord, SemesterType, ClassAcademicSummary, SubjectScore } from '../types/academic';
-import { ClassAcademicEmulationRecord, AcademicEmulationConfig, DEFAULT_EMULATION_CONFIG, MonthlyEmulationSummary } from '../types/academicEmulation';
+import {
+  ClassAcademicEmulationRecord,
+  AcademicEmulationConfig,
+  DEFAULT_EMULATION_CONFIG,
+  MonthlyEmulationSummary,
+  AcademicEmulationSaveStatus,
+  AcademicEmulationEditorInfo,
+  AcademicEmulationBatchSaveResult,
+  AcademicEmulationSaveFailure
+} from '../types/academicEmulation';
 import { ClassInfo, Student } from '../types/homeroom';
 import { ACADEMIC_YEARS, getAllWeeksInYear, getWeeksForMonth } from '../utils/schoolWeekUtils';
 
@@ -56,24 +77,20 @@ const TableNumberInput: React.FC<TableNumberInputProps> = ({ value, disabled, cl
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
+    const raw = e.target.value.replace(/[^0-9]/g, '');
     setLocalVal(raw);
-    const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed >= 0) {
+    const parsed = raw === '' ? 0 : parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed >= 0 && parsed !== (value ?? 0)) {
       onChange(parsed);
-    } else if (raw.trim() === '') {
-      onChange(0);
     }
   };
 
   const handleBlur = () => {
     const parsed = parseInt(localVal, 10);
-    if (isNaN(parsed) || parsed < 0) {
-      setLocalVal('0');
-      onChange(0);
-    } else {
-      setLocalVal(String(parsed));
-      onChange(parsed);
+    const finalVal = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+    setLocalVal(String(finalVal));
+    if (finalVal !== (value ?? 0)) {
+      onChange(finalVal);
     }
   };
 
@@ -94,6 +111,7 @@ const TableNumberInput: React.FC<TableNumberInputProps> = ({ value, disabled, cl
 
 export default function AcademicTrackingPage() {
   const { user } = useAuth();
+  const { setHasUnsavedChanges, setPromptMessage } = useUnsavedChanges();
   const { 
     canCreate, 
     canEdit, 
@@ -112,6 +130,13 @@ export default function AcademicTrackingPage() {
   const moduleCanLock = canLock('academic_tracking');
 
   const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
+
+  const editorInfo = useMemo<AcademicEmulationEditorInfo>(() => ({
+    uid: user?.id,
+    username: user?.username || user?.id || '',
+    fullName: user?.name || user?.username || '',
+    email: user?.email || ''
+  }), [user]);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'student_grades' | 'class_summary' | 'emulation_table' | 'monthly_emulation'>('emulation_table');
 
@@ -152,7 +177,49 @@ export default function AcademicTrackingPage() {
   const [isMonthlyFormulaModalOpen, setIsMonthlyFormulaModalOpen] = useState<boolean>(false);
   const [emulationConfig, setEmulationConfig] = useState<AcademicEmulationConfig>(DEFAULT_EMULATION_CONFIG);
   const [loading, setLoading] = useState<boolean>(true);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
+  const [toastState, setToastState] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+
+  // Save & Auto-save state for Emulation Table
+  const [saveStatus, setSaveStatus] = useState<AcademicEmulationSaveStatus>('idle');
+  const [dirtyCount, setDirtyCount] = useState<number>(0);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [lastSavedBy, setLastSavedBy] = useState<string | null>(null);
+  const [lastSaveSummary, setLastSaveSummary] = useState<{
+    savedCount: number;
+    failedCount: number;
+    failures: AcademicEmulationSaveFailure[];
+    errorSummary?: string;
+  } | null>(null);
+  const [isLockActionPending, setIsLockActionPending] = useState<boolean>(false);
+  const [pendingSwitchAction, setPendingSwitchAction] = useState<{
+    description: string;
+    onProceed: () => void;
+  } | null>(null);
+
+  // Refs to prevent stale closures, race conditions, and duplicate/out-of-order writes
+  const emulationRecordsRef = useRef<ClassAcademicEmulationRecord[]>([]);
+  const emulationConfigRef = useRef<AcademicEmulationConfig>(DEFAULT_EMULATION_CONFIG);
+  const dirtyClassIdsRef = useRef<Set<string>>(new Set());
+  const classEditVersionRef = useRef<Map<string, number>>(new Map());
+  const globalEditVersionRef = useRef<number>(0);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInFlightRef = useRef<Promise<AcademicEmulationBatchSaveResult | null> | null>(null);
+  const activeScopeKeyRef = useRef<string>(`${normalizeAcademicYear('2026–2027')}__w1`);
+  const loadSeqRef = useRef<number>(0);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    emulationRecordsRef.current = emulationRecords;
+  }, [emulationRecords]);
+
+  useEffect(() => {
+    emulationConfigRef.current = emulationConfig;
+  }, [emulationConfig]);
+
+  useEffect(() => {
+    activeScopeKeyRef.current = `${normalizeAcademicYear(selectedYear)}__w${selectedWeek}`;
+  }, [selectedYear, selectedWeek]);
 
   // Modal State for Editing Student Grade
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -176,9 +243,50 @@ export default function AcademicTrackingPage() {
     setActiveWeeksForMonth(wks.length > 0 ? wks : [1, 2, 3, 4]);
   }, [selectedMonth, selectedYear]);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  const showToast = useCallback((msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastState({ message: msg, type });
+    toastTimerRef.current = setTimeout(() => setToastState(null), type === 'error' ? 6000 : 4000);
+  }, []);
+
+  const hasPendingUnsavedData = dirtyCount > 0 || saveStatus === 'unsaved' || saveStatus === 'error' || saveStatus === 'saving';
+
+  // Sync unsaved warning with global navigation guard (BackButton / Sidebar) and browser beforeunload
+  useEffect(() => {
+    setHasUnsavedChanges(hasPendingUnsavedData);
+    setPromptMessage(
+      `Dữ liệu thi đua Tuần ${selectedWeek} (${selectedYear}) vẫn còn thay đổi chưa được lưu lên máy chủ. Bạn có chắc muốn rời khỏi trang không?`
+    );
+  }, [hasPendingUnsavedData, selectedWeek, selectedYear, setHasUnsavedChanges, setPromptMessage]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirtyClassIdsRef.current.size > 0 || saveStatus === 'unsaved' || saveStatus === 'saving' || saveStatus === 'error') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [saveStatus]);
+
+  // Clean up timers and global unsaved flag on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setHasUnsavedChanges(false);
+    };
+  }, [setHasUnsavedChanges]);
+
+  const formatTimestampDisplay = (iso?: string | null): string => {
+    if (!iso) return 'Chưa có lịch sử lưu';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return 'Chưa có lịch sử lưu';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} • ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   };
 
   useEffect(() => {
@@ -186,35 +294,69 @@ export default function AcademicTrackingPage() {
   }, [selectedYear, selectedSemester, selectedWeek]);
 
   const loadData = async () => {
+    const currentSeq = ++loadSeqRef.current;
+    const scopeKey = `${normalizeAcademicYear(selectedYear)}__w${selectedWeek}`;
+
+    // Cancel any leftover auto-save timer from previous week before loading
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+
     try {
       setLoading(true);
-      const clsList = await homeroomService.getClasses();
-      setClasses(clsList);
-      const stuList = await homeroomService.getStudents();
-      setStudents(stuList);
+      setLoadErrorMessage(null);
 
-      const recList = await academicService.getRecords(selectedYear, selectedSemester);
+      const [clsList, stuList, recList] = await Promise.all([
+        homeroomService.getClasses(),
+        homeroomService.getStudents(),
+        academicService.getRecords(selectedYear, selectedSemester)
+      ]);
+
+      if (currentSeq !== loadSeqRef.current) return;
+
+      setClasses(clsList);
+      setStudents(stuList);
       setRecords(recList);
 
       const cfg = await academicEmulationService.getConfig(selectedYear);
+      if (currentSeq !== loadSeqRef.current) return;
       setEmulationConfig(cfg);
       setFormConfig(cfg);
+      emulationConfigRef.current = cfg;
 
-      const emuList = await academicEmulationService.initializeWeekRecords(clsList, selectedYear, selectedWeek, cfg);
-      setEmulationRecords(emuList);
+      // Read-only load from Firestore: never overwrites server data with zeros
+      const weekData = await academicEmulationService.loadWeekRecords(clsList, selectedYear, selectedWeek, cfg);
+      if (currentSeq !== loadSeqRef.current || activeScopeKeyRef.current !== scopeKey) return;
 
-      // Tải tất cả dữ liệu thi đua của cả năm để tính bình quân các tháng
+      setEmulationRecords(weekData.records);
+      emulationRecordsRef.current = weekData.records;
+      dirtyClassIdsRef.current.clear();
+      classEditVersionRef.current.clear();
+      setDirtyCount(0);
+      setLastSavedAt(weekData.latestSavedAt);
+      setLastSavedBy(weekData.latestSavedBy);
+      setLastSaveSummary(null);
+      setSaveStatus('idle');
+
+      // Load full-year records for monthly statistics
       const allYearEmu = await academicEmulationService.getRecords(selectedYear, 0);
+      if (currentSeq !== loadSeqRef.current) return;
       setAllYearEmulationRecords(allYearEmu);
 
       if (clsList.length > 0 && !formClassId) {
         setFormClassId(clsList[0].id);
       }
     } catch (e) {
-      console.error(e);
-      showToast('Đã tải dữ liệu học tập và thi đua từ bộ nhớ đệm.');
+      if (currentSeq !== loadSeqRef.current) return;
+      console.error('Lỗi tải dữ liệu Theo dõi học tập từ Firestore:', e);
+      const detail = classifyAcademicFirestoreError(e);
+      setLoadErrorMessage(detail.message);
+      showToast(detail.message, 'error');
     } finally {
-      setLoading(false);
+      if (currentSeq === loadSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -276,67 +418,360 @@ export default function AcademicTrackingPage() {
     return emulationConfig.lockedWeeks?.includes(selectedWeek) ?? false;
   }, [emulationConfig, selectedWeek]);
 
+  const canEditWeekData = useMemo(() => {
+    return !isWeekLocked && (isAdmin || moduleCanEdit);
+  }, [isWeekLocked, isAdmin, moduleCanEdit]);
+
+  /**
+   * Core serialized save coordinator:
+   * - Prevents concurrent/duplicate Firestore writes between auto-save and manual "Lưu toàn bộ"
+   * - Never overwrites newer user edits made while a save is in-flight
+   * - Only reports success after Firestore confirms persistence
+   */
+  const executeSaveWeekData = useCallback(
+    async (mode: 'all' | 'dirty', options?: { silent?: boolean }): Promise<AcademicEmulationBatchSaveResult | null> => {
+      if (emulationConfigRef.current.lockedWeeks?.includes(selectedWeek)) {
+        if (!options?.silent) {
+          showToast(`Tuần ${selectedWeek} đã bị khóa. Không thể lưu thay đổi khi chưa mở khóa.`, 'warning');
+        }
+        return null;
+      }
+
+      if (!isAdmin && !moduleCanEdit) {
+        if (!options?.silent) {
+          showToast('Bạn không có quyền chỉnh sửa hoặc lưu dữ liệu thi đua học tập.', 'error');
+        }
+        return null;
+      }
+
+      // Cancel any pending debounced auto-save so it doesn't fire redundantly
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
+      // Wait for any in-flight save to finish cleanly to avoid race conditions or out-of-order overwrites
+      if (saveInFlightRef.current) {
+        try {
+          await saveInFlightRef.current;
+        } catch {
+          // Previous save handled its own error state
+        }
+      }
+
+      const scopeAtStart = activeScopeKeyRef.current;
+      const normSelectedYear = normalizeAcademicYear(selectedYear);
+
+      const currentRecords = emulationRecordsRef.current.filter(
+        r => normalizeAcademicYear(r.schoolYear) === normSelectedYear && Number(r.weekNumber) === Number(selectedWeek)
+      );
+
+      if (currentRecords.length === 0) {
+        if (!options?.silent) {
+          showToast('Chưa có danh sách lớp để lưu cho tuần này.', 'warning');
+        }
+        return null;
+      }
+
+      const recordsToSave =
+        mode === 'all'
+          ? currentRecords
+          : currentRecords.filter(r => dirtyClassIdsRef.current.has(r.classId));
+
+      if (recordsToSave.length === 0) {
+        if (mode === 'dirty') {
+          return {
+            savedRecords: [],
+            savedCount: 0,
+            failedCount: 0,
+            failures: [],
+            savedAt: lastSavedAt || new Date().toISOString()
+          };
+        }
+        return null;
+      }
+
+      // Snapshot per-class edit versions BEFORE sending to Firestore
+      const versionSnapshot = new Map<string, number>();
+      recordsToSave.forEach(r => {
+        versionSnapshot.set(r.classId, classEditVersionRef.current.get(r.classId) || 0);
+      });
+
+      setSaveStatus('saving');
+
+      const runPromise = (async (): Promise<AcademicEmulationBatchSaveResult> => {
+        const result = await academicEmulationService.saveWeekRecordsBatch(
+          recordsToSave,
+          emulationConfigRef.current,
+          editorInfo
+        );
+
+        // Merge confirmed saved records into yearly state
+        if (result.savedRecords.length > 0) {
+          setAllYearEmulationRecords(prev => {
+            const next = [...prev];
+            for (const saved of result.savedRecords) {
+              const idx = next.findIndex(
+                r =>
+                  r.id === saved.id ||
+                  (r.classId === saved.classId &&
+                    Number(r.weekNumber) === Number(saved.weekNumber) &&
+                    normalizeAcademicYear(r.schoolYear) === normalizeAcademicYear(saved.schoolYear))
+              );
+              if (idx >= 0) next[idx] = saved;
+              else next.push(saved);
+            }
+            return next;
+          });
+        }
+
+        // Only update active week UI state if user is still on the same week & year
+        if (activeScopeKeyRef.current === scopeAtStart) {
+          const savedMap = new Map<string, ClassAcademicEmulationRecord>();
+          result.savedRecords.forEach(r => savedMap.set(r.classId, r));
+
+          // Update records ONLY for classes that were NOT edited again while this save was in-flight
+          if (savedMap.size > 0) {
+            const nextRecords = emulationRecordsRef.current.map(existing => {
+              const saved = savedMap.get(existing.classId);
+              if (!saved) return existing;
+              const currentVer = classEditVersionRef.current.get(existing.classId) || 0;
+              const snapVer = versionSnapshot.get(existing.classId) || 0;
+              if (currentVer === snapVer) {
+                dirtyClassIdsRef.current.delete(existing.classId);
+                return saved;
+              }
+              // User typed newer input for this class during flight -> keep newer UI data and keep dirty
+              return existing;
+            });
+            emulationRecordsRef.current = nextRecords;
+            setEmulationRecords(nextRecords);
+          }
+
+          // Ensure any failed class remains marked dirty so user can retry without losing edits
+          result.failures.forEach(f => {
+            dirtyClassIdsRef.current.add(f.classId);
+          });
+
+          const remainingDirty = dirtyClassIdsRef.current.size;
+          setDirtyCount(remainingDirty);
+          setLastSaveSummary({
+            savedCount: result.savedCount,
+            failedCount: result.failedCount,
+            failures: result.failures,
+            errorSummary: result.errorSummary
+          });
+
+          if (result.failedCount === 0) {
+            setLastSavedAt(result.savedAt);
+            setLastSavedBy(editorInfo.fullName || editorInfo.username || null);
+
+            if (remainingDirty === 0) {
+              setSaveStatus('saved');
+            } else {
+              // User edited more cells while saving -> schedule one clean follow-up auto-save
+              setSaveStatus('unsaved');
+              autoSaveTimerRef.current = setTimeout(() => {
+                executeSaveWeekData('dirty', { silent: true });
+              }, 1500);
+            }
+
+            if (!options?.silent) {
+              showToast(
+                `Đã lưu thành công ${result.savedCount}/${recordsToSave.length} lớp Tuần ${selectedWeek} lên Firestore (Thất bại: 0).`,
+                'success'
+              );
+            }
+          } else {
+            setSaveStatus('error');
+            const summaryText =
+              result.savedCount > 0
+                ? `Đã lưu ${result.savedCount} lớp, thất bại ${result.failedCount} lớp. ${result.errorSummary || ''}`
+                : `Lưu thất bại ${result.failedCount}/${recordsToSave.length} lớp. ${result.errorSummary || ''}`;
+            showToast(summaryText.trim(), 'error');
+          }
+        }
+
+        return result;
+      })();
+
+      saveInFlightRef.current = runPromise;
+      try {
+        return await runPromise;
+      } finally {
+        if (saveInFlightRef.current === runPromise) {
+          saveInFlightRef.current = null;
+        }
+      }
+    },
+    [selectedYear, selectedWeek, isAdmin, moduleCanEdit, editorInfo, lastSavedAt, showToast]
+  );
+
+  const handleManualSaveAllWeek = async () => {
+    await executeSaveWeekData('all', { silent: false });
+  };
+
   const handleSaveAndLockWeek = async () => {
-    const currentLocked = emulationConfig.lockedWeeks || [];
-    if (currentLocked.includes(selectedWeek)) {
-      showToast(`Tuần ${selectedWeek} đã được khóa.`);
+    if (!isAdmin && !moduleCanLock) {
+      showToast('Chỉ tài khoản quản trị hoặc được cấp quyền khóa mới có thể khóa tuần.', 'error');
       return;
     }
-    const updatedConfig: AcademicEmulationConfig = {
-      ...emulationConfig,
-      lockedWeeks: [...currentLocked, selectedWeek]
-    };
-    await academicEmulationService.saveConfig(updatedConfig);
-    setEmulationConfig(updatedConfig);
-    setFormConfig(updatedConfig);
-    showToast(`Đã lưu và khóa thành công dữ liệu Tuần ${selectedWeek}!`);
+
+    const currentLocked = emulationConfig.lockedWeeks || [];
+    if (currentLocked.includes(selectedWeek)) {
+      showToast(`Tuần ${selectedWeek} đã được khóa.`, 'warning');
+      return;
+    }
+
+    setIsLockActionPending(true);
+    try {
+      // Step 1: Persist ALL classes of the selected week to Firestore first
+      const saveResult = await executeSaveWeekData('all', { silent: true });
+      if (!saveResult || saveResult.failedCount > 0) {
+        showToast(
+          `Không thể khóa Tuần ${selectedWeek} vì còn ${saveResult?.failedCount ?? 'dữ liệu'} lớp lưu chưa thành công. ${saveResult?.errorSummary || 'Vui lòng kiểm tra kết nối và thử lại.'}`,
+          'error'
+        );
+        return;
+      }
+
+      // Step 2: Persist lockedWeeks flag in Firestore config
+      const updatedConfig: AcademicEmulationConfig = {
+        ...emulationConfigRef.current,
+        lockedWeeks: Array.from(new Set([...currentLocked, selectedWeek]))
+      };
+      const savedCfg = await academicEmulationService.saveConfig(updatedConfig, editorInfo);
+      setEmulationConfig(savedCfg);
+      setFormConfig(savedCfg);
+      emulationConfigRef.current = savedCfg;
+      showToast(
+        `Đã lưu toàn bộ ${saveResult.savedCount} lớp và khóa thành công Tuần ${selectedWeek} trên Firestore!`,
+        'success'
+      );
+    } catch (e) {
+      const detail = classifyAcademicFirestoreError(e);
+      showToast(`Khóa tuần thất bại: ${detail.message}`, 'error');
+    } finally {
+      setIsLockActionPending(false);
+    }
   };
 
   const handleUnlockWeek = async () => {
-    const currentLocked = emulationConfig.lockedWeeks || [];
-    const updatedConfig: AcademicEmulationConfig = {
-      ...emulationConfig,
-      lockedWeeks: currentLocked.filter(w => w !== selectedWeek)
-    };
-    await academicEmulationService.saveConfig(updatedConfig);
-    setEmulationConfig(updatedConfig);
-    setFormConfig(updatedConfig);
-    showToast(`Đã mở khóa Tuần ${selectedWeek}. Giáo viên có thể tiếp tục chỉnh sửa.`);
-  };
-
-  const handleUpdateEmulationField = async (classId: string, field: keyof ClassAcademicEmulationRecord, value: number) => {
-    if (emulationConfig.lockedWeeks?.includes(selectedWeek)) {
-      showToast(`Tuần ${selectedWeek} đã bị khóa. Không thể chỉnh sửa điểm.`);
+    if (!isAdmin && !moduleCanLock) {
+      showToast('Chỉ tài khoản có quyền quản trị mới được mở khóa tuần.', 'error');
       return;
     }
-    const target = emulationRecords.find(r => r.classId === classId);
-    if (!target) return;
 
+    setIsLockActionPending(true);
+    try {
+      const currentLocked = emulationConfigRef.current.lockedWeeks || [];
+      const updatedConfig: AcademicEmulationConfig = {
+        ...emulationConfigRef.current,
+        lockedWeeks: currentLocked.filter(w => Number(w) !== Number(selectedWeek))
+      };
+      const savedCfg = await academicEmulationService.saveConfig(updatedConfig, editorInfo);
+      setEmulationConfig(savedCfg);
+      setFormConfig(savedCfg);
+      emulationConfigRef.current = savedCfg;
+      showToast(`Đã mở khóa Tuần ${selectedWeek} trên Firestore. Bạn có thể chỉnh sửa và lưu dữ liệu.`, 'success');
+    } catch (e) {
+      const detail = classifyAcademicFirestoreError(e);
+      showToast(`Mở khóa tuần thất bại: ${detail.message}`, 'error');
+    } finally {
+      setIsLockActionPending(false);
+    }
+  };
+
+  const handleUpdateEmulationField = (classId: string, field: keyof ClassAcademicEmulationRecord, value: number) => {
+    if (emulationConfigRef.current.lockedWeeks?.includes(selectedWeek)) {
+      showToast(`Tuần ${selectedWeek} đã bị khóa. Không thể chỉnh sửa điểm.`, 'warning');
+      return;
+    }
+    if (!isAdmin && !moduleCanEdit) {
+      showToast('Bạn không có quyền chỉnh sửa dữ liệu thi đua học tập.', 'error');
+      return;
+    }
+
+    const latestList = emulationRecordsRef.current;
+    const targetIdx = latestList.findIndex(r => r.classId === classId);
+    if (targetIdx < 0) return;
+
+    const target = latestList[targetIdx];
     const numVal = isNaN(value) ? 0 : Math.max(0, Math.floor(value));
-    const updated: ClassAcademicEmulationRecord = {
-      ...target,
-      [field]: numVal
-    };
+    if (Number((target as any)[field] ?? 0) === numVal) {
+      return;
+    }
 
-    const saved = await academicEmulationService.saveRecord(updated, emulationConfig);
-    setEmulationRecords(prev => prev.map(r => r.classId === classId ? saved : r));
+    // Recompute derived score fields synchronously using the exact existing formula
+    const updatedRecord = computeEmulationRecord(
+      {
+        ...target,
+        [field]: numVal
+      },
+      emulationConfigRef.current,
+      editorInfo,
+      { preserveUpdatedAt: true }
+    );
+
+    const nextList = [...latestList];
+    nextList[targetIdx] = updatedRecord;
+    emulationRecordsRef.current = nextList;
+    setEmulationRecords(nextList);
+
+    // Reflect live calculation in monthly summary tab too
     setAllYearEmulationRecords(prev => {
-      const idx = prev.findIndex(r => r.id === saved.id || (r.classId === saved.classId && r.weekNumber === saved.weekNumber && r.schoolYear === saved.schoolYear));
+      const idx = prev.findIndex(
+        r =>
+          r.id === updatedRecord.id ||
+          (r.classId === updatedRecord.classId &&
+            Number(r.weekNumber) === Number(updatedRecord.weekNumber) &&
+            normalizeAcademicYear(r.schoolYear) === normalizeAcademicYear(updatedRecord.schoolYear))
+      );
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = saved;
+        copy[idx] = updatedRecord;
         return copy;
       }
-      return [...prev, saved];
+      return [...prev, updatedRecord];
     });
+
+    // Track dirty class & monotonic version
+    globalEditVersionRef.current += 1;
+    classEditVersionRef.current.set(classId, globalEditVersionRef.current);
+    dirtyClassIdsRef.current.add(classId);
+    setDirtyCount(dirtyClassIdsRef.current.size);
+    setSaveStatus('unsaved');
+
+    // Debounced auto-save after 1.5 seconds of inactivity (no write on every keystroke)
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      executeSaveWeekData('dirty', { silent: true });
+    }, 1500);
+  };
+
+  const requestGuardedChange = (description: string, onProceed: () => void) => {
+    if (dirtyClassIdsRef.current.size > 0 || saveStatus === 'unsaved' || saveStatus === 'error' || saveStatus === 'saving') {
+      setPendingSwitchAction({ description, onProceed });
+    } else {
+      onProceed();
+    }
   };
 
   const handleSaveConfig = async () => {
-    await academicEmulationService.saveConfig(formConfig);
-    setEmulationConfig(formConfig);
-    setIsConfigModalOpen(false);
-    showToast('Đã lưu cấu hình điểm và ngưỡng xếp loại thi đua!');
-    loadData();
+    try {
+      const savedCfg = await academicEmulationService.saveConfig(formConfig, editorInfo);
+      setEmulationConfig(savedCfg);
+      emulationConfigRef.current = savedCfg;
+      setIsConfigModalOpen(false);
+      showToast('Đã lưu cấu hình điểm và ngưỡng xếp loại thi đua lên Firestore!', 'success');
+      loadData();
+    } catch (e) {
+      const detail = classifyAcademicFirestoreError(e);
+      showToast(`Lỗi lưu cấu hình: ${detail.message}`, 'error');
+    }
   };
 
   const openAddModal = () => {
@@ -546,14 +981,12 @@ export default function AcademicTrackingPage() {
   const handleBatchInitializeMonthWeeks = async () => {
     try {
       setLoading(true);
-      for (const wk of activeWeeksForMonth) {
-        await academicEmulationService.initializeWeekRecords(classes, selectedYear, wk, emulationConfig);
-      }
       const allYearEmu = await academicEmulationService.getRecords(selectedYear, 0);
       setAllYearEmulationRecords(allYearEmu);
-      showToast(`Đã đồng bộ đầy đủ các tuần trong Tháng ${selectedMonth}!`);
+      showToast(`Đã đồng bộ dữ liệu thực tế từ Firestore cho Tháng ${selectedMonth}!`, 'success');
     } catch (e) {
-      showToast('Lỗi khi đồng bộ dữ liệu thi đua tháng');
+      const detail = classifyAcademicFirestoreError(e);
+      showToast(`Lỗi khi đồng bộ dữ liệu thi đua tháng: ${detail.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -695,10 +1128,24 @@ export default function AcademicTrackingPage() {
       </div>
 
       {/* TOAST */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 border border-slate-700 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in">
-          <CheckCircle2 className="text-emerald-400" size={20} />
-          <span className="text-xs font-bold">{toastMessage}</span>
+      {toastState && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 max-w-md px-5 py-3.5 rounded-2xl shadow-2xl flex items-start gap-3 animate-in fade-in border ${
+            toastState.type === 'error'
+              ? 'bg-rose-950 border-rose-700 text-white'
+              : toastState.type === 'warning'
+              ? 'bg-amber-950 border-amber-700 text-amber-50'
+              : 'bg-slate-900 border-slate-700 text-white'
+          }`}
+        >
+          {toastState.type === 'error' ? (
+            <AlertTriangle className="text-rose-400 shrink-0 mt-0.5" size={20} />
+          ) : toastState.type === 'warning' ? (
+            <AlertTriangle className="text-amber-400 shrink-0 mt-0.5" size={20} />
+          ) : (
+            <CheckCircle2 className="text-emerald-400 shrink-0 mt-0.5" size={20} />
+          )}
+          <span className="text-xs font-bold leading-relaxed">{toastState.message}</span>
         </div>
       )}
 
@@ -708,7 +1155,10 @@ export default function AcademicTrackingPage() {
           <span className="text-slate-300 font-bold">Năm học:</span>
           <select
             value={selectedYear}
-            onChange={e => setSelectedYear(e.target.value)}
+            onChange={e => {
+              const nextYear = e.target.value;
+              requestGuardedChange(`chuyển sang năm học ${nextYear}`, () => setSelectedYear(nextYear));
+            }}
             className="bg-slate-800 text-white font-bold px-3 py-1.5 rounded-xl border border-slate-700 outline-none cursor-pointer"
           >
             {ACADEMIC_YEARS.map(y => (
@@ -738,7 +1188,10 @@ export default function AcademicTrackingPage() {
           </span>
           <select
             value={selectedWeek}
-            onChange={e => setSelectedWeek(Number(e.target.value))}
+            onChange={e => {
+              const nextWeek = Number(e.target.value);
+              requestGuardedChange(`chuyển sang Tuần ${nextWeek}`, () => setSelectedWeek(nextWeek));
+            }}
             className="bg-white text-slate-950 font-black px-3.5 py-1.5 rounded-xl border border-amber-400 outline-none cursor-pointer shadow-xs"
           >
             {allWeeks.slice(0, 37).map(w => (
@@ -764,9 +1217,9 @@ export default function AcademicTrackingPage() {
 
         <button
           type="button"
-          onClick={loadData}
+          onClick={() => requestGuardedChange('tải lại dữ liệu từ Firestore', () => loadData())}
           className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 ml-auto cursor-pointer"
-          title="Tải lại dữ liệu"
+          title="Tải lại dữ liệu từ Firestore"
         >
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -884,6 +1337,39 @@ export default function AcademicTrackingPage() {
                   <span>Cấu hình điểm</span>
                 </button>
               )}
+              {(isAdmin || moduleCanEdit) && (
+                <button
+                  type="button"
+                  onClick={handleManualSaveAllWeek}
+                  disabled={isWeekLocked || saveStatus === 'saving' || emulationRecords.length === 0}
+                  className={`px-4 py-2 text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed ${
+                    saveStatus === 'error'
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                      : saveStatus === 'unsaved'
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                  }`}
+                  title={
+                    isWeekLocked
+                      ? `Tuần ${selectedWeek} đang khóa — mở khóa để chỉnh sửa và lưu`
+                      : `Lưu toàn bộ ${emulationRecords.length} lớp của Tuần ${selectedWeek} lên Firebase Firestore`
+                  }
+                >
+                  {saveStatus === 'saving' ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Save size={15} />
+                  )}
+                  <span>
+                    {saveStatus === 'saving' ? 'ĐANG LƯU DỮ LIỆU...' : 'LƯU TOÀN BỘ DỮ LIỆU'}
+                  </span>
+                  {dirtyCount > 0 && saveStatus !== 'saving' && (
+                    <span className="ml-0.5 px-1.5 py-0.5 text-[10px] font-black rounded-full bg-white/25 text-white">
+                      {dirtyCount}
+                    </span>
+                  )}
+                </button>
+              )}
               {(isAdmin || moduleCanExport) && (
                 <>
                   <button
@@ -908,52 +1394,170 @@ export default function AcademicTrackingPage() {
           </div>
 
           {/* Lock/Unlock status banner */}
-          <div className="no-print">
+          <div className="no-print space-y-3">
             {isWeekLocked ? (
-              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between text-xs text-amber-950">
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-amber-950">
                 <div className="flex items-center gap-2.5 font-bold">
-                  <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-900 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-900 flex items-center justify-center shrink-0">
                     <Lock size={16} />
                   </div>
                   <div>
                     <span className="text-amber-950 font-black text-sm">Tuần {selectedWeek} đã được lưu và khóa!</span>
-                    <p className="text-[11px] font-normal text-amber-900">Dữ liệu thi đua của tuần này đang được cố định và bảo vệ an toàn. Các ô nhập liệu bị khóa.</p>
+                    <p className="text-[11px] font-normal text-amber-900">Dữ liệu thi đua của tuần này đang được cố định và bảo vệ an toàn trên Firestore. Các ô nhập liệu bị khóa.</p>
                   </div>
                 </div>
                 {(isAdmin || moduleCanLock) && (
                   <button
                     type="button"
+                    disabled={isLockActionPending}
                     onClick={handleUnlockWeek}
-                    className="px-4 py-2 bg-white hover:bg-amber-100 text-amber-900 font-bold rounded-xl border border-amber-400 shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
+                    className="px-4 py-2 bg-white hover:bg-amber-100 text-amber-900 font-bold rounded-xl border border-amber-400 shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors disabled:opacity-60"
                   >
-                    <Unlock size={14} />
+                    {isLockActionPending ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
                     <span>Mở khóa tuần</span>
                   </button>
                 )}
               </div>
             ) : (
-              <div className="p-3.5 bg-emerald-50/80 border border-emerald-300 rounded-2xl flex items-center justify-between text-xs text-emerald-950">
+              <div className="p-3.5 bg-emerald-50/80 border border-emerald-300 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-950">
                 <div className="flex items-center gap-2.5 font-medium">
-                  <div className="w-8 h-8 rounded-full bg-emerald-200 text-emerald-800 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-emerald-200 text-emerald-800 flex items-center justify-center shrink-0">
                     <CheckCircle2 size={18} />
                   </div>
                   <div>
                     <span className="font-bold text-emerald-950">Nhập điểm thi đua đang mở</span>
-                    <p className="text-[11px] text-emerald-900">Sau khi hoàn tất nhập điểm các lớp cho tuần này, hãy bấm nút bên phải để lưu và khóa dữ liệu.</p>
+                    <p className="text-[11px] text-emerald-900">Hệ thống tự động lưu sau 1,5 giây ngừng nhập và hỗ trợ nút LƯU TOÀN BỘ DỮ LIỆU cho tất cả các lớp trong tuần.</p>
                   </div>
                 </div>
                 {(isAdmin || moduleCanLock) && (
                   <button
                     type="button"
+                    disabled={isLockActionPending || saveStatus === 'saving'}
                     onClick={handleSaveAndLockWeek}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 transition-all"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 transition-all disabled:opacity-60"
                   >
-                    <Lock size={15} />
+                    {isLockActionPending ? <Loader2 size={15} className="animate-spin" /> : <Lock size={15} />}
                     <span>Lưu và Khóa Tuần {selectedWeek}</span>
                   </button>
                 )}
               </div>
             )}
+
+            {/* STICKY FIRESTORE SAVE STATUS & ACTION BAR — Always visible when scrolling vertically or horizontally */}
+            <div className="sticky top-2 z-40 p-3 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-md flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {saveStatus === 'idle' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 font-bold">
+                    <Check size={14} className="text-slate-500" />
+                    <span>Chưa có thay đổi</span>
+                  </span>
+                )}
+                {saveStatus === 'unsaved' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span>Có dữ liệu chưa lưu ({dirtyCount} lớp • Tự động lưu sau 1,5s)</span>
+                  </span>
+                )}
+                {saveStatus === 'saving' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-100 text-blue-900 border border-blue-300 font-bold">
+                    <Loader2 size={14} className="animate-spin text-blue-600" />
+                    <span>Đang lưu dữ liệu lên Firestore...</span>
+                  </span>
+                )}
+                {saveStatus === 'saved' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold">
+                    <CheckCircle2 size={14} className="text-emerald-600" />
+                    <span>
+                      Đã lưu thành công
+                      {lastSaveSummary && lastSaveSummary.savedCount > 0
+                        ? ` (${lastSaveSummary.savedCount} lớp • Thất bại: 0)`
+                        : ''}
+                    </span>
+                  </span>
+                )}
+                {saveStatus === 'error' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-rose-100 text-rose-900 border border-rose-300 font-bold">
+                    <CloudOff size={14} className="text-rose-600" />
+                    <span>
+                      Lưu thất bại
+                      {lastSaveSummary
+                        ? ` (Thành công: ${lastSaveSummary.savedCount}, Thất bại: ${lastSaveSummary.failedCount})`
+                        : ''}
+                    </span>
+                  </span>
+                )}
+
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+                  <Clock size={13} className="text-slate-400" />
+                  <span>Lưu gần nhất:</span>
+                  <strong className="text-slate-800">{formatTimestampDisplay(lastSavedAt)}</strong>
+                  {lastSavedBy && (
+                    <span className="text-slate-500 hidden sm:inline">({lastSavedBy})</span>
+                  )}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {saveStatus === 'error' && canEditWeekData && (
+                  <button
+                    type="button"
+                    onClick={handleManualSaveAllWeek}
+                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw size={13} />
+                    <span>Thử lưu lại</span>
+                  </button>
+                )}
+                {canEditWeekData && (
+                  <button
+                    type="button"
+                    onClick={handleManualSaveAllWeek}
+                    disabled={saveStatus === 'saving' || emulationRecords.length === 0}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
+                  >
+                    {saveStatus === 'saving' ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Save size={14} />
+                    )}
+                    <span>LƯU TOÀN BỘ DỮ LIỆU ({emulationRecords.length} lớp)</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Detailed Firestore Error Alert (Preserves all user-entered numbers on screen) */}
+            {(saveStatus === 'error' && lastSaveSummary?.errorSummary) || loadErrorMessage ? (
+              <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-2xl flex flex-wrap items-start justify-between gap-3 text-xs text-rose-950">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-black text-rose-900">
+                      {saveStatus === 'error'
+                        ? 'Cảnh báo: Chưa thể ghi xác nhận lên cơ sở dữ liệu Firestore'
+                        : 'Cảnh báo: Không thể tải dữ liệu mới nhất từ Firestore'}
+                    </p>
+                    <p className="text-rose-800 leading-relaxed">
+                      {saveStatus === 'error' ? lastSaveSummary?.errorSummary : loadErrorMessage}
+                    </p>
+                    {saveStatus === 'error' && lastSaveSummary && lastSaveSummary.failures.length > 0 && (
+                      <p className="text-[11px] font-semibold text-rose-700">
+                        Các lớp chưa lưu được ({lastSaveSummary.failedCount}):{' '}
+                        {lastSaveSummary.failures.slice(0, 8).map(f => f.className).join(', ')}
+                        {lastSaveSummary.failures.length > 8 ? '...' : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveStatus === 'error' ? handleManualSaveAllWeek : loadData}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs cursor-pointer shrink-0"
+                >
+                  {saveStatus === 'error' ? 'Nhấn lưu lại ngay' : 'Tải lại từ Firestore'}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="overflow-x-auto overflow-y-auto max-h-[650px] rounded-xl border border-slate-300 relative shadow-inner">
@@ -2291,6 +2895,75 @@ export default function AcademicTrackingPage() {
               >
                 Đã hiểu
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CẢNH BÁO KHI CHUYỂN TUẦN / NĂM HỌC CÒN DỮ LIỆU CHƯA LƯU */}
+      {pendingSwitchAction && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150 no-print">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-amber-100 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Còn dữ liệu chưa lưu!</h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Tuần {selectedWeek} ({selectedYear}) đang có thay đổi chưa được xác nhận lưu lên Firestore.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 leading-relaxed">
+              Bạn đang chuẩn bị <strong>{pendingSwitchAction.description}</strong>. Hãy lưu dữ liệu trước khi chuyển để đảm bảo không bị mất điểm vừa nhập.
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPendingSwitchAction(null)}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Ở lại
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const action = pendingSwitchAction.onProceed;
+                  if (autoSaveTimerRef.current) {
+                    clearTimeout(autoSaveTimerRef.current);
+                    autoSaveTimerRef.current = null;
+                  }
+                  dirtyClassIdsRef.current.clear();
+                  setDirtyCount(0);
+                  setSaveStatus('idle');
+                  setPendingSwitchAction(null);
+                  action();
+                }}
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Bỏ thay đổi & Chuyển
+              </button>
+              {canEditWeekData && (
+                <button
+                  type="button"
+                  disabled={saveStatus === 'saving'}
+                  onClick={async () => {
+                    const action = pendingSwitchAction.onProceed;
+                    const res = await executeSaveWeekData('all', { silent: false });
+                    if (res && res.failedCount === 0) {
+                      setPendingSwitchAction(null);
+                      action();
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-md text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  {saveStatus === 'saving' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>Lưu ngay rồi chuyển</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

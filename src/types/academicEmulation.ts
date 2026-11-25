@@ -33,10 +33,39 @@ export interface ClassAcademicEmulationRecord {
   deductionPoints?: number; // Tổng điểm trừ
 
   // Tổng kết
-  totalScore?: number; // 100 + bonusPoints - deductionPoints
+  totalScore?: number; // bonusPoints - deductionPoints
   classification?: string; // Tốt / Khá / Đạt / Chưa đạt
   updatedAt: string;
+  updatedBy?: string;
+  updatedByName?: string;
+  updatedByUid?: string;
 }
+
+export interface AcademicEmulationEditorInfo {
+  uid?: string;
+  username?: string;
+  fullName?: string;
+  email?: string;
+}
+
+export interface AcademicEmulationSaveFailure {
+  classId: string;
+  className: string;
+  recordId: string;
+  reason: string;
+  code?: string;
+}
+
+export interface AcademicEmulationBatchSaveResult {
+  savedRecords: ClassAcademicEmulationRecord[];
+  savedCount: number;
+  failedCount: number;
+  failures: AcademicEmulationSaveFailure[];
+  savedAt: string;
+  errorSummary?: string;
+}
+
+export type AcademicEmulationSaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
 
 export interface AcademicEmulationConfig {
   id: string;
@@ -55,6 +84,9 @@ export interface AcademicEmulationConfig {
   thresholdGood: number; // Ngưỡng Khá (>= 10)
   thresholdPass: number; // Ngưỡng Đạt (>= 0)
   lockedWeeks?: number[]; // Danh sách các tuần đã khóa
+  updatedAt?: string;
+  updatedBy?: string;
+  updatedByName?: string;
 }
 
 export const DEFAULT_EMULATION_CONFIG: AcademicEmulationConfig = {
