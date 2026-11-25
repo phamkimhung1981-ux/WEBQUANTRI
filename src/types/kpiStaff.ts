@@ -81,7 +81,7 @@ export interface KpiStaffPeriod {
   description?: string;
 }
 
-export type KpiStaffFormStatus = 'draft' | 'self_evaluated' | 'submitted' | 'completed' | 'locked';
+export type KpiStaffFormStatus = 'draft' | 'self_evaluated' | 'submitted' | 'completed' | 'locked' | 'deleted' | 'cancelled';
 
 export interface KpiStaffForm {
   id: string;
@@ -136,6 +136,7 @@ export interface KpiStaffForm {
 
   // Metadata
   status: KpiStaffFormStatus;
+  isDeleted?: boolean;
   selfDate: string;
   leaderDate?: string;
   createdAt: string;

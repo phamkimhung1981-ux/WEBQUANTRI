@@ -2,27 +2,23 @@ import {
   collection, 
   doc, 
   setDoc, 
-  getDoc, 
   getDocs, 
-  updateDoc, 
   deleteDoc, 
   onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { 
   KpiStaffForm, 
-  KpiStaffPeriod, 
-  KpiStaffCriterion, 
-  KpiStaffCriteriaGroup 
+  KpiStaffPeriod
 } from '../types/kpiStaff';
 import { 
-  DEFAULT_STAFF_GROUPS, 
-  DEFAULT_STAFF_CRITERIA, 
   DEFAULT_STAFF_PERIODS,
-  DEFAULT_STAFF_FALLBACK_FORMS,
-  getClassificationByScore
+  ensureCompleteStaffPeriods,
+  getClassificationByScore,
+  isActiveStaffKpiForm,
+  normalizeAcademicYear
 } from '../lib/kpiStaffData';
-import { canEditOrDelete, safeLocalStorageSet } from '../utils/envUtils';
+import { safeLocalStorageSet } from '../utils/envUtils';
 
 export const cleanFirestoreData = <T extends Record<string, any>>(data: T): Record<string, any> => {
   const cleanDeep = (val: any): any => {
@@ -57,17 +53,25 @@ export const STAFF_COLLECTIONS = {
 };
 
 const STAFF_FORMS_CACHE_KEY = 'kpi_staff_forms_cache';
+const STAFF_PERIODS_CACHE_KEY = 'kpi_staff_periods_cache';
 
 export const deduplicateStaffForms = (forms: KpiStaffForm[]): KpiStaffForm[] => {
   if (!forms || forms.length === 0) return [];
   const map = new Map<string, KpiStaffForm>();
-  const sorted = [...forms].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  const seenIds = new Set<string>();
+  const sorted = [...forms]
+    .filter(f => isActiveStaffKpiForm(f))
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
   
   sorted.forEach(f => {
-    const uniqueKey = `${f.employeeId || f.employeeName || 'no_emp'}__${f.periodId || 'no_period'}`;
-    const idKey = f.id || uniqueKey;
-    if (!map.has(uniqueKey) && !map.has(idKey)) {
+    const empKey = (f.employeeId || f.employeeCode || f.employeeName || 'no_emp').trim().toUpperCase();
+    const periodKey = (f.periodId || 'no_period').trim();
+    const yearKey = normalizeAcademicYear(f.academicYear || '');
+    const uniqueKey = `${empKey}__${periodKey}__${yearKey}`;
+    const idKey = (f.id || uniqueKey).trim();
+    if (!map.has(uniqueKey) && !seenIds.has(idKey)) {
       map.set(uniqueKey, f);
+      seenIds.add(idKey);
     }
   });
   return Array.from(map.values());
@@ -75,25 +79,6 @@ export const deduplicateStaffForms = (forms: KpiStaffForm[]): KpiStaffForm[] => 
 
 export const sanitizeStaffForm = (form: KpiStaffForm): KpiStaffForm => {
   if (!form) return form;
-
-  const isLocked = form.status === 'locked' || form.status === 'completed';
-  const hasNoManagerEval = form.managerTotalScore === undefined || form.managerTotalScore === null;
-  const hasNoTtcmEval = form.ttcmTotalScore === undefined || form.ttcmTotalScore === null;
-
-  // Check if general items are all equal to maxScore (5, 5, 4, 4, 4, 4, 4)
-  const allGeneralMax = (form.generalItems || []).length > 0 &&
-    form.generalItems.every(item => item.selfScore !== null && item.selfScore !== undefined && Number(item.selfScore) === Number(item.maxScore));
-
-  // Check if position items are all equal to maxScore
-  const allPosMax = (form.positionItems || []).length > 0 &&
-    form.positionItems.every(item => item.selfScore !== null && item.selfScore !== undefined && Number(item.selfScore) === Number(item.maxScore));
-
-  const isLegacyFullDefault =
-    (allGeneralMax && allPosMax) ||
-    (form.generalTotalSelf === 30 && form.positionTotalSelf === 70) ||
-    ((allGeneralMax || form.generalTotalSelf === 30) && form.totalScore === 100);
-
-  // Bảo toàn 100% điểm số đã đánh giá, tuyệt đối không tự ý đưa điểm 100 về 0
 
   // Ensure any item with null or undefined selfScore is normalized to 0
   const normalizedGeneral = (form.generalItems || []).map(item => ({
@@ -124,13 +109,14 @@ export const loadStaffFormsFromCache = (): KpiStaffForm[] => {
   try {
     const raw = localStorage.getItem(STAFF_FORMS_CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed)) {
       return deduplicateStaffForms(parsed.map(sanitizeStaffForm));
     }
   } catch {
     // Ignore read error
   }
-  return DEFAULT_STAFF_FALLBACK_FORMS.map(sanitizeStaffForm);
+  // Không tự ý bơm dữ liệu mẫu giả làm khóa checkbox "Đã có phiếu"
+  return [];
 };
 
 export const saveStaffFormsToCache = (forms: KpiStaffForm[]) => {
@@ -142,12 +128,26 @@ export const saveStaffFormsToCache = (forms: KpiStaffForm[]) => {
   }
 };
 
+export const fetchStaffFormsFromFirestore = async (): Promise<KpiStaffForm[]> => {
+  const colRef = collection(db, STAFF_COLLECTIONS.FORMS);
+  const snapshot = await getDocs(colRef);
+  const formsList: KpiStaffForm[] = [];
+  snapshot.forEach(docSnap => {
+    const raw = docSnap.data() as KpiStaffForm;
+    const withId: KpiStaffForm = { ...raw, id: raw.id || docSnap.id };
+    if (isActiveStaffKpiForm(withId)) {
+      formsList.push(sanitizeStaffForm(withId));
+    }
+  });
+  const uniqueForms = deduplicateStaffForms(formsList);
+  saveStaffFormsToCache(uniqueForms);
+  return uniqueForms;
+};
+
 export const subscribeStaffForms = (callback: (forms: KpiStaffForm[]) => void) => {
-  // Callback cached immediately
+  // Callback cached immediately (only real cached forms, never fake fallback forms)
   const initial = loadStaffFormsFromCache();
-  if (initial && initial.length > 0) {
-    callback(initial);
-  }
+  callback(initial);
 
   try {
     const colRef = collection(db, STAFF_COLLECTIONS.FORMS);
@@ -155,11 +155,13 @@ export const subscribeStaffForms = (callback: (forms: KpiStaffForm[]) => void) =
       const formsList: KpiStaffForm[] = [];
       snapshot.forEach(docSnap => {
         const raw = docSnap.data() as KpiStaffForm;
-        const sanitized = sanitizeStaffForm(raw);
-        formsList.push(sanitized);
+        const withId: KpiStaffForm = { ...raw, id: raw.id || docSnap.id };
+        if (isActiveStaffKpiForm(withId)) {
+          formsList.push(sanitizeStaffForm(withId));
+        }
       });
-      const combined = formsList.length > 0 ? formsList : DEFAULT_STAFF_FALLBACK_FORMS;
-      const uniqueForms = deduplicateStaffForms(combined.map(sanitizeStaffForm));
+      // Luôn dùng dữ liệu thực tế từ Firestore (kể cả khi 0 phiếu) để không báo nhầm "Đã có phiếu"
+      const uniqueForms = deduplicateStaffForms(formsList);
       saveStaffFormsToCache(uniqueForms);
       callback(uniqueForms);
     }, (err) => {
@@ -173,13 +175,30 @@ export const subscribeStaffForms = (callback: (forms: KpiStaffForm[]) => void) =
   }
 };
 
-export const saveStaffFormToFirestore = async (form: KpiStaffForm) => {
-  try {
-    const docRef = doc(db, STAFF_COLLECTIONS.FORMS, form.id);
-    await setDoc(docRef, cleanFirestoreData(form), { merge: true });
-  } catch (err) {
-    console.error('Error saving staff form to Firestore:', err);
+export const saveStaffFormToFirestore = async (
+  form: KpiStaffForm,
+  options?: { overwrite?: boolean }
+): Promise<KpiStaffForm> => {
+  const sanitized = sanitizeStaffForm(form);
+  const docRef = doc(db, STAFF_COLLECTIONS.FORMS, sanitized.id);
+  const payload = cleanFirestoreData(sanitized);
+  if (options?.overwrite) {
+    await setDoc(docRef, payload);
+  } else {
+    await setDoc(docRef, payload, { merge: true });
   }
+  return sanitized;
+};
+
+export const saveStaffFormsBatchToFirestore = async (
+  forms: KpiStaffForm[],
+  options?: { overwrite?: boolean }
+): Promise<KpiStaffForm[]> => {
+  if (!forms || forms.length === 0) return [];
+  const saved = await Promise.all(
+    forms.map(f => saveStaffFormToFirestore(f, options))
+  );
+  return saved;
 };
 
 export const deleteStaffFormFromFirestore = async (formId: string): Promise<boolean> => {
@@ -213,6 +232,7 @@ export const deleteAllStaffFormsFromFirestore = async (periodId?: string): Promi
       const deletePromises: Promise<void>[] = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data() as KpiStaffForm;
+        if (!isActiveStaffKpiForm({ ...data, id: data.id || docSnap.id })) return;
         if (!periodId || periodId === 'all' || data.periodId === periodId) {
           deletePromises.push(
             Promise.race([
@@ -241,4 +261,118 @@ export const deleteAllStaffFormsFromFirestore = async (periodId?: string): Promi
     saveStaffFormsToCache(remainingForms);
     return 0;
   }
+};
+
+// ===== KPI STAFF PERIODS PERSISTENCE =====
+
+export const mergeWithDefaultStaffPeriods = (customPeriods: KpiStaffPeriod[]): KpiStaffPeriod[] => {
+  return ensureCompleteStaffPeriods(customPeriods || [], ['2026–2027']);
+};
+
+export const loadStaffPeriodsFromCache = (): KpiStaffPeriod[] => {
+  try {
+    const raw = localStorage.getItem(STAFF_PERIODS_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return mergeWithDefaultStaffPeriods(parsed);
+    }
+  } catch {
+    // Ignore read error
+  }
+  return ensureCompleteStaffPeriods(DEFAULT_STAFF_PERIODS, ['2026–2027']);
+};
+
+export const saveStaffPeriodsToCache = (periods: KpiStaffPeriod[]) => {
+  try {
+    safeLocalStorageSet(STAFF_PERIODS_CACHE_KEY, JSON.stringify(ensureCompleteStaffPeriods(periods, ['2026–2027'])));
+  } catch (err) {
+    console.error('Failed saving staff periods to cache:', err);
+  }
+};
+
+export const saveStaffPeriodToFirestore = async (period: KpiStaffPeriod): Promise<void> => {
+  const docRef = doc(db, STAFF_COLLECTIONS.PERIODS, period.id);
+  await setDoc(docRef, cleanFirestoreData(period), { merge: true });
+};
+
+export const saveStaffPeriodsBatchToFirestore = async (periods: KpiStaffPeriod[]): Promise<void> => {
+  if (!periods || periods.length === 0) return;
+  await Promise.all(periods.map(p => saveStaffPeriodToFirestore(p)));
+};
+
+export const ensureStaffPeriodsInFirestore = async (
+  extraAcademicYears: string[] = []
+): Promise<KpiStaffPeriod[]> => {
+  const colRef = collection(db, STAFF_COLLECTIONS.PERIODS);
+  const snapshot = await getDocs(colRef);
+  const remotePeriods: KpiStaffPeriod[] = [];
+  const existingIds = new Set<string>();
+
+  snapshot.forEach(docSnap => {
+    const raw = docSnap.data() as KpiStaffPeriod;
+    const withId: KpiStaffPeriod = { ...raw, id: raw.id || docSnap.id };
+    remotePeriods.push(withId);
+    existingIds.add(withId.id);
+  });
+
+  const completePeriods = ensureCompleteStaffPeriods(remotePeriods, [
+    '2026–2027',
+    ...extraAcademicYears
+  ]);
+
+  const missingPeriods = completePeriods.filter(p => !existingIds.has(p.id));
+  if (missingPeriods.length > 0) {
+    await saveStaffPeriodsBatchToFirestore(missingPeriods);
+  }
+
+  saveStaffPeriodsToCache(completePeriods);
+  return completePeriods;
+};
+
+let hasSyncedDefaultStaffPeriodsToFirestore = false;
+
+export const subscribeStaffPeriods = (callback: (periods: KpiStaffPeriod[]) => void) => {
+  callback(loadStaffPeriodsFromCache());
+  try {
+    const colRef = collection(db, STAFF_COLLECTIONS.PERIODS);
+    return onSnapshot(colRef, (snapshot) => {
+      const remotePeriods: KpiStaffPeriod[] = [];
+      const remoteIds = new Set<string>();
+      snapshot.forEach(docSnap => {
+        const raw = docSnap.data() as KpiStaffPeriod;
+        const withId: KpiStaffPeriod = { ...raw, id: raw.id || docSnap.id };
+        remotePeriods.push(withId);
+        remoteIds.add(withId.id);
+      });
+      const merged = mergeWithDefaultStaffPeriods(remotePeriods);
+      saveStaffPeriodsToCache(merged);
+      callback(merged);
+
+      // Tự động lưu các kỳ chuẩn còn thiếu (gồm Tháng 7/2026 và Tháng 6/2027) vào Firestore 1 lần/phiên
+      if (!hasSyncedDefaultStaffPeriodsToFirestore) {
+        const missing = merged.filter(p => !remoteIds.has(p.id));
+        if (missing.length > 0) {
+          hasSyncedDefaultStaffPeriodsToFirestore = true;
+          saveStaffPeriodsBatchToFirestore(missing).catch(err => {
+            hasSyncedDefaultStaffPeriodsToFirestore = false;
+            console.warn('Notice syncing missing staff KPI periods to Firestore:', err);
+          });
+        } else {
+          hasSyncedDefaultStaffPeriodsToFirestore = true;
+        }
+      }
+    }, (err) => {
+      console.warn('Firestore subscription warning for staff periods:', err);
+      callback(loadStaffPeriodsFromCache());
+    });
+  } catch (err) {
+    console.warn('Firestore subscription fallback for staff periods:', err);
+    callback(loadStaffPeriodsFromCache());
+    return () => {};
+  }
+};
+
+export const deleteStaffPeriodFromFirestore = async (periodId: string): Promise<void> => {
+  const docRef = doc(db, STAFF_COLLECTIONS.PERIODS, periodId);
+  await deleteDoc(docRef);
 };

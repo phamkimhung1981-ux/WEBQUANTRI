@@ -14,6 +14,7 @@ import {
 } from 'docx';
 import { KpiVcForm } from '../types/kpiVc';
 import { KpiCbqlForm } from '../types/kpiCbql';
+import { syncAutoManagerScores, roundKpiScore2 } from '../lib/kpiVcData';
 
 /**
  * Loại bỏ dấu tiếng Việt để tạo tên file chuẩn
@@ -69,6 +70,9 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
   }
 
   try {
+    const autoMgr = syncAutoManagerScores(form.items || [], form.maxTotalScore || 100);
+    const isManagerReady = autoMgr.isComplete && autoMgr.managerTotalScore !== null;
+
     const groupI = form.groupScores?.group_I ?? 0;
     const groupII = form.groupScores?.group_II ?? 0;
     const groupIII = form.groupScores?.group_III ?? 0;
@@ -77,17 +81,20 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
     const ttcmGroupII = form.ttcmGroupScores?.group_II !== undefined && form.ttcmGroupScores?.group_II !== null ? `${form.ttcmGroupScores.group_II}` : '---';
     const ttcmGroupIII = form.ttcmGroupScores?.group_III !== undefined && form.ttcmGroupScores?.group_III !== null ? `${form.ttcmGroupScores.group_III}` : '---';
 
-    const mgrGroupI = form.managerGroupScores?.group_I !== undefined && form.managerGroupScores?.group_I !== null ? `${form.managerGroupScores.group_I}` : '---';
-    const mgrGroupII = form.managerGroupScores?.group_II !== undefined && form.managerGroupScores?.group_II !== null ? `${form.managerGroupScores.group_II}` : '---';
-    const mgrGroupIII = form.managerGroupScores?.group_III !== undefined && form.managerGroupScores?.group_III !== null ? `${form.managerGroupScores.group_III}` : '---';
+    const mgrGroupI = isManagerReady ? `${autoMgr.managerGroupScores.group_I}` : 'Chưa đủ dữ liệu';
+    const mgrGroupII = isManagerReady ? `${autoMgr.managerGroupScores.group_II}` : 'Chưa đủ dữ liệu';
+    const mgrGroupIII = isManagerReady ? `${autoMgr.managerGroupScores.group_III}` : 'Chưa đủ dữ liệu';
 
-    const items = form.items || [];
+    const items = autoMgr.items;
     const groupIItems = items.filter(it => it.groupId === 'group_I');
     const groupIIItems = items.filter(it => it.groupId === 'group_II');
     const groupIIIItems = items.filter(it => it.groupId === 'group_III');
 
     const groupIIIaItems = groupIIIItems.filter(it => it.subGroup === 'A' || it.criterionCode?.startsWith('III.A') || it.criterionCode === 'III.1');
     const groupIIIbItems = groupIIIItems.filter(it => it.subGroup === 'B' || it.criterionCode?.startsWith('GV') || it.criterionCode?.startsWith('III.B') || it.criterionCode === 'III.2');
+
+    const mgrIIIaTotal = roundKpiScore2(groupIIIaItems.reduce((acc, i) => acc + (i.managerScore || 0), 0));
+    const mgrIIIbTotal = roundKpiScore2(groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0));
 
     // Bảng tiêu đề quốc hiệu & trường
     const headerTable = new Table({
@@ -207,7 +214,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.maxScore}`, size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.selfScore ?? 0}`, bold: true, color: '1D4ED8', size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.ttcmScore !== undefined && item.ttcmScore !== null ? `${item.ttcmScore}` : '---', bold: true, color: '7E22CE', size: 19, font: 'Times New Roman' })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : '---', bold: true, color: 'B45309', size: 19, font: 'Times New Roman' })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady && item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : 'Chưa đủ dữ liệu', bold: isManagerReady, color: isManagerReady ? 'B45309' : '64748B', size: isManagerReady ? 19 : 16, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: noteText, size: 18, font: 'Times New Roman' })] })] }),
           ],
         });
@@ -234,7 +241,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.maxScore}`, size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.selfScore ?? 0}`, bold: true, color: '1D4ED8', size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.ttcmScore !== undefined && item.ttcmScore !== null ? `${item.ttcmScore}` : '---', bold: true, color: '7E22CE', size: 19, font: 'Times New Roman' })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : '---', bold: true, color: 'B45309', size: 19, font: 'Times New Roman' })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady && item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : 'Chưa đủ dữ liệu', bold: isManagerReady, color: isManagerReady ? 'B45309' : '64748B', size: isManagerReady ? 19 : 16, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: noteText, size: 18, font: 'Times New Roman' })] })] }),
           ],
         });
@@ -261,7 +268,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '10', bold: true, size: 19, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${groupIIIaItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}`, bold: true, size: 19, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: groupIIIaItems.some(i => i.ttcmScore != null) ? `${groupIIIaItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0)}` : '---', bold: true, size: 19, font: 'Times New Roman' })] })] }),
-          new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: groupIIIaItems.some(i => i.managerScore != null) ? `${groupIIIaItems.reduce((acc, i) => acc + (i.managerScore || 0), 0)}` : '---', bold: true, size: 19, font: 'Times New Roman' })] })] }),
+          new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady ? `${mgrIIIaTotal}` : 'Chưa đủ dữ liệu', bold: true, size: isManagerReady ? 19 : 16, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [] })] }),
         ],
       }),
@@ -274,7 +281,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.maxScore}`, size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.selfScore ?? 0}`, bold: true, color: '1D4ED8', size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.ttcmScore !== undefined && item.ttcmScore !== null ? `${item.ttcmScore}` : '---', bold: true, color: '7E22CE', size: 19, font: 'Times New Roman' })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : '---', bold: true, color: 'B45309', size: 19, font: 'Times New Roman' })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady && item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : 'Chưa đủ dữ liệu', bold: isManagerReady, color: isManagerReady ? 'B45309' : '64748B', size: isManagerReady ? 19 : 16, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: noteText, size: 18, font: 'Times New Roman' })] })] }),
           ],
         });
@@ -288,7 +295,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '60', bold: true, size: 19, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}`, bold: true, size: 19, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: groupIIIbItems.some(i => i.ttcmScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0)}` : '---', bold: true, size: 19, font: 'Times New Roman' })] })] }),
-          new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: groupIIIbItems.some(i => i.managerScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0)}` : '---', bold: true, size: 19, font: 'Times New Roman' })] })] }),
+          new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady ? `${mgrIIIbTotal}` : 'Chưa đủ dữ liệu', bold: true, size: isManagerReady ? 19 : 16, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [] })] }),
         ],
       }),
@@ -301,7 +308,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.maxScore}`, size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${item.selfScore ?? 0}`, bold: true, color: '1D4ED8', size: 19, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.ttcmScore !== undefined && item.ttcmScore !== null ? `${item.ttcmScore}` : '---', bold: true, color: '7E22CE', size: 19, font: 'Times New Roman' })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : '---', bold: true, color: 'B45309', size: 19, font: 'Times New Roman' })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady && item.managerScore !== undefined && item.managerScore !== null ? `${item.managerScore}` : 'Chưa đủ dữ liệu', bold: isManagerReady, color: isManagerReady ? 'B45309' : '64748B', size: isManagerReady ? 19 : 16, font: 'Times New Roman' })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: noteText, size: 18, font: 'Times New Roman' })] })] }),
           ],
         });
@@ -314,7 +321,7 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
           new TableCell({ shading: { fill: 'FEF3C7', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '100', bold: true, size: 20, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'FEF3C7', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${form.totalScore}`, bold: true, color: '1D4ED8', size: 21, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'FEF3C7', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: form.ttcmTotalScore !== null && form.ttcmTotalScore !== undefined ? `${form.ttcmTotalScore}` : '---', bold: true, color: '7E22CE', size: 21, font: 'Times New Roman' })] })] }),
-          new TableCell({ shading: { fill: 'FEF3C7', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: form.managerTotalScore !== null && form.managerTotalScore !== undefined ? `${form.managerTotalScore}` : '---', bold: true, color: 'B45309', size: 21, font: 'Times New Roman' })] })] }),
+          new TableCell({ shading: { fill: 'FEF3C7', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isManagerReady ? `${autoMgr.managerTotalScore}` : 'Chưa đủ dữ liệu', bold: true, color: 'B45309', size: isManagerReady ? 21 : 17, font: 'Times New Roman' })] })] }),
           new TableCell({ shading: { fill: 'FEF3C7', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [] })] }),
         ],
       }),
@@ -492,8 +499,8 @@ export const exportVcFormToWord = async (form: KpiVcForm): Promise<void> => {
             new Paragraph({
               spacing: { before: 40, after: 40 },
               children: [
-                new TextRun({ text: '• Tổng điểm Ban Giám hiệu phê duyệt: ', bold: true, size: 21, font: 'Times New Roman' }),
-                new TextRun({ text: form.managerTotalScore !== null && form.managerTotalScore !== undefined ? `${form.managerTotalScore} / 100 điểm` : 'Chưa chấm', bold: true, color: 'B45309', size: 21, font: 'Times New Roman' })
+                new TextRun({ text: '• Tổng điểm CBQL (Tự động = (Cá nhân + TTCM) / 2): ', bold: true, size: 21, font: 'Times New Roman' }),
+                new TextRun({ text: isManagerReady ? `${autoMgr.managerTotalScore} / 100 điểm` : 'Chưa đủ dữ liệu', bold: true, color: 'B45309', size: 21, font: 'Times New Roman' })
               ]
             }),
             new Paragraph({

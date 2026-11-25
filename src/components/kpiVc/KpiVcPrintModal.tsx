@@ -4,6 +4,7 @@ import { KpiVcForm } from '../../types/kpiVc';
 import { useReactToPrint } from 'react-to-print';
 import { exportSingleVcFormToExcel } from '../../utils/kpiVcExport';
 import { exportVcFormToWord } from '../../utils/kpiWordExport';
+import { syncAutoManagerScores, roundKpiScore2 } from '../../lib/kpiVcData';
 
 interface KpiVcPrintModalProps {
   isOpen: boolean;
@@ -25,6 +26,9 @@ export default function KpiVcPrintModal({
 
   if (!isOpen || !form) return null;
 
+  const autoMgr = syncAutoManagerScores(form.items || [], form.maxTotalScore || 100);
+  const isManagerReady = autoMgr.isComplete && autoMgr.managerTotalScore !== null;
+
   const groupI = form.groupScores?.group_I ?? 0;
   const groupII = form.groupScores?.group_II ?? 0;
   const groupIII = form.groupScores?.group_III ?? 0;
@@ -33,18 +37,21 @@ export default function KpiVcPrintModal({
   const ttcmGroupII = form.ttcmGroupScores?.group_II ?? '---';
   const ttcmGroupIII = form.ttcmGroupScores?.group_III ?? '---';
 
-  const mgrGroupI = form.managerGroupScores?.group_I ?? '---';
-  const mgrGroupII = form.managerGroupScores?.group_II ?? '---';
-  const mgrGroupIII = form.managerGroupScores?.group_III ?? '---';
+  const mgrGroupI = isManagerReady ? autoMgr.managerGroupScores.group_I : 'Chưa đủ dữ liệu';
+  const mgrGroupII = isManagerReady ? autoMgr.managerGroupScores.group_II : 'Chưa đủ dữ liệu';
+  const mgrGroupIII = isManagerReady ? autoMgr.managerGroupScores.group_III : 'Chưa đủ dữ liệu';
 
-  // Render items grouped by group I, II, III
-  const items = form.items || [];
+  // Render items grouped by group I, II, III (sử dụng danh sách đã đồng bộ điểm CBQL tự động)
+  const items = autoMgr.items;
   const groupIItems = items.filter(it => it.groupId === 'group_I');
   const groupIIItems = items.filter(it => it.groupId === 'group_II');
   const groupIIIItems = items.filter(it => it.groupId === 'group_III');
 
   const groupIIIaItems = groupIIIItems.filter(it => it.subGroup === 'A' || it.criterionCode.startsWith('III.A') || it.criterionCode === 'III.1');
   const groupIIIbItems = groupIIIItems.filter(it => it.subGroup === 'B' || it.criterionCode.startsWith('GV') || it.criterionCode.startsWith('III.B') || it.criterionCode === 'III.2');
+
+  const mgrIIIaTotal = roundKpiScore2(groupIIIaItems.reduce((acc, i) => acc + (i.managerScore || 0), 0));
+  const mgrIIIbTotal = roundKpiScore2(groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto">
@@ -193,7 +200,7 @@ export default function KpiVcPrintModal({
                     <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
-                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{isManagerReady && item.managerScore != null ? item.managerScore : 'Chưa đủ dữ liệu'}</td>
                     <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
@@ -215,7 +222,7 @@ export default function KpiVcPrintModal({
                     <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
-                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{isManagerReady && item.managerScore != null ? item.managerScore : 'Chưa đủ dữ liệu'}</td>
                     <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
@@ -238,7 +245,7 @@ export default function KpiVcPrintModal({
                   <td className="border border-black p-1 text-center font-bold">10</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.some(i => i.ttcmScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
-                  <td className="border border-black p-1 text-center font-bold">{groupIIIaItems.some(i => i.managerScore != null) ? groupIIIaItems.reduce((acc, i) => acc + (i.managerScore || 0), 0) : ''}</td>
+                  <td className="border border-black p-1 text-center font-bold">{isManagerReady ? mgrIIIaTotal : 'Chưa đủ dữ liệu'}</td>
                   <td className="border border-black p-1"></td>
                 </tr>
                 {groupIIIaItems.map((item, idx) => (
@@ -248,7 +255,7 @@ export default function KpiVcPrintModal({
                     <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
-                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{isManagerReady && item.managerScore != null ? item.managerScore : 'Chưa đủ dữ liệu'}</td>
                     <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
@@ -260,7 +267,7 @@ export default function KpiVcPrintModal({
                   <td className="border border-black p-1 text-center font-bold">60</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.ttcmScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0) : ''}</td>
-                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.managerScore != null) ? groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0) : ''}</td>
+                  <td className="border border-black p-1 text-center font-bold">{isManagerReady ? mgrIIIbTotal : 'Chưa đủ dữ liệu'}</td>
                   <td className="border border-black p-1"></td>
                 </tr>
                 {groupIIIbItems.map((item, idx) => (
@@ -270,7 +277,7 @@ export default function KpiVcPrintModal({
                     <td className="border border-black p-1 text-center align-top">{item.maxScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.selfScore}</td>
                     <td className="border border-black p-1 text-center align-top font-bold">{item.ttcmScore ?? ''}</td>
-                    <td className="border border-black p-1 text-center align-top font-bold">{item.managerScore ?? ''}</td>
+                    <td className="border border-black p-1 text-center align-top font-bold">{isManagerReady && item.managerScore != null ? item.managerScore : 'Chưa đủ dữ liệu'}</td>
                     <td className="border border-black p-1 text-[10px] italic">{item.note || ''}</td>
                   </tr>
                 ))}
@@ -282,7 +289,7 @@ export default function KpiVcPrintModal({
                   <td className="border border-black p-1 text-center font-bold">60</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.reduce((acc, i) => acc + (i.selfScore || 0), 0)}/60</td>
                   <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.ttcmScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.ttcmScore || 0), 0)}/60` : ''}</td>
-                  <td className="border border-black p-1 text-center font-bold">{groupIIIbItems.some(i => i.managerScore != null) ? `${groupIIIbItems.reduce((acc, i) => acc + (i.managerScore || 0), 0)}/60` : ''}</td>
+                  <td className="border border-black p-1 text-center font-bold">{isManagerReady ? `${mgrIIIbTotal}/60` : 'Chưa đủ dữ liệu'}</td>
                   <td className="border border-black p-1"></td>
                 </tr>
 
@@ -294,7 +301,7 @@ export default function KpiVcPrintModal({
                   <td className="border border-black p-1.5 text-center font-black">100</td>
                   <td className="border border-black p-1.5 text-center font-black">{form.totalScore}</td>
                   <td className="border border-black p-1.5 text-center font-black">{form.ttcmTotalScore ?? '---'}</td>
-                  <td className="border border-black p-1.5 text-center font-black">{form.managerTotalScore ?? '---'}</td>
+                  <td className="border border-black p-1.5 text-center font-black">{isManagerReady ? autoMgr.managerTotalScore : 'Chưa đủ dữ liệu'}</td>
                   <td className="border border-black p-1.5"></td>
                 </tr>
               </tbody>

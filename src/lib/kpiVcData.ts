@@ -818,44 +818,144 @@ export const calculateVcTtcmTotals = (items: KpiVcScoreItem[]) => {
 export const calculateVcTctmTotals = calculateVcTtcmTotals;
 
 /**
- * Tính tổng điểm CBQL theo từng nhóm và tổng cộng (Tối đa 100)
+ * Làm tròn điểm KPI tối đa 2 chữ số thập phân (giữ chính xác các giá trị .25, .5, .75 khi chia đôi)
  */
-export const calculateVcManagerTotals = (items: KpiVcScoreItem[]) => {
-  const managerGroupScores: Record<string, number> = {
+export const roundKpiScore2 = (value: number): number => {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+};
+
+/**
+ * Kiểm tra giá trị điểm KPI hợp lệ (số thực >= 0, không phải null/undefined/NaN)
+ */
+export const isValidKpiScore = (value: unknown): value is number => {
+  return typeof value === 'number' && !isNaN(value) && isFinite(value) && value >= 0;
+};
+
+/**
+ * Kiểm tra cả cá nhân (Cấp 1) và TTCM (Cấp 2) đã hoàn thành chấm đầy đủ tất cả tiêu chí hay chưa.
+ */
+export const isSelfAndTtcmCompleted = (items: KpiVcScoreItem[] | null | undefined): boolean => {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.every(item => isValidKpiScore(item.selfScore) && isValidKpiScore(item.ttcmScore));
+};
+
+/**
+ * Tính điểm CBQL (Cấp 3) tự động cho từng tiêu chí:
+ * Công thức: (Điểm cá nhân + Điểm TTCM) / 2
+ * Trả về null nếu thiếu 1 trong 2 điểm.
+ */
+export const computeCriterionManagerScore = (
+  selfScore: number | null | undefined,
+  ttcmScore: number | null | undefined,
+  maxScore: number
+): number | null => {
+  if (!isValidKpiScore(selfScore) || !isValidKpiScore(ttcmScore)) {
+    return null;
+  }
+  const safeMax = typeof maxScore === 'number' && !isNaN(maxScore) && maxScore >= 0 ? maxScore : 100;
+  const clampedSelf = Math.max(0, Math.min(safeMax, selfScore));
+  const clampedTtcm = Math.max(0, Math.min(safeMax, ttcmScore));
+  const avg = roundKpiScore2((clampedSelf + clampedTtcm) / 2);
+  return Math.max(0, Math.min(safeMax, avg));
+};
+
+export interface AutoManagerScoreResult {
+  items: KpiVcScoreItem[];
+  managerGroupScores: Record<string, number>;
+  managerTotalScore: number | null;
+  evaluatedCount: number;
+  totalCount: number;
+  isComplete: boolean;
+  ratio: number;
+}
+
+/**
+ * Đồng bộ toàn bộ điểm CBQL (Cấp 3) theo công thức tự động:
+ * - Chỉ tính khi cả cá nhân và TTCM đã hoàn thành chấm đầy đủ tất cả tiêu chí.
+ * - Khi đủ dữ liệu: managerScore[i] = (selfScore[i] + ttcmScore[i]) / 2, tổng điểm không vượt maxTotalScore (100).
+ * - Khi thiếu dữ liệu: managerScore[i] = null, managerTotalScore = null (UI hiển thị "Chưa đủ dữ liệu").
+ */
+export const syncAutoManagerScores = (
+  items: KpiVcScoreItem[] | null | undefined,
+  maxTotalScore: number = 100
+): AutoManagerScoreResult => {
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeMaxTotal = typeof maxTotalScore === 'number' && !isNaN(maxTotalScore) && maxTotalScore > 0 ? maxTotalScore : 100;
+  const emptyGroups: Record<string, number> = {
     group_I: 0,
     group_II: 0,
     group_III: 0
   };
 
-  let managerTotalScore = 0;
-  let evaluatedCount = 0;
-
-  for (const item of items) {
-    if (item.managerScore !== undefined && item.managerScore !== null && !isNaN(Number(item.managerScore))) {
-      evaluatedCount++;
-      const score = Math.max(0, Math.min(item.maxScore, Number(item.managerScore) || 0));
-      if (!managerGroupScores[item.groupId]) {
-        managerGroupScores[item.groupId] = 0;
-      }
-      managerGroupScores[item.groupId] += score;
-      managerTotalScore += score;
-    }
+  const isComplete = isSelfAndTtcmCompleted(safeItems);
+  if (!isComplete) {
+    return {
+      items: safeItems.map(item => ({
+        ...item,
+        managerScore: null
+      })),
+      managerGroupScores: emptyGroups,
+      managerTotalScore: null,
+      evaluatedCount: 0,
+      totalCount: safeItems.length,
+      isComplete: false,
+      ratio: 0
+    };
   }
 
-  // Làm tròn 1 chữ số thập phân
-  Object.keys(managerGroupScores).forEach(key => {
-    managerGroupScores[key] = Math.round(managerGroupScores[key] * 10) / 10;
-  });
-  managerTotalScore = Math.round(managerTotalScore * 10) / 10;
-  managerTotalScore = Math.min(100, Math.max(0, managerTotalScore));
+  const managerGroupScores: Record<string, number> = {
+    group_I: 0,
+    group_II: 0,
+    group_III: 0
+  };
+  let rawTotal = 0;
 
-  const ratio = Math.round((managerTotalScore / 100) * 1000) / 10; // e.g. 92.0%
+  const syncedItems = safeItems.map(item => {
+    const computed = computeCriterionManagerScore(item.selfScore, item.ttcmScore, item.maxScore);
+    const val = computed ?? 0;
+    if (!managerGroupScores[item.groupId]) {
+      managerGroupScores[item.groupId] = 0;
+    }
+    managerGroupScores[item.groupId] += val;
+    rawTotal += val;
+    return {
+      ...item,
+      managerScore: computed
+    };
+  });
+
+  Object.keys(managerGroupScores).forEach(key => {
+    managerGroupScores[key] = roundKpiScore2(managerGroupScores[key]);
+  });
+
+  const managerTotalScore = Math.min(safeMaxTotal, Math.max(0, roundKpiScore2(rawTotal)));
+  const ratio = roundKpiScore2((managerTotalScore / safeMaxTotal) * 100);
 
   return {
+    items: syncedItems,
     managerGroupScores,
     managerTotalScore,
-    evaluatedCount,
+    evaluatedCount: syncedItems.length,
+    totalCount: syncedItems.length,
+    isComplete: true,
     ratio
+  };
+};
+
+/**
+ * Tính tổng điểm CBQL (Cấp 3) tự động theo từng nhóm và tổng cộng (Tối đa 100).
+ * Công thức bắt buộc: Trung bình cộng điểm Cá nhân tự chấm và điểm TTCM đánh giá.
+ * Chỉ tính khi cả Cá nhân và TTCM đã hoàn thành đầy đủ tất cả tiêu chí.
+ */
+export const calculateVcManagerTotals = (items: KpiVcScoreItem[], maxTotalScore: number = 100) => {
+  const res = syncAutoManagerScores(items, maxTotalScore);
+  return {
+    managerGroupScores: res.managerGroupScores,
+    managerTotalScore: res.managerTotalScore,
+    evaluatedCount: res.evaluatedCount,
+    totalCount: res.totalCount,
+    isComplete: res.isComplete,
+    ratio: res.ratio
   };
 };
 
@@ -977,15 +1077,19 @@ export const getFormTtcmTotalScore = (form: KpiVcForm): number | null => {
 
 export const getFormManagerTotalScore = (form: KpiVcForm): number | null => {
   if (!form) return null;
-  // Bảo toàn nguyên vẹn điểm BGH nếu đã có đánh giá
-  if (typeof form.managerTotalScore === 'number' && !isNaN(form.managerTotalScore)) {
-    return form.managerTotalScore;
+  // Luôn tính điểm CBQL tự động = Trung bình cộng (Cá nhân + TTCM) / 2 khi đủ dữ liệu cả 2 cấp
+  if (form.items && form.items.length > 0) {
+    const synced = syncAutoManagerScores(form.items, form.maxTotalScore || 100);
+    return synced.isComplete ? synced.managerTotalScore : null;
   }
-  if (form.status === 'completed' || form.status === 'locked' || form.bghStatus === 'evaluated') {
-    if (form.items && form.items.length > 0) {
-      const calc = calculateVcManagerTotals(form.items);
-      return calc.managerTotalScore;
-    }
+  // Fallback duy nhất nếu phiếu không mang mảng items (dữ liệu tóm tắt) và đã có đủ tổng điểm 2 cấp
+  if (
+    isValidKpiScore(form.totalScore) &&
+    isValidKpiScore(form.ttcmTotalScore) &&
+    hasFormBeenEvaluated(form)
+  ) {
+    const maxTotal = form.maxTotalScore || 100;
+    return Math.min(maxTotal, Math.max(0, roundKpiScore2((form.totalScore + form.ttcmTotalScore) / 2)));
   }
   return null;
 };

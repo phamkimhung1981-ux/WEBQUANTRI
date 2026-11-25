@@ -33,6 +33,7 @@ import {
   calculateVcTotals,
   calculateVcTtcmTotals,
   calculateVcManagerTotals,
+  syncAutoManagerScores,
   isEligibleVcEmployee,
   hasFormBeenEvaluated
 } from '../lib/kpiVcData';
@@ -464,11 +465,11 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
         primary.ttcmTotalScore = ttcmCalc.ttcmTotalScore;
         primary.ttcmGroupScores = ttcmCalc.ttcmGroupScores;
       }
-      if (primary.items.some(i => i.managerScore !== null && i.managerScore !== undefined)) {
-        const mgrCalc = calculateVcManagerTotals(primary.items);
-        primary.managerTotalScore = mgrCalc.managerTotalScore;
-        primary.managerGroupScores = mgrCalc.managerGroupScores;
-      }
+      const autoMgr = syncAutoManagerScores(primary.items, primary.maxTotalScore || 100);
+      primary.items = autoMgr.items;
+      primary.managerTotalScore = autoMgr.managerTotalScore;
+      primary.bghTotalScore = autoMgr.managerTotalScore;
+      primary.managerGroupScores = autoMgr.managerGroupScores;
     }
 
     // Giữ nguyên document ID chuẩn của phiếu
@@ -580,7 +581,18 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     }
   }
 
-  return result;
+  // 4. Chuẩn hóa tự động điểm CBQL (Cấp 3) = (Cá nhân + TTCM) / 2 trên toàn bộ phiếu ở mọi kỳ đánh giá
+  return result.map(f => {
+    if (!f.items || f.items.length === 0) return f;
+    const autoMgr = syncAutoManagerScores(f.items, f.maxTotalScore || 100);
+    return {
+      ...f,
+      items: autoMgr.items,
+      managerGroupScores: autoMgr.managerGroupScores,
+      managerTotalScore: autoMgr.managerTotalScore,
+      bghTotalScore: autoMgr.managerTotalScore
+    };
+  });
 };
 
 
@@ -986,6 +998,16 @@ export const updateVcForm = async (
     updatedBy: actor.name || actor.id
   };
 
+  // BẮT BUỘC: Tính lại và ghi đè điểm CBQL (Cấp 3) tự động = (Cá nhân + TTCM) / 2 trước khi lưu Firestore
+  // Tuyệt đối không cho phép lưu điểm CBQL chỉnh sửa thủ công hoặc sai lệch công thức
+  if (Array.isArray(payload.items) && payload.items.length > 0) {
+    const autoMgr = syncAutoManagerScores(payload.items, payload.maxTotalScore || 100);
+    payload.items = autoMgr.items;
+    payload.managerGroupScores = autoMgr.managerGroupScores;
+    payload.managerTotalScore = autoMgr.managerTotalScore;
+    payload.bghTotalScore = autoMgr.managerTotalScore;
+  }
+
   let quotaErrorOccurred = false;
   let errorMsg: string | undefined = undefined;
 
@@ -999,17 +1021,17 @@ export const updateVcForm = async (
       cachedForms.unshift({ id: formId, ...payload } as KpiVcForm);
     }
     saveVcFormsCache(cachedForms);
-    console.log('[KPI_SERVICE_STEP_B: IMMEDIATE_LOCAL_CACHE_SAVED]', { formId, status: payload.status });
+    console.log('[KPI_SERVICE_STEP_B: IMMEDIATE_LOCAL_CACHE_SAVED]', { formId, status: payload.status, managerTotalScore: payload.managerTotalScore });
   } catch (cacheErr) {
     console.warn('[KPI_SERVICE_WARNING: LOCAL_CACHE_ERROR]', cacheErr);
   }
 
-  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout 1.5 giây (nếu mạng chậm/quota thì ghi ngầm, không bắt người dùng đợi lâu)
+  // 2. Ghi nhận máy chủ Firestore với bảo vệ timeout an toàn 10 giây để bảo đảm dữ liệu được ghi thực tế lên cloud
   try {
     console.log('[KPI_SERVICE_STEP_C: FIRESTORE_SET_DOC_START]', { formId });
     const cleanData = cleanFirestoreData(payload);
     const firestorePromise = setDoc(docRef, cleanData, { merge: true });
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000));
     
     await Promise.race([firestorePromise, timeoutPromise]);
     console.log('[KPI_SERVICE_STEP_D: FIRESTORE_SET_DOC_SUCCESS]', { formId });

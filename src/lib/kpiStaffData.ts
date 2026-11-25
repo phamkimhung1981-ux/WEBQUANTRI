@@ -227,11 +227,33 @@ export const POSITION_CONFIGS: Record<StaffPositionKey, KpiStaffPositionConfig> 
   }
 };
 
-export function generateStaffPeriodsForAcademicYear(academicYearStr: string = '2026–2027'): KpiStaffPeriod[] {
-  const cleanYear = academicYearStr.replace('-', '–');
-  const startYear = parseInt(cleanYear.split('–')[0]) || 2026;
+/**
+ * Chuẩn hóa năm học về dạng chuẩn "YYYY–YYYY" và trích xuất năm bắt đầu
+ */
+export function parseAcademicYearRange(academicYearStr: string = '2026–2027'): {
+  startYear: number;
+  endYear: number;
+  yearRangeStr: string;
+} {
+  const match = String(academicYearStr || '').match(/(\d{4})/);
+  const startYear = match ? parseInt(match[1], 10) : 2026;
   const endYear = startYear + 1;
-  const yearRangeStr = `${startYear}–${endYear}`;
+  return {
+    startYear,
+    endYear,
+    yearRangeStr: `${startYear}–${endYear}`
+  };
+}
+
+/**
+ * Tự động sinh đầy đủ bộ kỳ đánh giá KPI Nhân viên cho MỌI năm học:
+ * - Cả năm học (từ 01/07 năm trước đến 30/06 năm sau)
+ * - Học kỳ I & Học kỳ II
+ * - ĐẦY ĐỦ 12 KỲ THÁNG liên tục từ Tháng 7 năm trước đến Tháng 6 năm sau
+ *   (Tháng 7, 8, 9, 10, 11, 12 năm bắt đầu -> Tháng 1, 2, 3, 4, 5, 6 năm kết thúc)
+ */
+export function generateStaffPeriodsForAcademicYear(academicYearStr: string = '2026–2027'): KpiStaffPeriod[] {
+  const { startYear, endYear, yearRangeStr } = parseAcademicYearRange(academicYearStr);
 
   const list: KpiStaffPeriod[] = [
     {
@@ -239,10 +261,10 @@ export function generateStaffPeriodsForAcademicYear(academicYearStr: string = '2
       name: `Năm học ${yearRangeStr}`,
       academicYear: yearRangeStr,
       periodType: 'year',
-      startDate: `${startYear}-09-01`,
-      endDate: `${endYear}-05-31`,
+      startDate: `${startYear}-07-01`,
+      endDate: `${endYear}-06-30`,
       status: 'active',
-      description: `Đánh giá KPI Nhân viên cả năm học ${yearRangeStr}`
+      description: `Đánh giá KPI Nhân viên cả năm học ${yearRangeStr} (07/${startYear} – 06/${endYear})`
     },
     {
       id: `period_staff_${startYear}_hk1`,
@@ -268,22 +290,12 @@ export function generateStaffPeriodsForAcademicYear(academicYearStr: string = '2
     }
   ];
 
-  const monthSeq = [
-    { m: 8, yr: startYear },
-    { m: 9, yr: startYear },
-    { m: 10, yr: startYear },
-    { m: 11, yr: startYear },
-    { m: 12, yr: startYear },
-    { m: 1, yr: endYear },
-    { m: 2, yr: endYear },
-    { m: 3, yr: endYear },
-    { m: 4, yr: endYear },
-    { m: 5, yr: endYear }
-  ];
-
-  monthSeq.forEach(({ m, yr }) => {
-    const mPadded = m < 10 ? `0${m}` : `${m}`;
-    const lastDay = new Date(yr, m, 0).getDate();
+  // Sinh tự động đúng 12 tháng: Tháng 7..12 của startYear và Tháng 1..6 của endYear
+  for (let offset = 0; offset < 12; offset++) {
+    const m = ((6 + offset) % 12) + 1; // 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6
+    const yr = m >= 7 ? startYear : endYear;
+    const mPadded = String(m).padStart(2, '0');
+    const lastDay = String(new Date(yr, m, 0).getDate()).padStart(2, '0');
     list.push({
       id: `period_staff_m${mPadded}_${yr}`,
       name: `Tháng ${m}/${yr}`,
@@ -295,9 +307,103 @@ export function generateStaffPeriodsForAcademicYear(academicYearStr: string = '2
       status: 'active',
       description: `Đánh giá, chấm điểm KPI Nhân viên Tháng ${m}/${yr}`
     });
-  });
+  }
 
   return list;
+}
+
+/**
+ * Sắp xếp danh sách kỳ đánh giá KPI Nhân viên theo đúng thứ tự:
+ * Năm học -> Học kỳ I -> Học kỳ II -> Tháng 7 -> Tháng 8 -> ... -> Tháng 12 -> Tháng 1 -> ... -> Tháng 6
+ */
+export function sortStaffPeriods(periods: KpiStaffPeriod[]): KpiStaffPeriod[] {
+  const getOrderScore = (p: KpiStaffPeriod): [number, number, string] => {
+    const { startYear } = parseAcademicYearRange(p.academicYear || p.name || '2026–2027');
+    if (p.periodType === 'year') return [startYear, 0, p.id];
+    if (p.periodType === 'semester') {
+      const semUpper = String(p.semester || p.name || '').toUpperCase();
+      if (semUpper.includes('HK1') || semUpper.includes('KỲ I ') || semUpper.endsWith('KỲ I')) {
+        return [startYear, 1, p.id];
+      }
+      return [startYear, 2, p.id];
+    }
+    if (p.periodType === 'month') {
+      let monthNum = typeof p.month === 'number' ? p.month : 0;
+      if (!monthNum) {
+        const mMatch = String(p.id || '').match(/_m(\d{2})_/) || String(p.name || '').match(/Tháng\s*(\d{1,2})/i);
+        if (mMatch) monthNum = parseInt(mMatch[1], 10);
+      }
+      if (monthNum >= 1 && monthNum <= 12) {
+        // Tháng 7 -> offset 0, ..., Tháng 12 -> 5, Tháng 1 -> 6, ..., Tháng 6 -> 11
+        const academicMonthOffset = monthNum >= 7 ? monthNum - 7 : monthNum + 5;
+        return [startYear, 10 + academicMonthOffset, p.id];
+      }
+    }
+    return [startYear, 50, p.startDate || p.id];
+  };
+
+  return [...periods].sort((a, b) => {
+    const [ya, oa, ia] = getOrderScore(a);
+    const [yb, ob, ib] = getOrderScore(b);
+    if (ya !== yb) return ya - yb;
+    if (oa !== ob) return oa - ob;
+    return ia.localeCompare(ib);
+  });
+}
+
+/**
+ * Đảm bảo mọi năm học có mặt trong hệ thống (mặc định tối thiểu 2026–2027)
+ * luôn có đầy đủ 12 tháng từ Tháng 7 năm trước đến Tháng 6 năm sau,
+ * không ghi đè kỳ đã tùy chỉnh/khóa và tuyệt đối không tạo bản ghi trùng.
+ */
+export function ensureCompleteStaffPeriods(
+  existingPeriods: KpiStaffPeriod[] = [],
+  requiredAcademicYears: string[] = ['2026–2027']
+): KpiStaffPeriod[] {
+  const yearSet = new Set<string>();
+  requiredAcademicYears.forEach(y => {
+    if (y && String(y).trim()) {
+      yearSet.add(parseAcademicYearRange(y).yearRangeStr);
+    }
+  });
+  (existingPeriods || []).forEach(p => {
+    if (p?.academicYear) {
+      yearSet.add(parseAcademicYearRange(p.academicYear).yearRangeStr);
+    }
+  });
+
+  const byId = new Map<string, KpiStaffPeriod>();
+  const existingMonthKeys = new Set<string>();
+
+  // 1. Giữ nguyên toàn bộ kỳ hiện có (ưu tiên dữ liệu đã lưu trong Firestore)
+  (existingPeriods || []).forEach(p => {
+    if (!p || !p.id) return;
+    const { yearRangeStr } = parseAcademicYearRange(p.academicYear || '2026–2027');
+    const normalized: KpiStaffPeriod = {
+      ...p,
+      academicYear: yearRangeStr
+    };
+    byId.set(normalized.id, normalized);
+    if (normalized.periodType === 'month' && normalized.month) {
+      existingMonthKeys.add(`${yearRangeStr}__m${normalized.month}`);
+    }
+  });
+
+  // 2. Bổ sung tự động mọi kỳ chuẩn còn thiếu (đặc biệt Tháng 7 và Tháng 6) cho từng năm học
+  yearSet.forEach(yearRangeStr => {
+    const canonical = generateStaffPeriodsForAcademicYear(yearRangeStr);
+    canonical.forEach(cp => {
+      if (byId.has(cp.id)) return;
+      if (cp.periodType === 'month' && cp.month) {
+        const monthKey = `${yearRangeStr}__m${cp.month}`;
+        if (existingMonthKeys.has(monthKey)) return;
+        existingMonthKeys.add(monthKey);
+      }
+      byId.set(cp.id, cp);
+    });
+  });
+
+  return sortStaffPeriods(Array.from(byId.values()));
 }
 
 export const DEFAULT_STAFF_PERIODS: KpiStaffPeriod[] = generateStaffPeriodsForAcademicYear('2026–2027');
@@ -497,12 +603,124 @@ export const getEligibleStaffMembers = (teachers: Teacher[]): Teacher[] => {
 };
 
 /**
+ * Chuẩn hóa chuỗi năm học (ví dụ: "2026 - 2027", "2026–2027", "2026-2027" -> "2026-2027")
+ */
+export const normalizeAcademicYear = (year?: string | null): string => {
+  if (!year) return '';
+  return String(year)
+    .trim()
+    .replace(/[–—−]/g, '-')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ');
+};
+
+/**
+ * Kiểm tra phiếu KPI nhân viên có đang hoạt động hợp lệ hay không:
+ * - Loại trừ phiếu đã xóa mềm hoặc đã hủy (isDeleted, status = deleted/cancelled)
+ * - Loại trừ bản ghi giáo viên (GVxx) bị lẫn trong collection kpi_staff_forms
+ */
+export const isActiveStaffKpiForm = (form?: KpiStaffForm | null): boolean => {
+  if (!form) return false;
+  if (form.isDeleted === true) return false;
+
+  const statusLower = String(form.status || '').trim().toLowerCase();
+  if (statusLower === 'deleted' || statusLower === 'cancelled' || statusLower === 'canceled') {
+    return false;
+  }
+
+  const codeUpper = String(form.employeeCode || '').trim().toUpperCase();
+  if (codeUpper.startsWith('GV') || codeUpper.startsWith('BGH')) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Đối chiếu chính xác phiếu KPI với nhân viên theo employeeId hoặc mã nhân viên (employeeCode)
+ */
+export const isStaffFormMatchingEmployee = (
+  form: KpiStaffForm,
+  staff: Pick<Teacher, 'id' | 'code'>
+): boolean => {
+  const formEmpId = String(form.employeeId || '').trim();
+  const staffId = String(staff.id || '').trim();
+  if (formEmpId && staffId && formEmpId === staffId) {
+    return true;
+  }
+
+  const formCode = String(form.employeeCode || '').trim().toUpperCase();
+  const staffCode = String(staff.code || '').trim().toUpperCase();
+  if (formCode && staffCode && formCode === staffCode) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Đối chiếu chính xác phiếu KPI với đúng kỳ đánh giá VÀ đúng năm học
+ */
+export const isStaffFormMatchingPeriod = (
+  form: KpiStaffForm,
+  period?: Pick<KpiStaffPeriod, 'id' | 'academicYear'> | null
+): boolean => {
+  if (!period || !period.id) return false;
+  if (String(form.periodId || '').trim() !== String(period.id).trim()) {
+    return false;
+  }
+
+  const formYear = normalizeAcademicYear(form.academicYear);
+  const periodYear = normalizeAcademicYear(period.academicYear);
+  if (formYear && periodYear && formYear !== periodYear) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Tìm phiếu KPI nhân viên ĐANG HOẠT ĐỘNG của một nhân viên trong đúng kỳ đánh giá & năm học.
+ * - Phiếu thuộc kỳ khác hoặc năm học khác sẽ KHÔNG khớp.
+ * - Phiếu đã xóa / đã hủy sẽ KHÔNG khớp (cho phép tạo lại).
+ */
+export const findExistingStaffFormForPeriod = (
+  forms: KpiStaffForm[],
+  staff: Pick<Teacher, 'id' | 'code'>,
+  period?: Pick<KpiStaffPeriod, 'id' | 'academicYear'> | null
+): KpiStaffForm | undefined => {
+  if (!forms || forms.length === 0 || !staff || !period) return undefined;
+  return forms.find(
+    f =>
+      isActiveStaffKpiForm(f) &&
+      isStaffFormMatchingPeriod(f, period) &&
+      isStaffFormMatchingEmployee(f, staff)
+  );
+};
+
+/**
+ * Hiển thị tên kỳ đánh giá gọn gàng, tránh lặp "Năm học 2026–2027 - Năm học 2026–2027"
+ */
+export const formatStaffPeriodLabel = (period: KpiStaffPeriod): string => {
+  const name = (period.name || '').trim();
+  const year = (period.academicYear || '').trim();
+  if (!year) return name;
+  const normName = normalizeAcademicYear(name).toLowerCase();
+  const normYear = normalizeAcademicYear(year).toLowerCase();
+  if (normName.includes(normYear)) {
+    return name;
+  }
+  return `${name} • Năm học ${year}`;
+};
+
+/**
  * Khởi tạo dữ liệu phiếu chấm cho một Nhân viên theo bộ Vị trí đã chọn
  */
 export const createInitialStaffForm = (
   staff: Teacher,
   period: KpiStaffPeriod,
-  positionKey?: StaffPositionKey
+  positionKey?: StaffPositionKey,
+  createdById?: string
 ): KpiStaffForm => {
   const activeKey = positionKey || detectPositionKey(staff.position || '');
   const posConfig = POSITION_CONFIGS[activeKey];
@@ -529,6 +747,7 @@ export const createInitialStaffForm = (
 
   const genSelf = 0;
   const posSelf = 0;
+  const nowIso = new Date().toISOString();
 
   return {
     id: `form_staff_${staff.id}_${period.id}`,
@@ -546,17 +765,19 @@ export const createInitialStaffForm = (
     academicYear: period.academicYear,
     periodType: period.periodType || 'month',
     month: period.month,
+    semester: period.semester,
     generalItems,
     positionItems,
     generalTotalSelf: genSelf,
     positionTotalSelf: posSelf,
     totalScore: genSelf + posSelf,
     selfClassification: 'Chưa tự đánh giá',
-    selfDate: new Date().toISOString().split('T')[0],
+    selfDate: nowIso.split('T')[0],
     status: 'draft',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    createdBy: staff.id
+    isDeleted: false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    createdBy: createdById || staff.id
   };
 };
 
@@ -569,7 +790,7 @@ export const getClassificationByScore = (score: number): string => {
 };
 
 /**
- * Tạo danh sách phiếu KPI mẫu cho 4 nhân viên thực tế
+ * Tạo danh sách phiếu KPI mẫu cho 4 nhân viên thực tế (chỉ dùng nội bộ khi cần seed tường minh, không tự bơm vào dữ liệu Firestore)
  */
 export const generateDefaultStaffForms = (): KpiStaffForm[] => {
   const staff = DEFAULT_STAFF_MEMBERS;

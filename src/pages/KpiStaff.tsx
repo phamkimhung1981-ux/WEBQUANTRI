@@ -11,13 +11,20 @@ import {
   DEFAULT_STAFF_PERIODS, 
   POSITION_CONFIGS, 
   getEligibleStaffMembers,
-  getClassificationByScore
+  getClassificationByScore,
+  isActiveStaffKpiForm,
+  isStaffFormMatchingPeriod,
+  ensureCompleteStaffPeriods
 } from '../lib/kpiStaffData';
 import { exportStaffSummaryToExcel, exportStaffFormToWord } from '../utils/kpiStaffExport';
 import { 
   deleteAllStaffFormsFromFirestore, 
   deleteStaffFormFromFirestore, 
-  saveStaffFormsToCache 
+  saveStaffFormsToCache,
+  saveStaffFormToFirestore,
+  saveStaffFormsBatchToFirestore,
+  saveStaffPeriodsBatchToFirestore,
+  deleteStaffPeriodFromFirestore
 } from '../services/kpiStaffService';
 
 import KpiStaffPeriodManagerModal from '../components/kpiStaff/KpiStaffPeriodManagerModal';
@@ -119,8 +126,11 @@ export default function KpiStaff() {
   const isAdmin = isSystemAdmin || user?.id === 'admin' || user?.role === 'admin' || user?.role === 'BGH' || (user?.position || '').toLowerCase().includes('hiệu trưởng');
   const { teachers, kpiStaffForms, setKpiStaffForms, kpiStaffPeriods, setKpiStaffPeriods } = useAppContext();
 
-  // Active period state
-  const periods: KpiStaffPeriod[] = kpiStaffPeriods && kpiStaffPeriods.length > 0 ? kpiStaffPeriods : DEFAULT_STAFF_PERIODS;
+  // Active period state (luôn đảm bảo đủ 12 kỳ tháng từ Tháng 7 năm trước đến Tháng 6 năm sau)
+  const periods: KpiStaffPeriod[] = useMemo(
+    () => ensureCompleteStaffPeriods(kpiStaffPeriods && kpiStaffPeriods.length > 0 ? kpiStaffPeriods : DEFAULT_STAFF_PERIODS, ['2026–2027']),
+    [kpiStaffPeriods]
+  );
 
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>(periods[0]?.id || 'period_staff_2026_2027');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -152,10 +162,11 @@ export default function KpiStaff() {
   // Active Period
   const activePeriod = periods.find(p => p.id === selectedPeriodId) || periods[0];
 
-  // Forms for active period strictly belonging to the staff group
+  // Forms for active period strictly belonging to the staff group (excluding soft-deleted/cancelled/GV)
   const activePeriodForms = useMemo(() => {
     return (kpiStaffForms || []).filter(f => {
-      if (f.periodId !== selectedPeriodId) return false;
+      if (!isActiveStaffKpiForm(f)) return false;
+      if (!isStaffFormMatchingPeriod(f, activePeriod)) return false;
       const isEligible = 
         eligibleStaffIds.has(f.employeeId) || 
         (f.employeeCode && eligibleStaffCodes.has(f.employeeCode.toUpperCase())) ||
@@ -163,7 +174,7 @@ export default function KpiStaff() {
         (f.employeeCode || '').toUpperCase().startsWith('NV');
       return isEligible;
     });
-  }, [kpiStaffForms, selectedPeriodId, eligibleStaffIds, eligibleStaffCodes]);
+  }, [kpiStaffForms, activePeriod, eligibleStaffIds, eligibleStaffCodes]);
 
   // Filtered Forms
   const filteredForms = useMemo(() => {
@@ -212,13 +223,28 @@ export default function KpiStaff() {
   // Handlers
   const handleSavePeriod = (periodToSave: KpiStaffPeriod) => {
     const exists = periods.some(p => p.id === periodToSave.id);
-    let updated: KpiStaffPeriod[];
-    if (exists) {
-      updated = periods.map(p => p.id === periodToSave.id ? periodToSave : p);
-    } else {
-      updated = [periodToSave, ...periods];
+    const rawUpdated = exists
+      ? periods.map(p => p.id === periodToSave.id ? periodToSave : p)
+      : [periodToSave, ...periods];
+    const completed = ensureCompleteStaffPeriods(rawUpdated, ['2026–2027', periodToSave.academicYear]);
+    const existingIds = new Set(periods.map(p => p.id));
+    const newlyAdded = completed.filter(p => !existingIds.has(p.id) && p.id !== periodToSave.id);
+
+    setKpiStaffPeriods(completed);
+    saveStaffPeriodsBatchToFirestore([periodToSave, ...newlyAdded]).catch(err => {
+      console.error('Lỗi lưu kỳ đánh giá KPI nhân viên:', err);
+    });
+  };
+
+  const handleGenerateAcademicYear = async (academicYearStr: string): Promise<number> => {
+    const existingIds = new Set(periods.map(p => p.id));
+    const completed = ensureCompleteStaffPeriods(periods, ['2026–2027', academicYearStr]);
+    const newlyAdded = completed.filter(p => !existingIds.has(p.id));
+    if (newlyAdded.length > 0) {
+      await saveStaffPeriodsBatchToFirestore(newlyAdded);
+      setKpiStaffPeriods(completed);
     }
-    setKpiStaffPeriods(updated);
+    return newlyAdded.length;
   };
 
   const handleDeletePeriod = (id: string) => {
@@ -227,21 +253,67 @@ export default function KpiStaff() {
     if (selectedPeriodId === id && updated.length > 0) {
       setSelectedPeriodId(updated[0].id);
     }
+    deleteStaffPeriodFromFirestore(id).catch(err => {
+      console.error('Lỗi xóa kỳ đánh giá KPI nhân viên:', err);
+    });
   };
 
-  const handleCreateForms = (newForms: KpiStaffForm[]) => {
+  const handleCreateForms = async (newForms: KpiStaffForm[], targetPeriodId?: string) => {
+    const savedForms = await saveStaffFormsBatchToFirestore(newForms);
     const currentForms = kpiStaffForms || [];
     const map = new Map<string, KpiStaffForm>();
     currentForms.forEach(f => map.set(f.id || `${f.employeeId}_${f.periodId}`, f));
-    newForms.forEach(f => map.set(f.id || `${f.employeeId}_${f.periodId}`, f));
+    savedForms.forEach(f => map.set(f.id || `${f.employeeId}_${f.periodId}`, f));
     const merged = Array.from(map.values());
-    setKpiStaffForms(merged);
+    setKpiStaffForms(merged, { skipFirestoreSync: true });
+    if (targetPeriodId && targetPeriodId !== selectedPeriodId) {
+      setSelectedPeriodId(targetPeriodId);
+    }
+  };
+
+  const handleRecreateForm = async (existingForm: KpiStaffForm, replacementForm: KpiStaffForm) => {
+    const savedForm = await saveStaffFormToFirestore(replacementForm, { overwrite: true });
+    const currentForms = kpiStaffForms || [];
+    const replaced = currentForms.some(f => f.id === existingForm.id)
+      ? currentForms.map(f => (f.id === existingForm.id ? savedForm : f))
+      : [...currentForms, savedForm];
+    setKpiStaffForms(replaced, { skipFirestoreSync: true });
+    if (savedForm.periodId && savedForm.periodId !== selectedPeriodId) {
+      setSelectedPeriodId(savedForm.periodId);
+    }
+  };
+
+  const canUserEditStaffForm = (f: KpiStaffForm) => {
+    const isMyForm = isFormOwner(user, f);
+    const isFormEditable = f.status !== 'locked' && f.status !== 'completed';
+    const isTtcmUser =
+      isAdmin ||
+      String(user?.role || '').toUpperCase() === 'TTCM' ||
+      (user?.position || '').toLowerCase().includes('tổ trưởng');
+    const isBghUser =
+      isAdmin ||
+      String(user?.role || '').toUpperCase() === 'BGH' ||
+      String(user?.role || '').toUpperCase() === 'CBQL' ||
+      (user?.position || '').toLowerCase().includes('hiệu trưởng');
+
+    const canSelfScore = isMyForm && isFormEditable && (moduleCanEdit || isAdmin);
+    const canEvalScore =
+      !isMyForm &&
+      isFormEditable &&
+      ((isTtcmUser && (moduleCanApprove || isAdmin)) ||
+        (isBghUser && (moduleCanApprove || isAdmin)) ||
+        isAdmin);
+
+    return canSelfScore || canEvalScore;
   };
 
   const handleSaveForm = (updatedForm: KpiStaffForm) => {
     const currentForms = kpiStaffForms || [];
     const updated = currentForms.map(f => f.id === updatedForm.id ? updatedForm : f);
-    setKpiStaffForms(updated);
+    setKpiStaffForms(updated, { skipFirestoreSync: true });
+    saveStaffFormToFirestore(updatedForm).catch(err => {
+      console.error('Lỗi lưu phiếu KPI nhân viên lên Firestore:', err);
+    });
     if (selectedFormForEdit?.id === updatedForm.id) {
       setSelectedFormForEdit(updatedForm);
     }
@@ -266,7 +338,7 @@ export default function KpiStaff() {
         remainingForms = [];
       }
 
-      setKpiStaffForms(remainingForms);
+      setKpiStaffForms(remainingForms, { skipFirestoreSync: true });
       saveStaffFormsToCache(remainingForms);
       setIsDeleteAllModalOpen(false);
     } catch (err) {
@@ -278,7 +350,7 @@ export default function KpiStaff() {
       } else {
         remainingForms = [];
       }
-      setKpiStaffForms(remainingForms);
+      setKpiStaffForms(remainingForms, { skipFirestoreSync: true });
       saveStaffFormsToCache(remainingForms);
       setIsDeleteAllModalOpen(false);
     } finally {
@@ -651,6 +723,7 @@ export default function KpiStaff() {
         onSelectPeriod={setSelectedPeriodId}
         onSavePeriod={handleSavePeriod}
         onDeletePeriod={handleDeletePeriod}
+        onGenerateAcademicYear={handleGenerateAcademicYear}
       />
 
       <KpiStaffDocumentModal
@@ -661,6 +734,18 @@ export default function KpiStaff() {
         teachers={teachers}
         existingForms={kpiStaffForms || []}
         onCreateForms={handleCreateForms}
+        onViewForm={(form) => {
+          setIsDocumentModalOpen(false);
+          setSelectedFormForPrint(form);
+        }}
+        onEditForm={(form) => {
+          setIsDocumentModalOpen(false);
+          setSelectedFormForEdit(form);
+        }}
+        onRecreateForm={handleRecreateForm}
+        canEditForm={canUserEditStaffForm}
+        isAdmin={isAdmin}
+        onRefreshForms={(liveForms) => setKpiStaffForms(liveForms, { skipFirestoreSync: true })}
         currentUserId={user?.id || ''}
         currentUserName={user?.name || ''}
       />
@@ -808,7 +893,7 @@ export default function KpiStaff() {
                   try {
                     await deleteStaffFormFromFirestore(formToDelete.id);
                     const updated = (kpiStaffForms || []).filter(f => f.id !== formToDelete.id);
-                    setKpiStaffForms(updated);
+                    setKpiStaffForms(updated, { skipFirestoreSync: true });
                     saveStaffFormsToCache(updated);
                     setFormToDelete(null);
                   } catch (err: any) {

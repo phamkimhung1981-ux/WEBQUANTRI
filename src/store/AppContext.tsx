@@ -4,7 +4,15 @@ import { Student, ClassInfo } from '../types/homeroom';
 import { DEFAULT_SYSTEM_MODULES, isAdminUser } from '../lib/moduleData';
 import { KpiStaffForm, KpiStaffPeriod, KpiStaffCriterion } from '../types/kpiStaff';
 import { DEFAULT_STAFF_PERIODS, DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffData';
-import { subscribeStaffForms, saveStaffFormsToCache, saveStaffFormToFirestore, loadStaffFormsFromCache } from '../services/kpiStaffService';
+import {
+  subscribeStaffForms,
+  saveStaffFormsToCache,
+  saveStaffFormToFirestore,
+  loadStaffFormsFromCache,
+  subscribeStaffPeriods,
+  loadStaffPeriodsFromCache,
+  saveStaffPeriodsToCache
+} from '../services/kpiStaffService';
 import { DEFAULT_TASK_KPIS } from '../lib/kpiTargetAudienceUtils';
 import { OFFICIAL_SCHOOL_TASKS_2026_2027 } from '../utils/sampleSchoolTasks';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
@@ -49,7 +57,7 @@ interface AppState {
 
 interface AppContextType extends AppState {
   clearError: () => void;
-  setKpiStaffForms: (forms: KpiStaffForm[]) => void;
+  setKpiStaffForms: (forms: KpiStaffForm[], options?: { skipFirestoreSync?: boolean }) => void;
   setKpiStaffPeriods: (periods: KpiStaffPeriod[]) => void;
   setKpiStaffCriteria: (criteria: KpiStaffCriterion[]) => void;
   addModule: (module: SystemModule, currentUser?: User | null) => Promise<void>;
@@ -318,7 +326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return DEFAULT_SYSTEM_MODULES;
     })(),
     kpiStaffForms: loadStaffFormsFromCache(),
-    kpiStaffPeriods: DEFAULT_STAFF_PERIODS,
+    kpiStaffPeriods: loadStaffPeriodsFromCache(),
     kpiStaffCriteria: DEFAULT_STAFF_CRITERIA,
     loading: false,
     error: null,
@@ -349,20 +357,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.warn('Auto sync VC data notice:', err);
     });
 
-    const unsub = subscribeStaffForms((forms) => {
+    const unsubForms = subscribeStaffForms((forms) => {
       setState(prev => ({ ...prev, kpiStaffForms: forms }));
     });
-    return () => unsub();
+    const unsubPeriods = subscribeStaffPeriods((periods) => {
+      setState(prev => ({ ...prev, kpiStaffPeriods: periods }));
+    });
+    return () => {
+      unsubForms();
+      unsubPeriods();
+    };
   }, [user?.id]);
 
-  const setKpiStaffForms = (forms: KpiStaffForm[]) => {
+  const setKpiStaffForms = (forms: KpiStaffForm[], options?: { skipFirestoreSync?: boolean }) => {
     setState(prev => ({ ...prev, kpiStaffForms: forms }));
     saveStaffFormsToCache(forms);
-    forms.forEach(f => saveStaffFormToFirestore(f));
+    if (!options?.skipFirestoreSync) {
+      forms.forEach(f => {
+        saveStaffFormToFirestore(f).catch(err => {
+          console.error('Error syncing staff form to Firestore:', err);
+        });
+      });
+    }
   };
 
   const setKpiStaffPeriods = (periods: KpiStaffPeriod[]) => {
     setState(prev => ({ ...prev, kpiStaffPeriods: periods }));
+    saveStaffPeriodsToCache(periods);
   };
 
   const setKpiStaffCriteria = (criteria: KpiStaffCriterion[]) => {

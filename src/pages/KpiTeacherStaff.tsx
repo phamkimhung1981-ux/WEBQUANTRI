@@ -1335,16 +1335,19 @@ export default function KpiTeacherStaff() {
                             )}
                           </div>
                         )}
-                        {(form.bghEvaluatorName || form.evaluatorName) && (
-                          <div className="text-slate-600 truncate" title={`BGH: ${form.bghEvaluatorName || form.evaluatorName}`}>
-                            <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
-                            {typeof form.managerTotalScore === 'number' && form.managerTotalScore !== null ? (
-                              <span className="ml-1 font-mono text-blue-900 font-bold">({form.managerTotalScore}đ)</span>
-                            ) : (
-                              <span className="ml-1 text-slate-400 italic font-normal">(chưa chấm)</span>
-                            )}
-                          </div>
-                        )}
+                        {(form.bghEvaluatorName || form.evaluatorName) && (() => {
+                          const autoMgrScore = getFormManagerTotalScore(form);
+                          return (
+                            <div className="text-slate-600 truncate" title={`BGH: ${form.bghEvaluatorName || form.evaluatorName}`}>
+                              <span className="font-bold text-blue-700">BGH:</span> {form.bghEvaluatorName || form.evaluatorName}
+                              {typeof autoMgrScore === 'number' && autoMgrScore !== null ? (
+                                <span className="ml-1 font-mono text-blue-900 font-bold">({autoMgrScore}đ)</span>
+                              ) : (
+                                <span className="ml-1 text-slate-400 italic font-normal">(chưa đủ dữ liệu)</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -1396,17 +1399,25 @@ export default function KpiTeacherStaff() {
                   })()}
                 </td>
 
-                {/* Điểm BGH đánh giá */}
-                <td className="p-3 text-center border-r border-indigo-100/60 font-mono min-w-[125px] bg-indigo-50/30">
+                {/* Điểm BGH đánh giá (Tự động = (Cá nhân + TTCM) / 2) */}
+                <td className="p-3 text-center border-r border-indigo-100/60 font-mono min-w-[130px] bg-indigo-50/30">
                   {(() => {
                     const mgrScore = getFormManagerTotalScore(form);
                     const hasMgr = typeof mgrScore === 'number' && mgrScore !== null;
                     return hasMgr ? (
-                      <span className="text-xs sm:text-sm font-black text-indigo-900">
+                      <span
+                        className="text-xs sm:text-sm font-black text-indigo-900"
+                        title="Điểm CBQL tự động tính = (Điểm cá nhân + Điểm TTCM) / 2"
+                      >
                         {mgrScore}<span className="text-[10px] font-normal text-slate-400">/100</span>
                       </span>
                     ) : (
-                      <span className="text-slate-400 text-xs font-normal italic">Chưa chấm</span>
+                      <span
+                        className="text-slate-400 text-[11px] font-sans font-normal italic"
+                        title="Chỉ tính khi cả cá nhân và TTCM hoàn thành chấm đủ tiêu chí"
+                      >
+                        Chưa đủ dữ liệu
+                      </span>
                     );
                   })()}
                 </td>

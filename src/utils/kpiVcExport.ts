@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { KpiVcForm, KpiVcCriterion, KpiVcRatingConfig } from '../types/kpiVc';
-import { resolveVcClassification, getEffectiveRatingConfig, hasFormBeenEvaluated } from '../lib/kpiVcData';
+import { resolveVcClassification, getEffectiveRatingConfig, hasFormBeenEvaluated, getFormManagerTotalScore, syncAutoManagerScores } from '../lib/kpiVcData';
 
 /**
  * Xuất danh sách tổng hợp KPI Giáo viên ra file Excel
@@ -34,10 +34,13 @@ export const exportVcSummaryToExcel = (
       }
     }
 
+    // Điểm CBQL tính tự động = (Cá nhân + TTCM) / 2 khi đủ dữ liệu 2 cấp
+    const autoMgrTotal = getFormManagerTotalScore(f);
+
     // Xếp loại lãnh đạo / chính thức động
     let finalRating = 'Chưa xếp loại';
     if (isEvaluated) {
-      const finalScore = (f.managerTotalScore !== null && f.managerTotalScore !== undefined) ? f.managerTotalScore : f.totalScore;
+      const finalScore = autoMgrTotal !== null ? autoMgrTotal : f.totalScore;
       finalRating = f.leaderClassification || selfRating;
       if (!effectiveCfg.isLockedWhenPeriodCompleted || (f.status !== 'locked' && f.status !== 'completed')) {
         finalRating = resolveVcClassification(finalScore, f.periodId, ratingConfigs);
@@ -57,7 +60,7 @@ export const exportVcSummaryToExcel = (
       'Nhóm III (Tối đa 70)': groupIII,
       'Điểm tự đánh giá (100đ)': isEvaluated ? f.totalScore : '0/100 (Chưa chấm)',
       'Điểm TTCM đánh giá (100đ)': (isEvaluated && f.ttcmTotalScore !== null && f.ttcmTotalScore !== undefined) ? f.ttcmTotalScore : 'Chưa chấm',
-      'Điểm BGH đánh giá (100đ)': (isEvaluated && f.managerTotalScore !== null && f.managerTotalScore !== undefined) ? f.managerTotalScore : 'Chưa chấm',
+      'Điểm CBQL đánh giá tự động (100đ)': autoMgrTotal !== null ? autoMgrTotal : 'Chưa đủ dữ liệu',
       'Cá nhân tự xếp loại': selfRating,
       'Xếp loại KPI chính thức': finalRating,
       'Trạng thái': statusText,
@@ -99,9 +102,11 @@ export const exportVcSummaryToExcel = (
  */
 export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVcRatingConfig[]) => {
   const isEvaluated = hasFormBeenEvaluated(form);
+  const autoMgr = syncAutoManagerScores(form.items || [], form.maxTotalScore || 100);
+  const isManagerReady = autoMgr.isComplete && autoMgr.managerTotalScore !== null;
   const dynamicRating = isEvaluated
     ? resolveVcClassification(
-        form.managerTotalScore !== null && form.managerTotalScore !== undefined ? form.managerTotalScore : form.totalScore,
+        isManagerReady && autoMgr.managerTotalScore !== null ? autoMgr.managerTotalScore : form.totalScore,
         form.periodId,
         ratingConfigs
       )
@@ -119,7 +124,7 @@ export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVc
     { A: '', B: '', C: '' },
   ];
 
-  const criteriaRows = form.items.map((item, idx) => {
+  const criteriaRows = autoMgr.items.map((item, idx) => {
     let levelText = '';
     if (item.selectedLevelName && isEvaluated) {
       levelText = ` [Đã chọn: ${item.selectedLevelName} - ${item.selfScore} điểm]`;
@@ -128,7 +133,9 @@ export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVc
       'STT': item.criterionCode || `${idx + 1}`,
       'Nội dung đánh giá': item.content + levelText,
       'Điểm tối đa': item.maxScore,
-      'Điểm cá nhân tự chấm': (isEvaluated && item.selfScore !== null && item.selfScore !== undefined) ? item.selfScore : 'Chưa chấm'
+      'Điểm cá nhân tự chấm': (isEvaluated && item.selfScore !== null && item.selfScore !== undefined) ? item.selfScore : 'Chưa chấm',
+      'Điểm TTCM đánh giá': (item.ttcmScore !== null && item.ttcmScore !== undefined) ? item.ttcmScore : 'Chưa chấm',
+      'Điểm CBQL (Tự động)': (isManagerReady && item.managerScore !== null && item.managerScore !== undefined) ? item.managerScore : 'Chưa đủ dữ liệu'
     };
   });
 
@@ -137,13 +144,17 @@ export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVc
       'STT': 'TỔNG',
       'Nội dung đánh giá': 'TỔNG ĐIỂM ĐÁNH GIÁ',
       'Điểm tối đa': 100,
-      'Điểm cá nhân tự chấm': isEvaluated ? form.totalScore : 0
+      'Điểm cá nhân tự chấm': isEvaluated ? form.totalScore : 0,
+      'Điểm TTCM đánh giá': form.ttcmTotalScore ?? 'Chưa chấm',
+      'Điểm CBQL (Tự động)': isManagerReady ? autoMgr.managerTotalScore : 'Chưa đủ dữ liệu'
     },
     {
       'STT': '',
       'Nội dung đánh giá': `Cá nhân tự xếp loại: ${isEvaluated ? (form.selfClassification || dynamicRating) : 'Chưa xếp loại'}`,
       'Điểm tối đa': '',
-      'Điểm cá nhân tự chấm': ''
+      'Điểm cá nhân tự chấm': '',
+      'Điểm TTCM đánh giá': '',
+      'Điểm CBQL (Tự động)': ''
     }
   ];
 
@@ -154,7 +165,9 @@ export const exportSingleVcFormToExcel = (form: KpiVcForm, ratingConfigs?: KpiVc
     { wch: 10 }, // STT
     { wch: 70 }, // Nội dung
     { wch: 14 }, // Max
-    { wch: 22 }  // Điểm tự chấm
+    { wch: 22 }, // Điểm tự chấm
+    { wch: 22 }, // Điểm TTCM
+    { wch: 24 }  // Điểm CBQL tự động
   ];
 
   const workbook = XLSX.utils.book_new();

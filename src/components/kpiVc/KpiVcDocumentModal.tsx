@@ -59,6 +59,8 @@ import {
   calculateVcTtcmTotals,
   calculateVcTctmTotals,
   calculateVcManagerTotals,
+  syncAutoManagerScores,
+  roundKpiScore2,
   resolveVcClassification,
   createCriteriaSnapshot,
   initializeVcScoreItems,
@@ -349,9 +351,17 @@ export default function KpiVcDocumentModal({
     return calculateVcTtcmTotals(scoreItems);
   }, [scoreItems]);
 
-  const managerTotals = useMemo(() => {
-    return calculateVcManagerTotals(scoreItems);
-  }, [scoreItems]);
+  const autoManagerResult = useMemo(() => {
+    return syncAutoManagerScores(scoreItems, form?.maxTotalScore || 100);
+  }, [scoreItems, form?.maxTotalScore]);
+
+  const autoManagerScoreMap = useMemo(() => {
+    const map = new Map<string, number | null>();
+    autoManagerResult.items.forEach(it => {
+      if (it.criterionId) map.set(it.criterionId, it.managerScore ?? null);
+    });
+    return map;
+  }, [autoManagerResult]);
 
   const groupScores = totals.groupScores;
   const totalScore = totals.totalScore;
@@ -359,16 +369,22 @@ export default function KpiVcDocumentModal({
   const ttcmGroupScores = ttcmTotals.ttcmGroupScores;
   const ttcmTotalScore = ttcmTotals.ttcmTotalScore;
 
-  const managerGroupScores = managerTotals.managerGroupScores;
-  const managerTotalScore = managerTotals.managerTotalScore;
+  const managerGroupScores = autoManagerResult.managerGroupScores;
+  const managerTotalScore = autoManagerResult.managerTotalScore;
+  const isManagerScoreReady = autoManagerResult.isComplete && managerTotalScore !== null;
 
   const hasAnyTtcmScore = useMemo(() => {
     return scoreItems.some(it => typeof it.ttcmScore === 'number' && it.ttcmScore !== null);
   }, [scoreItems]);
 
-  const hasAnyManagerScore = useMemo(() => {
-    return scoreItems.some(it => typeof it.managerScore === 'number' && it.managerScore !== null);
-  }, [scoreItems]);
+  const hasAnyManagerScore = isManagerScoreReady;
+
+  // Tự động gợi ý xếp loại BGH theo điểm CBQL tự động nếu BGH chưa chọn xếp loại
+  useEffect(() => {
+    if (isManagerScoreReady && managerTotalScore !== null && !leaderClassification) {
+      setLeaderClassification(resolveVcClassification(managerTotalScore));
+    }
+  }, [isManagerScoreReady, managerTotalScore, leaderClassification]);
 
   // --- INITIALIZATION ON OPEN ---
   useEffect(() => {
@@ -462,12 +478,22 @@ export default function KpiVcDocumentModal({
         return it;
       });
       
-      const loadedTotals = calculateVcTotals(itemsToUse);
-      setScoreItems(itemsToUse);
+      const syncedInit = syncAutoManagerScores(itemsToUse, form.maxTotalScore || 100);
+      const loadedTotals = calculateVcTotals(syncedInit.items);
+      setScoreItems(syncedInit.items);
       setSelfClassification(form.selfClassification || (loadedTotals.isCompleted ? resolveVcClassification(form.totalScore) : 'Chưa hoàn thành tự đánh giá'));
       setSelfDate(form.selfDate || todayStr);
       setSelfComment(form.selfComment || '');
-      setLeaderClassification(form.leaderClassification || '');
+      setTtcmClassification(form.ttcmClassification || 'Hoàn thành tốt nhiệm vụ');
+      setTtcmComment(form.ttcmComment || '');
+      setTtcmDate(form.ttcmDate || todayStr);
+      setTtcmEvaluatorName(form.ttcmEvaluatorName || '');
+      setLeaderClassification(
+        form.leaderClassification ||
+        (syncedInit.isComplete && syncedInit.managerTotalScore !== null
+          ? resolveVcClassification(syncedInit.managerTotalScore)
+          : '')
+      );
       setLeaderComment(form.leaderComment || '');
       setLeaderDate(form.leaderDate || todayStr);
       setLeaderSignName(form.leaderSignName || form.evaluatorName || (matchedEvalId ? (teachers.find(t => t.id === matchedEvalId)?.name || '') : ''));
@@ -645,16 +671,16 @@ export default function KpiVcDocumentModal({
   const handleSelfScoreChange = (criterionId: string, value: number | null, selectedLevelCode?: string) => {
     setScoreItems(prev => {
       const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
+      let updated: KpiVcScoreItem[];
       if (existingIdx >= 0) {
-        const updated = [...prev];
+        updated = [...prev];
         updated[existingIdx] = {
           ...updated[existingIdx],
           selfScore: value,
           selectedLevelCode: selectedLevelCode !== undefined ? selectedLevelCode : updated[existingIdx].selectedLevelCode
         };
-        return updated;
       } else {
-        return [
+        updated = [
           ...prev,
           {
             criterionId,
@@ -663,21 +689,22 @@ export default function KpiVcDocumentModal({
           }
         ];
       }
+      return syncAutoManagerScores(updated, form?.maxTotalScore || 100).items;
     });
   };
 
   const handleTtcmScoreChange = (criterionId: string, value: number | null) => {
     setScoreItems(prev => {
       const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
+      let updated: KpiVcScoreItem[];
       if (existingIdx >= 0) {
-        const updated = [...prev];
+        updated = [...prev];
         updated[existingIdx] = {
           ...updated[existingIdx],
           ttcmScore: value
         };
-        return updated;
       } else {
-        return [
+        updated = [
           ...prev,
           {
             criterionId,
@@ -686,6 +713,7 @@ export default function KpiVcDocumentModal({
           }
         ];
       }
+      return syncAutoManagerScores(updated, form?.maxTotalScore || 100).items;
     });
   };
 
@@ -706,29 +734,6 @@ export default function KpiVcDocumentModal({
             criterionId,
             selfScore: null,
             note
-          }
-        ];
-      }
-    });
-  };
-
-  const handleManagerScoreChange = (criterionId: string, value: number | null) => {
-    setScoreItems(prev => {
-      const existingIdx = prev.findIndex(i => i.criterionId === criterionId);
-      if (existingIdx >= 0) {
-        const updated = [...prev];
-        updated[existingIdx] = {
-          ...updated[existingIdx],
-          managerScore: value
-        };
-        return updated;
-      } else {
-        return [
-          ...prev,
-          {
-            criterionId,
-            selfScore: null,
-            managerScore: value
           }
         ];
       }
@@ -1019,8 +1024,8 @@ export default function KpiVcDocumentModal({
   // (2) TTCM đánh giá: BẮT BUỘC phải là Tổ trưởng chuyên môn của tổ (isTtcmForThisForm) hoặc Admin
   const canEditTtcm = !isLocked && !isCompleted && (isTtcmForThisForm || isAdmin) && (isSubmittedToTtcm || isDraftOrReturned || isEvaluatedByTtcm || mode === 'ttcm_eval' || mode === 'edit');
 
-  // (3) BGH chấm và phê duyệt: BẮT BUỘC phải là Ban Giám hiệu (isBghForThisForm) hoặc Admin
-  const canEditManager = !isLocked && !isCompleted && (isBghForThisForm || isAdmin) && (isEvaluatedByTtcm || isSubmittedToTtcm || isDraftOrReturned || mode === 'leader_eval' || mode === 'edit');
+  // (3) BGH nhận xét, xếp loại và phê duyệt (TUYỆT ĐỐI KHÔNG chỉnh sửa thủ công điểm CBQL vì hệ thống tự tính = (Cá nhân + TTCM) / 2)
+  const canBghApprove = !isLocked && !isCompleted && (isBghForThisForm || isAdmin) && (isEvaluatedByTtcm || mode === 'leader_eval');
 
   // Lý do khóa cấp TTCM
   const lockReasonTtcm = useMemo(() => {
@@ -1032,15 +1037,11 @@ export default function KpiVcDocumentModal({
     return '';
   }, [canEditTtcm, isDraftOrReturned, isEvaluatedByTtcm, isCompleted, isLocked]);
 
-  // Lý do khóa cấp BGH
+  // Ghi chú cơ chế tính tự động cột CBQL (Cấp 3)
   const lockReasonManager = useMemo(() => {
-    if (canEditManager) return 'Cấp 3: Ban Giám hiệu đang thực hiện đánh giá & phê duyệt';
-    if (isDraftOrReturned) return 'Chờ giáo viên gửi phiếu tự chấm';
-    if (isSubmittedToTtcm && !isEvaluatedByTtcm) return 'Chờ TTCM hoàn thành, xác nhận và gửi kết quả';
-    if (isCompleted) return 'Ban Giám hiệu đã phê duyệt hoàn tất';
-    if (isLocked) return 'Phiếu đang bị khóa bảo mật';
-    return '';
-  }, [canEditManager, isDraftOrReturned, isSubmittedToTtcm, isEvaluatedByTtcm, isCompleted, isLocked]);
+    if (isManagerScoreReady) return 'Điểm CBQL được tính tự động = (Điểm cá nhân + Điểm TTCM) / 2. Không cho nhập thủ công.';
+    return 'Chỉ tính tự động = (Điểm cá nhân + Điểm TTCM) / 2 khi cả cá nhân và TTCM hoàn thành chấm đủ tiêu chí.';
+  }, [isManagerScoreReady]);
 
   const canChangeEvaluator = useMemo(() => {
     if (isLocked) return false;
@@ -1066,25 +1067,26 @@ export default function KpiVcDocumentModal({
       setSuccessMsg(null);
 
       const rawItemsToSave = overrideItems || scoreItems;
-      const itemsToSave = rawItemsToSave.map((item, idx) => {
+      const mergedItems = rawItemsToSave.map((item, idx) => {
         const existingItem = form?.items?.find(i => i.criterionId === item.criterionId || i.criterionCode === item.criterionCode) || form?.items?.[idx];
         return {
           ...item,
           selfScore: typeof item.selfScore === 'number' ? item.selfScore : (existingItem && typeof existingItem.selfScore === 'number' ? existingItem.selfScore : null),
           ttcmScore: typeof item.ttcmScore === 'number' ? item.ttcmScore : (existingItem && typeof existingItem.ttcmScore === 'number' ? existingItem.ttcmScore : null),
-          managerScore: typeof item.managerScore === 'number' ? item.managerScore : (existingItem && typeof existingItem.managerScore === 'number' ? existingItem.managerScore : null),
           note: item.note !== undefined && item.note !== '' ? item.note : (existingItem?.note || ''),
           ttcmComment: item.ttcmComment !== undefined && item.ttcmComment !== '' ? item.ttcmComment : (existingItem?.ttcmComment || ''),
           managerComment: item.managerComment !== undefined && item.managerComment !== '' ? item.managerComment : (existingItem?.managerComment || ''),
         };
       });
 
+      // Tự động tính lại điểm CBQL = (Cá nhân + TTCM) / 2 (null nếu thiếu dữ liệu)
+      const autoMgrCalc = syncAutoManagerScores(mergedItems, form.maxTotalScore || 100);
+      const itemsToSave = autoMgrCalc.items;
+
       const selfCalc = calculateVcTotals(itemsToSave);
       const ttcmCalc = calculateVcTtcmTotals(itemsToSave);
-      const managerCalc = calculateVcManagerTotals(itemsToSave);
 
       const hasAnyTtcmInSaved = itemsToSave.some(it => typeof it.ttcmScore === 'number' && it.ttcmScore !== null);
-      const hasAnyManagerInSaved = itemsToSave.some(it => typeof it.managerScore === 'number' && it.managerScore !== null);
 
       const resolvedTotalScore = targetStatus === 'submitted' || targetStatus === 'draft'
         ? selfCalc.totalScore
@@ -1118,8 +1120,8 @@ export default function KpiVcDocumentModal({
       const newScore = targetStatus === 'submitted'
         ? resolvedTotalScore
         : targetStatus === 'ttcm_evaluated'
-          ? (ttcmTotals.ttcmTotalScore ?? ttcmTotalScore)
-          : (managerTotals.managerTotalScore ?? managerTotalScore);
+          ? ttcmCalc.ttcmTotalScore
+          : autoMgrCalc.managerTotalScore;
 
       console.log('[KPI_DIAG_STEP_2: PREPARED_PAYLOAD]', { formId, prevStatus, targetStatus, newScore });
 
@@ -1147,7 +1149,7 @@ export default function KpiVcDocumentModal({
       const updatedHistory = [newHistoryEntry, ...existingHistory];
 
       const resolvedTtcmScore = hasAnyTtcmInSaved ? ttcmCalc.ttcmTotalScore : (form.ttcmTotalScore ?? null);
-      const resolvedManagerScore = hasAnyManagerInSaved ? managerCalc.managerTotalScore : (form.managerTotalScore ?? form.bghTotalScore ?? null);
+      const resolvedManagerScore = autoMgrCalc.managerTotalScore;
 
       const updatePayload: Partial<KpiVcForm> = {
         employeeId: form.employeeId,
@@ -1160,7 +1162,7 @@ export default function KpiVcDocumentModal({
         items: itemsToSave,
         groupScores: resolvedGroupScores,
         ttcmGroupScores: hasAnyTtcmInSaved ? ttcmCalc.ttcmGroupScores : (form.ttcmGroupScores || ttcmGroupScores),
-        managerGroupScores: hasAnyManagerInSaved ? managerCalc.managerGroupScores : (form.managerGroupScores || managerGroupScores),
+        managerGroupScores: autoMgrCalc.managerGroupScores,
         totalScore: resolvedTotalScore,
         ttcmTotalScore: resolvedTtcmScore,
         managerTotalScore: resolvedManagerScore,
@@ -1180,15 +1182,15 @@ export default function KpiVcDocumentModal({
         ttcmStatus: targetStatus === 'ttcm_evaluated' ? 'evaluated' : (hasAnyTtcmInSaved || form.ttcmStatus === 'evaluated' ? 'evaluated' : (form.ttcmStatus || 'pending')),
         ttcmEvaluatedAt: targetStatus === 'ttcm_evaluated' ? now : form.ttcmEvaluatedAt,
 
-        // Cấp 3 - BGH đánh giá & phê duyệt
-        leaderClassification: leaderClassification || form.leaderClassification || 'Hoàn thành tốt nhiệm vụ',
+        // Cấp 3 - BGH phê duyệt (điểm CBQL tính tự động = (Cá nhân + TTCM) / 2)
+        leaderClassification: leaderClassification || form.leaderClassification || (resolvedManagerScore !== null ? resolveVcClassification(resolvedManagerScore) : ''),
         leaderComment: leaderComment || form.leaderComment || '',
         leaderDate: leaderDate || form.leaderDate || todayStr,
         leaderSignName: leaderSignName || form.bghEvaluatorName || form.evaluatorName || evaluatorNameResolved || 'Hiệu trưởng / Ban Giám hiệu',
-        bghClassification: leaderClassification || form.bghClassification || 'Hoàn thành tốt nhiệm vụ',
+        bghClassification: leaderClassification || form.bghClassification || (resolvedManagerScore !== null ? resolveVcClassification(resolvedManagerScore) : ''),
         bghComment: leaderComment || form.bghComment || '',
         bghDate: leaderDate || form.bghDate || todayStr,
-        bghStatus: targetStatus === 'completed' ? 'evaluated' : (hasAnyManagerInSaved || form.bghStatus === 'evaluated' ? 'evaluated' : (form.bghStatus || 'pending')),
+        bghStatus: targetStatus === 'completed' ? 'evaluated' : (form.bghStatus || 'pending'),
         bghTotalScore: resolvedManagerScore,
         managerGeneralComment: managerGeneralComment || form.managerGeneralComment || '',
         managerEvaluatedAt: targetStatus === 'completed' ? now : form.managerEvaluatedAt,
@@ -1235,10 +1237,11 @@ export default function KpiVcDocumentModal({
   // Cấp 1: Giáo viên gửi phiếu tự chấm -> Chuyển sang Chờ TTCM
   const handleSubmitSelf = async () => {
     // Tự động gán 0 điểm cho các tiêu chí chưa nhập (null/undefined) để form hoàn thiện hợp lệ
-    const updatedItems = scoreItems.map(it => ({
+    const rawUpdated = scoreItems.map(it => ({
       ...it,
       selfScore: typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0
     }));
+    const updatedItems = syncAutoManagerScores(rawUpdated, form?.maxTotalScore || 100).items;
     setScoreItems(updatedItems);
     const newTotals = calculateVcTotals(updatedItems);
 
@@ -1266,34 +1269,26 @@ export default function KpiVcDocumentModal({
     await executeFormTransition('submitted', 'TTCM lưu tạm kết quả đánh giá', undefined, 'Đã lưu tạm đánh giá của TTCM thành công!');
   };
 
-  // Sao chép nhanh điểm tự chấm sang cột TTCM
+  // Sao chép nhanh điểm tự chấm sang cột TTCM (cột CBQL tự động tính lại theo trung bình cộng)
   const handleCopySelfScoresToTtcm = () => {
-    const updated = scoreItems.map(it => ({
+    const rawUpdated = scoreItems.map(it => ({
       ...it,
       ttcmScore: typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0
     }));
-    setScoreItems(updated);
-    setSuccessMsg('Đã sao chép toàn bộ điểm tự chấm sang cột TTCM đánh giá!');
-    setTimeout(() => setSuccessMsg(null), 3000);
-  };
-
-  // Sao chép nhanh điểm TTCM sang cột Ban Giám hiệu
-  const handleCopyTtcmScoresToManager = () => {
-    const updated = scoreItems.map(it => ({
-      ...it,
-      managerScore: typeof it.ttcmScore === 'number' && !isNaN(it.ttcmScore)
-        ? it.ttcmScore
-        : (typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0)
-    }));
-    setScoreItems(updated);
-    setSuccessMsg('Đã sao chép điểm đánh giá của TTCM sang cột Ban Giám hiệu!');
-    setTimeout(() => setSuccessMsg(null), 3000);
+    const synced = syncAutoManagerScores(rawUpdated, form?.maxTotalScore || 100);
+    setScoreItems(synced.items);
+    setSuccessMsg(
+      synced.isComplete && synced.managerTotalScore !== null
+        ? `Đã sao chép điểm tự chấm sang cột TTCM! Điểm CBQL tự động tính = ${synced.managerTotalScore}/100đ.`
+        : 'Đã sao chép toàn bộ điểm tự chấm sang cột TTCM đánh giá!'
+    );
+    setTimeout(() => setSuccessMsg(null), 3500);
   };
 
   // Cấp 2: TTCM xác nhận và gửi kết quả lên BGH -> Chuyển sang Chờ BGH
   const handleSubmitTtcm = async () => {
     // Tự động điền điểm tự chấm cho các tiêu chí TTCM chưa nhập để đảm bảo hợp lệ không bị chặn
-    const updatedItems = scoreItems.map(it => {
+    const rawUpdated = scoreItems.map(it => {
       const validTtcm = typeof it.ttcmScore === 'number' && !isNaN(it.ttcmScore);
       const fallbackScore = typeof it.selfScore === 'number' && !isNaN(it.selfScore) ? it.selfScore : 0;
       return {
@@ -1301,15 +1296,20 @@ export default function KpiVcDocumentModal({
         ttcmScore: validTtcm ? it.ttcmScore : fallbackScore
       };
     });
+    const synced = syncAutoManagerScores(rawUpdated, form?.maxTotalScore || 100);
+    const updatedItems = synced.items;
     setScoreItems(updatedItems);
     const newTtcmCalc = calculateVcTtcmTotals(updatedItems);
     const finalTtcmScore = newTtcmCalc.ttcmTotalScore;
     const finalClassification = ttcmClassification || resolveVcClassification(finalTtcmScore) || 'Hoàn thành tốt nhiệm vụ';
+    const autoAvgText = synced.isComplete && synced.managerTotalScore !== null
+      ? ` Điểm CBQL tự động tính = ${synced.managerTotalScore}/100 điểm.`
+      : '';
 
     setConfirmModal({
       isOpen: true,
       title: 'Xác nhận gửi kết quả đánh giá lên Ban Giám hiệu',
-      message: `Tổ trưởng chuyên môn đã chấm đạt ${finalTtcmScore}/100 điểm (Xếp loại đề xuất: "${finalClassification}"). Sau khi gửi, phần chấm của TTCM sẽ khóa và chuyển sang Ban Giám hiệu phê duyệt. Bạn có chắc chắn muốn xác nhận và gửi kết quả?`,
+      message: `Tổ trưởng chuyên môn đã chấm đạt ${finalTtcmScore}/100 điểm (Xếp loại đề xuất: "${finalClassification}").${autoAvgText} Sau khi gửi, phần chấm của TTCM sẽ khóa và chuyển sang Ban Giám hiệu phê duyệt. Bạn có chắc chắn muốn xác nhận và gửi kết quả?`,
       confirmLabel: 'Xác nhận & Gửi lên BGH',
       confirmColor: 'purple',
       onConfirm: async () => {
@@ -1332,17 +1332,24 @@ export default function KpiVcDocumentModal({
     setIsReturnModalOpen(true);
   };
 
-  // Cấp 3: BGH lưu tạm đánh giá
+  // Cấp 3: BGH lưu tạm nhận xét & xếp loại
   const handleSaveBghDraft = async () => {
-    await executeFormTransition('ttcm_evaluated', 'BGH lưu tạm kết quả đánh giá', undefined, 'Đã lưu tạm đánh giá của Ban Giám hiệu!');
+    await executeFormTransition('ttcm_evaluated', 'BGH lưu tạm nhận xét & xếp loại', undefined, 'Đã lưu tạm nhận xét và kết quả tính điểm CBQL tự động!');
   };
 
   // Cấp 3: BGH phê duyệt và hoàn thành chốt kết quả -> Chuyển sang Hoàn thành
   const handleApproveBgh = async () => {
+    if (!isManagerScoreReady || managerTotalScore === null) {
+      setErrorMsg('Chưa đủ dữ liệu điểm cá nhân tự chấm và điểm TTCM đánh giá để tự động tính điểm CBQL và phê duyệt.');
+      return;
+    }
+
+    const effectiveClassification = leaderClassification || resolveVcClassification(managerTotalScore) || 'Hoàn thành tốt nhiệm vụ';
+
     setConfirmModal({
       isOpen: true,
       title: 'Phê duyệt & Chốt kết quả đánh giá KPI',
-      message: `Ban Giám hiệu chấm đạt ${hasAnyManagerScore ? managerTotalScore : (hasAnyTtcmScore ? ttcmTotalScore : totalScore)}/100 điểm. Xếp loại chính thức: "${leaderClassification || 'Hoàn thành tốt nhiệm vụ'}". Sau khi phê duyệt, kết quả sẽ được chốt chính thức và khóa toàn bộ. Bạn có chắc chắn?`,
+      message: `Điểm CBQL tự động tính = ${managerTotalScore}/100 điểm (Trung bình cộng Cá nhân: ${totalScore}đ & TTCM: ${ttcmTotalScore}đ). Xếp loại chính thức: "${effectiveClassification}". Sau khi phê duyệt, kết quả sẽ được chốt chính thức và khóa toàn bộ. Bạn có chắc chắn?`,
       confirmLabel: 'Phê duyệt & Hoàn thành',
       confirmColor: 'emerald',
       onConfirm: async () => {
@@ -2511,11 +2518,17 @@ export default function KpiVcDocumentModal({
                           Cấp 2: Ban Giám hiệu
                         </span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          form?.bghStatus === 'evaluated' || hasAnyManagerScore
+                          form?.bghStatus === 'evaluated' || isCompleted
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                            : 'bg-amber-100 text-amber-800 border-amber-300'
+                            : isManagerScoreReady
+                              ? 'bg-blue-100 text-blue-800 border-blue-300'
+                              : 'bg-amber-100 text-amber-800 border-amber-300'
                         }`}>
-                          {form?.bghStatus === 'evaluated' || hasAnyManagerScore ? '✓ Đã đánh giá' : '⏳ Chưa đánh giá'}
+                          {form?.bghStatus === 'evaluated' || isCompleted
+                            ? '✓ Đã phê duyệt'
+                            : isManagerScoreReady
+                              ? '⚡ Đã tính tự động'
+                              : '⏳ Chưa đủ dữ liệu'}
                         </span>
                       </div>
                       <div className="pt-1 flex items-baseline justify-between">
@@ -2529,9 +2542,9 @@ export default function KpiVcDocumentModal({
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[11px] text-slate-500">Điểm cấp BGH:</p>
-                          <p className="font-black text-blue-900 font-mono text-sm sm:text-base">
-                            {hasAnyManagerScore ? `${managerTotalScore} / 100` : '--- / 100'}
+                          <p className="text-[11px] text-slate-500">Điểm CBQL (Tự động):</p>
+                          <p className={`font-black font-mono ${isManagerScoreReady ? 'text-blue-900 text-sm sm:text-base' : 'text-slate-400 text-xs italic font-sans font-semibold'}`}>
+                            {isManagerScoreReady ? `${managerTotalScore} / 100` : 'Chưa đủ dữ liệu'}
                           </p>
                         </div>
                       </div>
@@ -2677,8 +2690,8 @@ export default function KpiVcDocumentModal({
                       <span className="text-slate-500">
                         {form?.managerEvaluatedAt ? `Duyệt: ${new Date(form.managerEvaluatedAt).toLocaleDateString('vi-VN')}` : (isCompleted ? 'Đã hoàn thành' : 'Chờ cấp trước')}
                       </span>
-                      <span className="font-bold text-blue-900 font-mono">
-                        {hasAnyManagerScore ? `${managerTotalScore}đ / 100đ` : '---'}
+                      <span className={`font-bold ${isManagerScoreReady ? 'text-blue-900 font-mono' : 'text-slate-400 italic font-medium'}`}>
+                        {isManagerScoreReady ? `${managerTotalScore}đ / 100đ` : 'Chưa đủ dữ liệu'}
                       </span>
                     </div>
                   </div>
@@ -2705,7 +2718,7 @@ export default function KpiVcDocumentModal({
                     <div className="leading-relaxed">
                       <strong>Cấp 2 đang thực hiện: TTCM đánh giá, chấm điểm và xác nhận kết quả.</strong>
                       <div className="text-[11px] text-purple-800 mt-0.5">
-                        Giáo viên đã hoàn thành và gửi phiếu tự chấm ({totalScore}/100đ). Cột <strong>"Tự chấm"</strong> đã được khóa bảo toàn. Tổ trưởng chuyên môn thực hiện chấm điểm ở cột <strong>"TTCM đánh giá"</strong>, ghi nhận xét và nhấn <strong>"Xác nhận & Gửi kết quả"</strong> lên BGH. Cột <strong>"CBQL đánh giá"</strong> tiếp tục bị <strong>KHÓA</strong> cho đến khi TTCM hoàn thành.
+                        Giáo viên đã hoàn thành và gửi phiếu tự chấm ({totalScore}/100đ). Cột <strong>"Tự chấm"</strong> đã được khóa bảo toàn. Tổ trưởng chuyên môn thực hiện chấm điểm ở cột <strong>"TTCM đánh giá"</strong>, ghi nhận xét và nhấn <strong>"Xác nhận & Gửi kết quả"</strong> lên BGH. Cột <strong>"CBQL đánh giá"</strong> sẽ tự động tính theo công thức <strong>(Điểm cá nhân + Điểm TTCM) / 2</strong> ngay khi hoàn thành đủ dữ liệu 2 cấp.
                       </div>
                     </div>
                   </div>
@@ -2727,22 +2740,12 @@ export default function KpiVcDocumentModal({
                   <div className="flex items-start gap-2.5">
                     <span className="text-base leading-none">🏛️</span>
                     <div className="leading-relaxed">
-                      <strong>Cấp 3 đang thực hiện: Ban Giám hiệu chấm điểm, đánh giá và phê duyệt.</strong>
+                      <strong>Cấp 3 đang thực hiện: Ban Giám hiệu xem điểm tự động, nhận xét và phê duyệt.</strong>
                       <div className="text-[11px] text-amber-900 mt-0.5">
-                        TTCM đã hoàn tất và gửi kết quả ({ttcmTotalScore}/100đ). Cột tự chấm và cột TTCM đã được khóa bảo toàn. Ban Giám hiệu thực hiện chấm điểm ở cột <strong>"CBQL đánh giá"</strong>, cho ý kiến chỉ đạo, xếp loại chất lượng chính thức và nhấn <strong>"Phê duyệt & Hoàn thành"</strong>.
+                        TTCM đã hoàn tất và gửi kết quả ({ttcmTotalScore}/100đ). Điểm ở cột <strong>"CBQL đánh giá"</strong> được hệ thống tính <strong>tự động = (Điểm cá nhân + Điểm TTCM) / 2</strong> (không nhập thủ công){isManagerScoreReady ? ` — Tổng điểm CBQL: ${managerTotalScore}/100đ` : ' — Chưa đủ dữ liệu'}. Ban Giám hiệu ghi nhận xét, chọn xếp loại chất lượng chính thức và nhấn <strong>"Phê duyệt & Hoàn thành"</strong>.
                       </div>
                     </div>
                   </div>
-                  {canEditManager && (
-                    <button
-                      type="button"
-                      onClick={handleCopyTtcmScoresToManager}
-                      className="shrink-0 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap self-center"
-                      title="Sao chép điểm đánh giá của TTCM sang cột Ban Giám hiệu"
-                    >
-                      ⚡ Đồng ý điểm TTCM
-                    </button>
-                  )}
                 </div>
               )}
 
@@ -2752,7 +2755,7 @@ export default function KpiVcDocumentModal({
                   <div className="leading-relaxed">
                     <strong>Quy trình đánh giá KPI năm học 2026–2027 đã hoàn thành chính thức!</strong>
                     <div className="text-[11px] text-emerald-800 mt-0.5">
-                      Phiếu đã qua đầy đủ 3 cấp: Giáo viên ({totalScore}đ) ➔ TTCM ({ttcmTotalScore}đ) ➔ BGH ({hasAnyManagerScore ? managerTotalScore : (ttcmTotalScore || totalScore)}đ). Kết quả và chữ ký của cả 3 cấp được lưu trữ và khóa an toàn. Bạn có thể in bản in A4 hoặc xuất file Word chuẩn.
+                      Phiếu đã qua đầy đủ 3 cấp: Giáo viên ({totalScore}đ) ➔ TTCM ({ttcmTotalScore}đ) ➔ CBQL tự động ({isManagerScoreReady ? `${managerTotalScore}đ` : 'Chưa đủ dữ liệu'}). Kết quả và chữ ký của cả 3 cấp được lưu trữ và khóa an toàn. Bạn có thể in bản in A4 hoặc xuất file Word chuẩn.
                     </div>
                   </div>
                 </div>
@@ -2795,18 +2798,14 @@ export default function KpiVcDocumentModal({
                       </div>
                     </th>
 
-                    {/* CỘT CBQL ĐÁNH GIÁ (CẤP 3) */}
+                    {/* CỘT CBQL ĐÁNH GIÁ (CẤP 3) - TỰ ĐỘNG TÍNH, CHỈ ĐỌC */}
                     <th 
-                      className={`p-2.5 border-r border-slate-300 font-extrabold w-32 ${
-                        canEditManager 
-                          ? 'bg-amber-100 text-amber-950 ring-2 ring-amber-500/30' 
-                          : 'bg-amber-50 text-amber-950'
-                      }`}
+                      className="p-2.5 border-r border-slate-300 font-extrabold w-36 bg-amber-50 text-amber-950"
                       title={lockReasonManager}
                     >
                       <div>CBQL đánh giá</div>
-                      <div className="text-[10px] font-bold text-amber-700">
-                        (Cấp 3) {isLocked ? '🔒 Đã khóa' : (isCompleted ? '🔒 Đã duyệt' : (canEditManager ? '✏️ Đang chấm' : '⏳ Chờ cấp trước'))}
+                      <div className="text-[10px] font-bold text-amber-800">
+                        (Cấp 3) Tự động = (CN + TTCM)/2
                       </div>
                     </th>
 
@@ -2840,7 +2839,11 @@ export default function KpiVcDocumentModal({
                             {hasAnyTtcmScore || canEditTtcm ? `${groupTtcmScore} / ${group.maxScore}` : '---'}
                           </td>
                           <td className="p-2 text-center border-r border-slate-300 bg-amber-50/50 font-extrabold text-amber-900 font-mono">
-                            {hasAnyManagerScore || canEditManager ? `${groupMgrScore} / ${group.maxScore}` : '---'}
+                            {isManagerScoreReady ? (
+                              `${groupMgrScore} / ${group.maxScore}`
+                            ) : (
+                              <span className="text-[10px] font-sans font-semibold italic text-slate-400">Chưa đủ dữ liệu</span>
+                            )}
                           </td>
                           <td className="p-2 bg-slate-50"></td>
                         </tr>
@@ -2849,7 +2852,7 @@ export default function KpiVcDocumentModal({
                           const itemScore = scoreItems.find(it => it.criterionId === criterion.id);
                           const currentSelfScore = itemScore && typeof itemScore.selfScore === 'number' ? itemScore.selfScore : null;
                           const currentTtcmScore = itemScore && typeof itemScore.ttcmScore === 'number' ? itemScore.ttcmScore : null;
-                          const currentManagerScore = itemScore && typeof itemScore.managerScore === 'number' ? itemScore.managerScore : null;
+                          const currentManagerScore = isManagerScoreReady ? (autoManagerScoreMap.get(criterion.id) ?? null) : null;
 
                           const isSubGroupA = group.id === 'group_III' && (criterion.subGroup === 'A' || criterion.code.startsWith('III.1'));
                           const isSubGroupB = group.id === 'group_III' && (criterion.subGroup === 'B' || !criterion.code.startsWith('III.1'));
@@ -2872,10 +2875,10 @@ export default function KpiVcDocumentModal({
                             const it = scoreItems.find(s => s.criterionId === c.id);
                             return acc + (it && typeof it.ttcmScore === 'number' ? it.ttcmScore : 0);
                           }, 0) * 10) / 10;
-                          const aMgrTotal = Math.round(aItems.reduce((acc, c) => {
-                            const it = scoreItems.find(s => s.criterionId === c.id);
-                            return acc + (it && typeof it.managerScore === 'number' ? it.managerScore : 0);
-                          }, 0) * 10) / 10;
+                          const aMgrTotal = roundKpiScore2(aItems.reduce((acc, c) => {
+                            const val = autoManagerScoreMap.get(c.id);
+                            return acc + (typeof val === 'number' ? val : 0);
+                          }, 0));
 
                           // Tính điểm mục II (Kết quả thực hiện nhiệm vụ được giao: 60đ)
                           const bItems = groupCriteria.filter(i => i.subGroup === 'B' || !i.code.startsWith('III.1'));
@@ -2888,10 +2891,10 @@ export default function KpiVcDocumentModal({
                             const it = scoreItems.find(s => s.criterionId === c.id);
                             return acc + (it && typeof it.ttcmScore === 'number' ? it.ttcmScore : 0);
                           }, 0) * 10) / 10;
-                          const bMgrTotal = Math.round(bItems.reduce((acc, c) => {
-                            const it = scoreItems.find(s => s.criterionId === c.id);
-                            return acc + (it && typeof it.managerScore === 'number' ? it.managerScore : 0);
-                          }, 0) * 10) / 10;
+                          const bMgrTotal = roundKpiScore2(bItems.reduce((acc, c) => {
+                            const val = autoManagerScoreMap.get(c.id);
+                            return acc + (typeof val === 'number' ? val : 0);
+                          }, 0));
 
                           return (
                             <React.Fragment key={criterion.id}>
@@ -2994,38 +2997,21 @@ export default function KpiVcDocumentModal({
                                 )}
                               </td>
 
-                              {/* CBQL ĐÁNH GIÁ */}
-                              <td className={`p-2 text-center border-r border-slate-300 ${canEditManager ? 'bg-amber-50/40' : (isDraftOrReturned || isSubmittedToTtcm ? 'bg-slate-100/50' : 'bg-amber-50/20')}`}>
-                                {canEditManager ? (
-                                  <div className="flex items-center justify-center">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={criterion.maxScore}
-                                      step={0.5}
-                                      value={typeof currentManagerScore === 'number' ? currentManagerScore : ''}
-                                      onChange={(e) => {
-                                        const raw = e.target.value;
-                                        if (raw === '') {
-                                          handleManagerScoreChange(criterion.id, null);
-                                        } else {
-                                          const num = parseFloat(raw);
-                                          if (!isNaN(num)) {
-                                            handleManagerScoreChange(criterion.id, Math.min(criterion.maxScore, Math.max(0, num)));
-                                          }
-                                        }
-                                      }}
-                                      className="w-16 px-1.5 py-1 text-center font-bold bg-white border border-amber-400 rounded-lg text-amber-950 focus:ring-2 focus:ring-amber-500 font-mono shadow-2xs text-xs sm:text-sm"
-                                      placeholder="---"
-                                    />
-                                  </div>
-                                ) : (isDraftOrReturned || isSubmittedToTtcm) ? (
-                                  <span className="text-slate-400 font-mono text-[11px] flex items-center justify-center gap-0.5" title={isDraftOrReturned ? "Đang chờ giáo viên gửi phiếu tự chấm" : "Đang chờ TTCM hoàn thành và gửi kết quả"}>
-                                    {isDraftOrReturned ? '⏳ Chờ GV' : '⏳ Chờ TTCM'}
+                              {/* CBQL ĐÁNH GIÁ (CẤP 3) - TỰ ĐỘNG TÍNH, TUYỆT ĐỐI KHÔNG CHO NHẬP THỦ CÔNG */}
+                              <td className={`p-2 text-center border-r border-slate-300 ${isManagerScoreReady ? 'bg-amber-50/40' : 'bg-slate-50/70'}`}>
+                                {isManagerScoreReady && typeof currentManagerScore === 'number' ? (
+                                  <span
+                                    className="inline-flex items-center justify-center min-w-[3.25rem] px-2 py-1 rounded-lg bg-amber-100/80 border border-amber-300/80 font-extrabold text-amber-950 font-mono text-xs sm:text-sm select-none"
+                                    title={`Tự động tính: (${currentSelfScore} + ${currentTtcmScore}) / 2 = ${currentManagerScore}`}
+                                  >
+                                    {currentManagerScore}
                                   </span>
                                 ) : (
-                                  <span className="font-bold text-amber-950 font-mono">
-                                    {typeof currentManagerScore === 'number' ? currentManagerScore : '---'}
+                                  <span
+                                    className="text-slate-400 text-[11px] font-medium italic select-none"
+                                    title="Chỉ tính tự động = (Điểm cá nhân + Điểm TTCM) / 2 khi cả cá nhân và TTCM hoàn thành chấm đầy đủ các tiêu chí"
+                                  >
+                                    Chưa đủ dữ liệu
                                   </span>
                                 )}
                               </td>
@@ -3043,7 +3029,7 @@ export default function KpiVcDocumentModal({
                                   academicYear={form?.academicYear || selectedPeriod?.academicYear || '2026-2027'}
                                   periodId={form?.periodId || selectedPeriodId || ''}
                                   evidenceFiles={evidenceFiles}
-                                  canUpload={canEditSelf || canEditTtcm || canEditManager}
+                                  canUpload={canEditSelf || canEditTtcm || canBghApprove}
                                   canDelete={!isLocked && !isCompleted}
                                   isLocked={isLocked || isCompleted}
                                   note={itemScore?.note || ''}
@@ -3079,7 +3065,11 @@ export default function KpiVcDocumentModal({
                                   {hasAnyTtcmScore || canEditTtcm ? `${aTtcmTotal} / ${aMaxTotal}` : '---'}
                                 </td>
                                 <td className="p-2 text-center font-bold text-amber-900 font-mono bg-amber-50/60">
-                                  {hasAnyManagerScore || canEditManager ? `${aMgrTotal} / ${aMaxTotal}` : '---'}
+                                  {isManagerScoreReady ? (
+                                    `${aMgrTotal} / ${aMaxTotal}`
+                                  ) : (
+                                    <span className="text-[10px] font-sans font-semibold italic text-slate-400">Chưa đủ dữ liệu</span>
+                                  )}
                                 </td>
                                 <td className="p-2 bg-slate-50"></td>
                               </tr>
@@ -3102,7 +3092,11 @@ export default function KpiVcDocumentModal({
                                   {hasAnyTtcmScore || canEditTtcm ? `${bTtcmTotal} / ${bMaxTotal}` : '---'}
                                 </td>
                                 <td className="p-2 text-center font-black text-amber-900 font-mono bg-amber-100/70">
-                                  {hasAnyManagerScore || canEditManager ? `${bMgrTotal} / ${bMaxTotal}` : '---'}
+                                  {isManagerScoreReady ? (
+                                    `${bMgrTotal} / ${bMaxTotal}`
+                                  ) : (
+                                    <span className="text-[10px] font-sans font-semibold italic text-slate-400">Chưa đủ dữ liệu</span>
+                                  )}
                                 </td>
                                 <td className="p-2 bg-blue-50/50"></td>
                               </tr>
@@ -3149,10 +3143,21 @@ export default function KpiVcDocumentModal({
 
                   <tr className="bg-amber-50/80 text-amber-950 border-t border-slate-300">
                     <td colSpan={3} className="p-2 text-right font-bold uppercase">
-                      TỔNG CBQL ĐÁNH GIÁ:
+                      TỔNG CBQL ĐÁNH GIÁ (TỰ ĐỘNG):
                     </td>
                     <td colSpan={3} className="p-2 text-left font-black text-amber-900 font-mono text-sm">
-                      {hasAnyManagerScore ? `${managerTotalScore} / 100` : '___ / 100'}
+                      {isManagerScoreReady ? (
+                        <>
+                          {managerTotalScore} / {form?.maxTotalScore || 100}
+                          <span className="text-[11px] font-sans font-medium text-amber-800 ml-2">
+                            (Bình quân tự động: ({totalScore} + {ttcmTotalScore}) / 2)
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs font-sans font-semibold italic text-slate-500">
+                          Chưa đủ dữ liệu (Cần hoàn thành đủ điểm Cá nhân & TTCM)
+                        </span>
+                      )}
                     </td>
                     <td className="p-2"></td>
                   </tr>
@@ -3162,7 +3167,13 @@ export default function KpiVcDocumentModal({
                       ĐIỂM ĐÁNH GIÁ CUỐI CÙNG:
                     </td>
                     <td colSpan={3} className="p-2.5 text-left font-black text-emerald-900 font-mono text-base">
-                      {hasAnyManagerScore ? managerTotalScore : (hasAnyTtcmScore ? ttcmTotalScore : totalScore)} / 100
+                      {isManagerScoreReady ? (
+                        `${managerTotalScore} / ${form?.maxTotalScore || 100}`
+                      ) : (
+                        <span className="text-xs sm:text-sm font-sans font-bold italic text-slate-600">
+                          Chưa đủ dữ liệu
+                        </span>
+                      )}
                     </td>
                     <td className="p-2"></td>
                   </tr>
@@ -3347,33 +3358,43 @@ export default function KpiVcDocumentModal({
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-black text-blue-900 bg-blue-200/80 px-2.5 py-0.5 rounded-full border border-blue-300 font-mono">
-                    Điểm cấp BGH chấm: {hasAnyManagerScore ? `${managerTotalScore} / 100` : 'Chưa chấm'}
+                    Điểm CBQL (Tự động): {isManagerScoreReady ? `${managerTotalScore} / 100` : 'Chưa đủ dữ liệu'}
                   </span>
                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-                    form?.bghStatus === 'evaluated' || hasAnyManagerScore 
+                    form?.bghStatus === 'evaluated' || isCompleted
                       ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                      : 'bg-amber-100 text-amber-800 border-amber-300'
+                      : isManagerScoreReady
+                        ? 'bg-blue-100 text-blue-800 border-blue-300'
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
                   }`}>
-                    {form?.bghStatus === 'evaluated' || hasAnyManagerScore ? '✓ Đã đánh giá' : '⏳ Chưa đánh giá'}
+                    {form?.bghStatus === 'evaluated' || isCompleted
+                      ? '✓ Đã phê duyệt'
+                      : isManagerScoreReady
+                        ? '⚡ Đã tính tự động'
+                        : '⏳ Chưa đủ dữ liệu'}
                   </span>
                 </div>
               </h3>
 
               <div className="p-2.5 bg-white border border-blue-200 rounded-lg text-xs flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="text-slate-500">Người đánh giá cấp BGH:</span>{' '}
+                  <span className="text-slate-500">Người phê duyệt cấp BGH:</span>{' '}
                   <strong className="text-blue-950 font-bold">{form?.bghEvaluatorName || form?.evaluatorName || leaderSignName || 'Nguyễn Quang Sáng'}</strong>
                   <span className="text-slate-500 ml-2">({form?.bghEvaluatorRole || form?.evaluatorRole || 'Hiệu trưởng'})</span>
                 </div>
                 <div className="text-slate-500 text-[11px]">
-                  Thời điểm đánh giá: <strong className="text-slate-700">{form?.managerEvaluatedAt ? new Date(form.managerEvaluatedAt).toLocaleDateString('vi-VN') : (leaderDate || 'Chưa đánh giá')}</strong>
+                  Thời điểm phê duyệt: <strong className="text-slate-700">{form?.managerEvaluatedAt ? new Date(form.managerEvaluatedAt).toLocaleDateString('vi-VN') : (leaderDate || 'Chưa phê duyệt')}</strong>
                 </div>
+              </div>
+
+              <div className="px-3 py-2 bg-amber-50/70 border border-amber-200 rounded-lg text-[11px] text-amber-950">
+                <strong>Cơ chế tính điểm tự động:</strong> Điểm CBQL ở mỗi tiêu chí bằng <strong>(Điểm cá nhân + Điểm TTCM) / 2</strong> khi đủ dữ liệu cả 2 cấp và không cho chỉnh sửa thủ công. Ban Giám hiệu thực hiện nhận xét, chọn xếp loại và xác nhận phê duyệt kết quả.
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-blue-950 mb-1">Ban Giám hiệu xếp loại chất lượng viên chức:</label>
-                  {canEditManager ? (
+                  {canBghApprove ? (
                     <select
                       value={leaderClassification}
                       onChange={(e) => setLeaderClassification(e.target.value)}
@@ -3386,14 +3407,14 @@ export default function KpiVcDocumentModal({
                     </select>
                   ) : (
                     <div className="p-2.5 bg-white border border-blue-200 rounded-lg font-bold text-blue-950">
-                      {leaderClassification || 'Chưa đánh giá'}
+                      {leaderClassification || 'Chưa phê duyệt'}
                     </div>
                   )}
                 </div>
 
                 <div>
                   <label className="block font-bold text-blue-950 mb-1">Ý kiến đánh giá, nhận xét của Ban Giám hiệu:</label>
-                  {canEditManager ? (
+                  {canBghApprove ? (
                     <textarea
                       rows={2}
                       value={leaderComment}
@@ -3570,7 +3591,7 @@ export default function KpiVcDocumentModal({
             {/* CẤP 3: BAN GIÁM HIỆU PHÊ DUYỆT */}
             {isEvaluatedByTtcm && (
               <>
-                {canEditManager ? (
+                {canBghApprove ? (
                   <>
                     <button
                       type="button"
@@ -3587,17 +3608,17 @@ export default function KpiVcDocumentModal({
                       disabled={isSubmitting}
                       onClick={handleSaveBghDraft}
                       className="px-4 py-2.5 bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
-                      title="Lưu tạm điểm BGH, phiếu vẫn ở trạng thái Chờ BGH"
+                      title="Lưu tạm nhận xét và xếp loại của BGH, phiếu vẫn ở trạng thái Chờ BGH"
                     >
                       <Save size={15} /> Lưu tạm BGH
                     </button>
 
                     <button
                       type="button"
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || !isManagerScoreReady}
                       onClick={handleApproveBgh}
-                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-2"
-                      title="Phê duyệt, xếp loại và chốt kết quả đánh giá KPI chính thức"
+                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={isManagerScoreReady ? 'Phê duyệt, xếp loại và chốt kết quả đánh giá KPI chính thức' : 'Chưa đủ dữ liệu điểm cá nhân và TTCM để tính điểm CBQL tự động'}
                     >
                       <Award size={16} /> Phê duyệt & Hoàn thành (Chốt kết quả)
                     </button>

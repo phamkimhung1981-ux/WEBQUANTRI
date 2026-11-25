@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { KpiStaffPeriod } from '../../types/kpiStaff';
-import { Calendar, Plus, Lock, Unlock, Edit2, Trash2, Check, X, ShieldAlert, AlertCircle } from 'lucide-react';
+import { parseAcademicYearRange } from '../../lib/kpiStaffData';
+import { Calendar, Plus, Lock, Unlock, Edit2, Trash2, Check, X, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface Props {
   onSelectPeriod: (id: string) => void;
   onSavePeriod: (period: KpiStaffPeriod) => void;
   onDeletePeriod: (id: string) => void;
+  onGenerateAcademicYear?: (academicYear: string) => Promise<number>;
 }
 
 export default function KpiStaffPeriodManagerModal({
@@ -19,26 +21,62 @@ export default function KpiStaffPeriodManagerModal({
   selectedPeriodId,
   onSelectPeriod,
   onSavePeriod,
-  onDeletePeriod
+  onDeletePeriod,
+  onGenerateAcademicYear
 }: Props) {
   const [editingPeriod, setEditingPeriod] = useState<Partial<KpiStaffPeriod> | null>(null);
   const [error, setError] = useState<string>('');
+  const [successMsg, setSuccessMsg] = useState<string>('');
+  const [newYearInput, setNewYearInput] = useState<string>('2027–2028');
+  const [isGeneratingYear, setIsGeneratingYear] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
   const handleStartCreate = () => {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    const yr = now.getFullYear();
+    const mPadded = String(m).padStart(2, '0');
+    const lastDay = String(new Date(yr, m, 0).getDate()).padStart(2, '0');
+    const startYr = m >= 7 ? yr : yr - 1;
     setEditingPeriod({
-      id: `period_staff_${Date.now()}`,
-      name: 'Tháng ' + new Date().toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' }),
-      academicYear: '2026-2027',
+      id: `period_staff_m${mPadded}_${yr}`,
+      name: `Tháng ${m}/${yr}`,
+      academicYear: `${startYr}–${startYr + 1}`,
       periodType: 'month',
-      periodValue: String(new Date().getMonth() + 1),
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0],
-      status: 'draft',
-      description: 'Đánh giá KPI Nhân viên'
+      month: m,
+      startDate: `${yr}-${mPadded}-01`,
+      endDate: `${yr}-${mPadded}-${lastDay}`,
+      status: 'active',
+      description: `Đánh giá, chấm điểm KPI Nhân viên Tháng ${m}/${yr}`
     });
     setError('');
+    setSuccessMsg('');
+  };
+
+  const handleGenerateFullYear = async () => {
+    if (!onGenerateAcademicYear) return;
+    setError('');
+    setSuccessMsg('');
+    const trimmed = newYearInput.trim();
+    if (!/^\d{4}\s*[-–]\s*\d{4}$/.test(trimmed)) {
+      setError('Vui lòng nhập năm học đúng định dạng (ví dụ: 2027–2028).');
+      return;
+    }
+    const { yearRangeStr } = parseAcademicYearRange(trimmed);
+    setIsGeneratingYear(true);
+    try {
+      const addedCount = await onGenerateAcademicYear(yearRangeStr);
+      setSuccessMsg(
+        addedCount > 0
+          ? `Đã khởi tạo đủ 12 tháng (Tháng 7 – Tháng 6) cùng kỳ Năm học/Học kỳ cho năm học ${yearRangeStr} (thêm mới ${addedCount} kỳ).`
+          : `Năm học ${yearRangeStr} đã có đầy đủ toàn bộ 12 kỳ tháng (Tháng 7 – Tháng 6).`
+      );
+    } catch (err: any) {
+      setError('Không thể khởi tạo năm học mới: ' + (err?.message || 'Lỗi kết nối Firestore.'));
+    } finally {
+      setIsGeneratingYear(false);
+    }
   };
 
   const handleSave = () => {
@@ -78,10 +116,46 @@ export default function KpiStaffPeriodManagerModal({
 
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          {successMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold flex items-center gap-2">
-              <AlertCircle size={16} />
+              <AlertCircle size={16} className="shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {onGenerateAcademicYear && !editingPeriod && (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-slate-800">Khởi tạo tự động 12 tháng cho năm học mới</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Tự động tạo đủ 12 kỳ tháng từ Tháng 7 năm trước đến Tháng 6 năm sau (không tạo trùng).
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="text"
+                  value={newYearInput}
+                  onChange={e => setNewYearInput(e.target.value)}
+                  placeholder="2027–2028"
+                  className="w-28 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={isGeneratingYear}
+                  onClick={handleGenerateFullYear}
+                  className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5"
+                >
+                  <Sparkles size={14} />
+                  {isGeneratingYear ? 'Đang tạo...' : 'Tạo đủ 12 tháng'}
+                </button>
+              </div>
             </div>
           )}
 
