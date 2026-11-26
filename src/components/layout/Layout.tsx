@@ -10,8 +10,7 @@ function getModuleTitle(pathname: string): string {
   if (pathname.startsWith('/kpi-cbql')) return 'KPI Cán bộ Quản lý (Đánh giá CBQL / TTCM / BGH)';
   if (pathname.startsWith('/kpi-gvnv')) return 'KPI Giáo viên (Tự đánh giá & TTCM, BGH đánh giá)';
   if (pathname.startsWith('/kpi-nv') || pathname.startsWith('/kpi-nhan-vien') || pathname.startsWith('/kpi-staff')) return 'KPI Nhân viên (Tổ Văn phòng)';
-  if (pathname.startsWith('/kpi-catalog') || pathname.startsWith('/kpi') || pathname.startsWith('/monthly-kpi')) return 'Danh mục & Bảng điểm KPI';
-  if (pathname.startsWith('/discipline') || pathname.startsWith('/nen-nep')) return 'Nền nếp & Vi phạm học sinh (Điểm cộng/trừ)';
+  if (pathname.startsWith('/youth-discipline') || pathname.startsWith('/doan-tn/nen-nep-hoc-sinh') || pathname.startsWith('/nen-nep-hoc-sinh') || pathname.startsWith('/doan-thanh-nien')) return 'Đoàn TN – Nền nếp học sinh';
   if (pathname.startsWith('/homeroom') || pathname.startsWith('/cong-tac-chu-nhiem') || pathname.startsWith('/chu-nhiem')) return 'Công tác Chủ nhiệm & Quản lý Lớp';
   if (pathname.startsWith('/school-work-schedule') || pathname.startsWith('/lich-cong-viec') || pathname.startsWith('/work-schedule')) return 'Lịch công việc Trường';
   if (pathname.startsWith('/department-schedule') || pathname.startsWith('/department-schedules') || pathname.startsWith('/lich-giao-viec-to') || pathname.startsWith('/lich-to-chuyen-mon')) return 'Lịch giao việc Tổ Chuyên môn';

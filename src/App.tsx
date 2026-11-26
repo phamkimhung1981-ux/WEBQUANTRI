@@ -19,8 +19,6 @@ import Calendar from './pages/Calendar';
 import KpiCbql from './pages/KpiCbql';
 import KpiTeacherStaff from './pages/KpiTeacherStaff';
 import KpiStaff from './pages/KpiStaff';
-import Discipline from './pages/Discipline';
-import KpiCatalog from './pages/KpiCatalog';
 import Homeroom from './pages/Homeroom';
 import DepartmentSchedule from './pages/DepartmentSchedule';
 import SchoolWorkSchedule from './pages/SchoolWorkSchedule';
@@ -155,13 +153,8 @@ function AppRoutes() {
         <Route path="/kpi-nv" element={<PermissionGuard moduleCode="kpi_nv"><KpiStaff /></PermissionGuard>} />
         <Route path="/kpi-nhan-vien" element={<PermissionGuard moduleCode="kpi_nv"><KpiStaff /></PermissionGuard>} />
         <Route path="/kpi-staff" element={<PermissionGuard moduleCode="kpi_nv"><KpiStaff /></PermissionGuard>} />
-        <Route path="/kpi-catalog" element={<PermissionGuard moduleCode="kpi_catalog"><KpiCatalog /></PermissionGuard>} />
-        <Route path="/kpi" element={<PermissionGuard moduleCode="kpi_catalog"><KpiCatalog /></PermissionGuard>} />
-        <Route path="/monthly-kpi" element={<PermissionGuard moduleCode="kpi_catalog"><KpiCatalog /></PermissionGuard>} />
         
         {/* Nền nếp & Đoàn Thanh niên */}
-        <Route path="/discipline" element={<PermissionGuard moduleCode="youth_discipline"><Discipline /></PermissionGuard>} />
-        <Route path="/nen-nep" element={<PermissionGuard moduleCode="youth_discipline"><Discipline /></PermissionGuard>} />
         <Route path="/youth-discipline" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />
         <Route path="/doan-tn/nen-nep-hoc-sinh" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />
         <Route path="/nen-nep-hoc-sinh" element={<PermissionGuard moduleCode="youth_discipline"><YouthDiscipline /></PermissionGuard>} />

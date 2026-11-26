@@ -105,21 +105,6 @@ export const DEFAULT_SYSTEM_MODULES: SystemModule[] = [
     isSystem: true
   },
   {
-    id: 'discipline',
-    title: 'NỀN NẾP CBGVNV',
-    desc: 'Nền nếp & Nội quy cán bộ giáo viên nhân viên',
-    icon: 'ShieldCheck',
-    route: '/discipline',
-    gradient: 'from-amber-500 to-orange-600',
-    shadowColor: 'shadow-amber-500/30',
-    order: 7,
-    enabled: true,
-    allowedRoles: ['admin', 'ADMIN', 'BGH', 'TTCM', 'GIAO_VU', 'NHAN_SU', 'GIAO_VIEN'],
-    showOnHome: true,
-    showOnSidebar: true,
-    isSystem: true
-  },
-  {
     id: 'homeroom',
     title: 'CÔNG TÁC CHỦ NHIỆM',
     desc: 'Sổ chủ nhiệm & Quản lý lớp học',

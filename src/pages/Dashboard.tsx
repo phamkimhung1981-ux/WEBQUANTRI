@@ -21,7 +21,6 @@ import {
   UserCheck,
   Wrench,
   UserCog,
-  Layers,
   Plane
 } from 'lucide-react';
 import { useAppContext } from '../store/AppContext';
@@ -139,15 +138,6 @@ export default function Dashboard() {
       route: '/kpi-nv',
       gradient: 'from-teal-600 to-emerald-800',
       shadowColor: 'shadow-teal-500/30'
-    },
-    {
-      id: 'kpi_catalog',
-      title: 'DANH MỤC KPI',
-      desc: 'Bảng điểm & Tiêu chí xếp loại',
-      icon: Layers,
-      route: '/kpi-catalog',
-      gradient: 'from-indigo-600 to-violet-700',
-      shadowColor: 'shadow-indigo-500/30'
     },
     {
       id: 'youth_discipline',

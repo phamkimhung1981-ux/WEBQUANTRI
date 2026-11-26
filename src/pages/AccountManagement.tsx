@@ -51,6 +51,8 @@ import { collection, getDocs } from 'firebase/firestore';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { Teacher } from '../types';
 
+const VISIBLE_SYSTEM_MODULES = SYSTEM_MODULES_LIST.filter(m => m.code !== 'kpi_catalog');
+
 export default function AccountManagement() {
   const { user } = useAuth();
   const { isAdmin, isBGH } = usePermission();
@@ -454,10 +456,10 @@ export default function AccountManagement() {
 
   const handleToggleColumn = (action: PermissionAction) => {
     setMatrixPermissions(prev => {
-      const allSelected = SYSTEM_MODULES_LIST.every(m => prev[m.code]?.[action]);
+      const allSelected = VISIBLE_SYSTEM_MODULES.every(m => prev[m.code]?.[action]);
       const nextVal = !allSelected;
       const updated: ModulePermissionsMap = { ...prev };
-      SYSTEM_MODULES_LIST.forEach(m => {
+      VISIBLE_SYSTEM_MODULES.forEach(m => {
         updated[m.code] = {
           ...updated[m.code],
           [action]: nextVal
@@ -724,7 +726,7 @@ export default function AccountManagement() {
               QUẢN LÝ TÀI KHOẢN VÀ PHÂN QUYỀN
             </h1>
             <p className="text-xs lg:text-sm text-blue-100/90 mt-1 max-w-2xl font-medium">
-              Cấp phát tài khoản đăng nhập cho toàn bộ CBGVNV, kiểm soát ma trận quyền 7 cấp trên 18 module và bảo mật hệ thống.
+              Cấp phát tài khoản đăng nhập cho toàn bộ CBGVNV, kiểm soát ma trận quyền 7 cấp trên {VISIBLE_SYSTEM_MODULES.length} module và bảo mật hệ thống.
             </p>
           </div>
 
@@ -1275,14 +1277,14 @@ export default function AccountManagement() {
                 type="button"
                 onClick={handleApplyViewOnlyPreset}
                 className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1.5 hover:border-slate-400"
-                title="Bật quyền Xem cho tất cả 18 module"
+                title={`Bật quyền Xem cho tất cả ${VISIBLE_SYSTEM_MODULES.length} module`}
               >
                 <span>👁</span> Xem tất cả module
               </button>
             </div>
 
             <div className="text-[11px] font-semibold text-slate-500">
-              💡 Bấm vào <strong className="text-blue-700">Tiêu đề cột</strong> hoặc nút <strong className="text-blue-700">(chọn cột)</strong> để bật/tắt toàn bộ 18 module.
+              💡 Bấm vào <strong className="text-blue-700">Tiêu đề cột</strong> hoặc nút <strong className="text-blue-700">(chọn cột)</strong> để bật/tắt toàn bộ {VISIBLE_SYSTEM_MODULES.length} module.
             </div>
           </div>
 
@@ -1295,13 +1297,13 @@ export default function AccountManagement() {
                     STT
                   </th>
                   <th className="sticky top-0 left-12 z-40 bg-slate-100 px-4 py-3 text-left min-w-[260px] border-r border-slate-300 shadow-xs">
-                    Module Hệ thống (18 Modules)
+                    Module Hệ thống ({VISIBLE_SYSTEM_MODULES.length} Modules)
                   </th>
                   
                   {/* Actions columns with sticky header & quick interactive toggle button */}
                   {(['view', 'create', 'edit', 'delete', 'approve', 'export', 'lock'] as PermissionAction[]).map(act => {
-                    const isAllCol = SYSTEM_MODULES_LIST.every(m => matrixPermissions[m.code]?.[act]);
-                    const isSomeCol = !isAllCol && SYSTEM_MODULES_LIST.some(m => matrixPermissions[m.code]?.[act]);
+                    const isAllCol = VISIBLE_SYSTEM_MODULES.every(m => matrixPermissions[m.code]?.[act]);
+                    const isSomeCol = !isAllCol && VISIBLE_SYSTEM_MODULES.some(m => matrixPermissions[m.code]?.[act]);
 
                     return (
                       <th 
@@ -1325,7 +1327,7 @@ export default function AccountManagement() {
                                   ? 'bg-blue-100 text-blue-800 border-blue-300' 
                                   : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
                             }`}
-                            title={`Bấm để ${isAllCol ? 'bỏ chọn' : 'chọn'} tất cả 18 module cho quyền ${ACTION_LABELS[act].label}`}
+                            title={`Bấm để ${isAllCol ? 'bỏ chọn' : 'chọn'} tất cả ${VISIBLE_SYSTEM_MODULES.length} module cho quyền ${ACTION_LABELS[act].label}`}
                           >
                             <input
                               type="checkbox"
@@ -1347,9 +1349,10 @@ export default function AccountManagement() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100 font-medium">
-                {SYSTEM_MODULES_LIST.map((mod, idx) => {
+                {VISIBLE_SYSTEM_MODULES.map((mod, idx) => {
                   const modPerm = matrixPermissions[mod.code] || createEmptyModulePermissions();
                   const isAllRow = Object.values(modPerm).every(Boolean);
+                  const displayTitle = `${idx + 1}. ${mod.title.replace(/^\d+\.\s*/, '')}`;
 
                   return (
                     <tr key={mod.code} className="hover:bg-blue-50/30 transition-colors group">
@@ -1357,7 +1360,7 @@ export default function AccountManagement() {
                         {idx + 1}
                       </td>
                       <td className="sticky left-12 z-20 bg-white group-hover:bg-blue-50/50 px-4 py-2.5 border-r border-slate-200">
-                        <p className="font-bold text-slate-800">{mod.title}</p>
+                        <p className="font-bold text-slate-800">{displayTitle}</p>
                         <p className="text-[10.5px] text-slate-500">{mod.shortDesc}</p>
                       </td>
 
@@ -1893,7 +1896,7 @@ export default function AccountManagement() {
                   }
                 </select>
                 <p className="text-[10.5px] text-slate-500 mt-1.5 leading-relaxed">
-                  Lưu ý: Toàn bộ quyền trên 18 module và 7 cấp hành động của tài khoản nguồn sẽ được ghi đè sang tài khoản đích và lưu trực tiếp lên cơ sở dữ liệu Firestore.
+                  Lưu ý: Toàn bộ quyền trên {VISIBLE_SYSTEM_MODULES.length} module và 7 cấp hành động của tài khoản nguồn sẽ được ghi đè sang tài khoản đích và lưu trực tiếp lên cơ sở dữ liệu Firestore.
                 </p>
               </div>
 
