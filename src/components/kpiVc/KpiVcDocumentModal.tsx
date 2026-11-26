@@ -104,6 +104,7 @@ interface KpiVcDocumentModalProps {
   periods: KpiVcPeriod[];
   criteria: KpiVcCriterion[];
   groups: KpiVcCriteriaGroup[];
+  defaultPeriodId?: string;
   onSaved?: (formId: string) => void;
   onPrintRequest?: (form: KpiVcForm) => void;
 }
@@ -118,6 +119,7 @@ export default function KpiVcDocumentModal({
   periods,
   criteria,
   groups,
+  defaultPeriodId,
   onSaved,
   onPrintRequest
 }: KpiVcDocumentModalProps) {
@@ -500,7 +502,10 @@ export default function KpiVcDocumentModal({
       setManagerGeneralComment(form.managerGeneralComment || '');
     } else {
       // CREATE MODE
-      const defaultPeriod = periods.find(p => p.status === 'active') || periods[0];
+      const preferredPeriod = defaultPeriodId && defaultPeriodId !== 'all'
+        ? periods.find(p => p.id === defaultPeriodId)
+        : null;
+      const defaultPeriod = preferredPeriod || periods.find(p => p.status === 'active') || periods[0];
       setSelectedPeriodId(defaultPeriod?.id || '');
 
       // Select ALL eligible teachers by default for Create Mode
@@ -542,7 +547,7 @@ export default function KpiVcDocumentModal({
       setLeaderDate(todayStr);
       setManagerGeneralComment('');
     }
-  }, [isOpen, form, mode, periods, eligibleTeachers, teachers, departments, criteria, user, bghEvaluators, ttcmEvaluators]);
+  }, [isOpen, form, mode, periods, eligibleTeachers, teachers, departments, criteria, user, bghEvaluators, ttcmEvaluators, defaultPeriodId]);
 
   // Ensure selectedPeriodId is auto-populated if periods arrive after initial render
   useEffect(() => {

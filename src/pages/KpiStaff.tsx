@@ -180,7 +180,7 @@ export default function KpiStaff() {
   const filteredForms = useMemo(() => {
     return activePeriodForms.filter(f => {
       const matchSearch = 
-        f.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.employeeName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (f.employeeCode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (f.position || '').toLowerCase().includes(searchQuery.toLowerCase());
 

@@ -422,7 +422,7 @@ export default function Dashboard() {
               {/* Học sinh */}
               <div 
                 id="stat-students"
-                onClick={() => navigate('/evaluations')}
+                onClick={() => navigate('/homeroom')}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 hover:bg-white border border-slate-200/70 shadow-xs transition-all cursor-pointer hover:-translate-y-0.5 text-xs"
                 title="Quản lý học sinh"
               >

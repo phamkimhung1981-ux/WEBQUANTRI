@@ -26,21 +26,25 @@ const STORE_NAME = 'evidence_files';
 // IndexedDB Helper for robust local storage of heavy files
 function openIndexedDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
+    if (typeof window === 'undefined' || typeof indexedDB === 'undefined' || !window.indexedDB) {
       reject(new Error('IndexedDB không được hỗ trợ trong trình duyệt này.'));
       return;
     }
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        store.createIndex('formId', 'formId', { unique: false });
-        store.createIndex('criterionId', 'criterionId', { unique: false });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    try {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = (event) => {
+        const idb = (event.target as IDBOpenDBRequest).result;
+        if (!idb.objectStoreNames.contains(STORE_NAME)) {
+          const store = idb.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          store.createIndex('formId', 'formId', { unique: false });
+          store.createIndex('criterionId', 'criterionId', { unique: false });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IndexedDB open error'));
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -290,8 +294,10 @@ export async function deleteEvidenceFile(
   }
 
   // 5. Notify all listeners to refresh their state immediately
-  notifyEvidenceChanged(formId);
-  console.log(`[KPI Evidence Service] Đã phát thông báo thay đổi dữ liệu (event notify) cho FormID=${formId}.`);
+  if (formId) {
+    notifyEvidenceChanged(formId);
+    console.log(`[KPI Evidence Service] Đã phát thông báo thay đổi dữ liệu (event notify) cho FormID=${formId}.`);
+  }
 
   return { success: true };
 }
@@ -345,8 +351,8 @@ export async function getEvidenceFilesForForm(formId: string): Promise<KpiEviden
     }
   });
 
-  return Array.from(fileMap.values()).sort((a, b) => 
-    new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime()
+  return Array.from(fileMap.values()).sort((a, b) =>
+    new Date(a.uploadedAt || 0).getTime() - new Date(b.uploadedAt || 0).getTime()
   );
 }
 
@@ -354,7 +360,7 @@ export async function getEvidenceFilesForForm(formId: string): Promise<KpiEviden
  * Subscribe to evidence files for a form in real-time
  */
 export function subscribeEvidenceFilesForForm(
-  formId: string, 
+  formId: string,
   onUpdate: (files: KpiEvidenceFile[]) => void
 ): () => void {
   if (!formId) {
@@ -362,13 +368,24 @@ export function subscribeEvidenceFilesForForm(
     return () => {};
   }
 
+  let isDisposed = false;
+
   const sync = async () => {
-    const files = await getEvidenceFilesForForm(formId);
-    onUpdate(files);
+    try {
+      const files = await getEvidenceFilesForForm(formId);
+      if (!isDisposed) {
+        onUpdate(files);
+      }
+    } catch (err) {
+      console.warn('Lỗi đồng bộ danh sách minh chứng KPI:', err);
+      if (!isDisposed) {
+        onUpdate([]);
+      }
+    }
   };
 
   // Initial load
-  sync();
+  void sync();
 
   // Firestore listener
   const q = query(
@@ -377,18 +394,21 @@ export function subscribeEvidenceFilesForForm(
   );
 
   const unsubFirestore = onSnapshot(q, () => {
-    sync();
+    void sync();
   }, (err) => {
     console.warn('Lỗi listener Firestore cho minh chứng:', err);
-    sync();
+    void sync();
   });
 
   // Local event listener
-  const unsubLocal = onEvidenceChanged((_changedFormId) => {
-    sync();
+  const unsubLocal = onEvidenceChanged((changedFormId) => {
+    if (!changedFormId || changedFormId === formId) {
+      void sync();
+    }
   });
 
   return () => {
+    isDisposed = true;
     unsubFirestore();
     unsubLocal();
   };

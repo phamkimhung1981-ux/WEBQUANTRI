@@ -219,8 +219,12 @@ if (typeof window !== 'undefined' && !(window as any).__thptSlFirestoreGuardAtta
   window.addEventListener('error', (event) => {
     if (event.error && isFirestoreRuntimeStorageError(event.error)) {
       notifyFirestoreStorageIssue(event.error);
+      event.preventDefault();
+      event.stopImmediatePropagation?.();
     } else if (event.message && isFirestoreRuntimeStorageError(event.message)) {
       notifyFirestoreStorageIssue(event.message);
+      event.preventDefault();
+      event.stopImmediatePropagation?.();
     }
   });
 
@@ -228,6 +232,7 @@ if (typeof window !== 'undefined' && !(window as any).__thptSlFirestoreGuardAtta
     if (event.reason && isFirestoreRuntimeStorageError(event.reason)) {
       notifyFirestoreStorageIssue(event.reason);
       event.preventDefault();
+      event.stopImmediatePropagation?.();
     }
   });
 }

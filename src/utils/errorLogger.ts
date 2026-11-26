@@ -162,6 +162,26 @@ export function logClientError(params: {
   return record;
 }
 
+function isHandledFirestoreStorageNoise(err: unknown, message: string): boolean {
+  const name =
+    err && typeof err === 'object' && 'name' in err
+      ? String((err as { name?: unknown }).name || '')
+      : '';
+  const lower = `${name} ${message}`.toLowerCase();
+  return (
+    name === 'QuotaExceededError' ||
+    name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    lower.includes('quotaexceedederror') ||
+    lower.includes('exceeded the quota') ||
+    lower.includes('firestore_mutations_') ||
+    lower.includes('firestore_clients_') ||
+    lower.includes('unexpected state (id: b815)') ||
+    lower.includes('unexpected state (id: ca9)') ||
+    lower.includes('unexpected state (id: c050)') ||
+    (lower.includes('internal assertion failed') && (lower.includes('storage') || lower.includes('quota') || lower.includes('b815')))
+  );
+}
+
 let globalListenersInstalled = false;
 
 export function installGlobalErrorListeners(): void {
@@ -169,12 +189,14 @@ export function installGlobalErrorListeners(): void {
   globalListenersInstalled = true;
 
   window.addEventListener('error', (event: ErrorEvent) => {
-    // Ignore benign ResizeObserver loop notices
-    if (event.message && event.message.includes('ResizeObserver loop')) return;
+    const msg = event.message || event.error?.message || '';
+    // Ignore benign ResizeObserver loop notices and handled Firestore storage quota errors
+    if (msg.includes('ResizeObserver loop')) return;
+    if (isHandledFirestoreStorageNoise(event.error, msg)) return;
     logClientError({
       error: event.error,
       errorName: event.error?.name || 'WindowError',
-      errorMessage: event.message || event.error?.message || 'Unhandled window error',
+      errorMessage: msg || 'Unhandled window error',
       componentName: event.filename ? event.filename.split('/').pop() || 'Window' : 'Window',
       source: 'window_error'
     });
@@ -188,8 +210,9 @@ export function installGlobalErrorListeners(): void {
         : typeof reason === 'string'
         ? reason
         : 'Unhandled promise rejection';
-    // Ignore Vite HMR websocket noise in AI Studio iframe
+    // Ignore Vite HMR websocket noise in AI Studio iframe and handled Firestore storage errors
     if (msg.includes('WebSocket') && msg.includes('vite')) return;
+    if (isHandledFirestoreStorageNoise(reason, msg)) return;
     logClientError({
       error: reason,
       errorName: reason instanceof Error ? reason.name : 'UnhandledRejection',

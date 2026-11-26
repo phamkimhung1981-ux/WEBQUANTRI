@@ -402,41 +402,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const q = collection(db, colName);
       const unsub = onSnapshot(q, (snapshot) => {
         if (isCancelled) return;
-        let data: any = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        if (key === 'teachers') {
-          if (!data || data.length === 0) {
-            data = DEFAULT_TEACHERS;
+        try {
+          let data: any = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (key === 'teachers') {
+            if (!data || data.length === 0) {
+              data = DEFAULT_TEACHERS;
+            }
+            safeLocalStorageSet('app_cached_teachers', JSON.stringify(data));
           }
-          safeLocalStorageSet('app_cached_teachers', JSON.stringify(data));
-        }
-        if (key === 'departments') {
-          if (!data || data.length === 0) {
-            data = DEFAULT_DEPARTMENTS;
-          } else {
-            data = data.map((d: any) => {
-              const lower = (d.name || '').toLowerCase();
-              if (lower.includes('toán') || lower.includes('toan')) {
-                return { ...d, name: 'Tổ Toán-Lý-Tin-CN' };
-              }
-              if (lower.includes('văn') && (lower.includes('sử') || lower.includes('địa') || lower.includes('gdkt'))) {
-                return { ...d, name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN' };
-              }
-              if (lower.includes('hóa') || lower.includes('sinh') || lower.includes('gdtc') || lower.includes('qpan')) {
-                return { ...d, name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN' };
-              }
-              return d;
-            });
+          if (key === 'departments') {
+            if (!data || data.length === 0) {
+              data = DEFAULT_DEPARTMENTS;
+            } else {
+              data = data.map((d: any) => {
+                const lower = (d.name || '').toLowerCase();
+                if (lower.includes('toán') || lower.includes('toan')) {
+                  return { ...d, name: 'Tổ Toán-Lý-Tin-CN' };
+                }
+                if (lower.includes('văn') && (lower.includes('sử') || lower.includes('địa') || lower.includes('gdkt'))) {
+                  return { ...d, name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN' };
+                }
+                if (lower.includes('hóa') || lower.includes('sinh') || lower.includes('gdtc') || lower.includes('qpan')) {
+                  return { ...d, name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN' };
+                }
+                return d;
+              });
+            }
+            safeLocalStorageSet('app_cached_departments', JSON.stringify(data));
           }
-          safeLocalStorageSet('app_cached_departments', JSON.stringify(data));
-        }
 
-        // Lưu vào bộ nhớ đệm an toàn (IndexedDB + giới hạn dung lượng localStorage)
-        if (key !== 'teachers' && key !== 'departments') {
-          setLocalCollectionCache(colName, data);
-        }
+          // Lưu vào bộ nhớ đệm an toàn (IndexedDB + giới hạn dung lượng localStorage)
+          if (key !== 'teachers' && key !== 'departments') {
+            setLocalCollectionCache(colName, data);
+          }
 
-        // Khi nhận dữ liệu thành công, cập nhật state và xóa lỗi
-        setState(prev => ({ ...prev, [key]: data, error: null }));
+          // Khi nhận dữ liệu thành công, cập nhật state và xóa lỗi
+          setState(prev => ({ ...prev, [key]: data, error: null }));
+        } catch (snapErr) {
+          console.warn(`Error processing snapshot for ${colName}:`, snapErr);
+        }
       }, (error) => {
         console.warn(`Firestore snapshot notice for ${colName}:`, error);
 

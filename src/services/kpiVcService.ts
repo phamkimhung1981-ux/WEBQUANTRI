@@ -10,6 +10,7 @@ import {
   query, 
   orderBy, 
   where,
+  limit,
   writeBatch 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -92,17 +93,53 @@ export const VC_COLLECTIONS = {
   RATING_CONFIG_HISTORY: 'kpi_vc_rating_config_history'
 };
 
+const toTimestampMs = (val: any): number => {
+  if (!val) return 0;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  if (val instanceof Date) {
+    const t = val.getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
+  if (typeof val === 'object') {
+    if (typeof val.toMillis === 'function') {
+      try {
+        const ms = val.toMillis();
+        return Number.isFinite(ms) ? ms : 0;
+      } catch {
+        return 0;
+      }
+    }
+    if (typeof val.seconds === 'number') {
+      return val.seconds * 1000;
+    }
+  }
+  const parsed = new Date(val).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const isValidVcFormDoc = (docId: string, data: any): boolean => {
+  if (!data || typeof data !== 'object') return false;
+  if (docId && (docId.startsWith('test_') || docId.includes('diagnostic'))) return false;
+  if (!data.periodId || typeof data.periodId !== 'string') return false;
+  if (!data.employeeId && !data.employeeName) return false;
+  return true;
+};
+
 /**
  * Tự động khởi tạo dữ liệu mẫu nếu chưa có (Không ghi đè dữ liệu đang có)
  * Bảo vệ hạn ngạch Firestore: Chỉ chạy 1 lần/phiên trình duyệt và chỉ nạp khi collection rỗng
  */
 export const seedVcInitialDataIfNeeded = async () => {
   if (typeof window !== 'undefined') {
-    const sessionKey = 'kpi_vc_seed_done_v2';
-    if (sessionStorage.getItem(sessionKey)) {
-      return; // Đã kiểm tra trong phiên này, tránh lãng phí hạn ngạch Firestore
+    try {
+      const sessionKey = 'kpi_vc_seed_done_v2';
+      if (window.sessionStorage && sessionStorage.getItem(sessionKey)) {
+        return; // Đã kiểm tra trong phiên này, tránh lãng phí hạn ngạch Firestore
+      }
+      window.sessionStorage?.setItem(sessionKey, 'true');
+    } catch {
+      // Ignore sessionStorage restrictions
     }
-    sessionStorage.setItem(sessionKey, 'true');
   }
 
   try {
@@ -142,10 +179,8 @@ export const seedVcInitialDataIfNeeded = async () => {
       console.warn('Periods seeding skipped or deferred:', pErr);
     }
 
-    // 4. Forms - Bảo đảm bộ nhớ đệm (RAM + IndexedDB) có đầy đủ 51 phiếu Tháng 9 và 17 phiếu Tháng 10
-    // Không ghi 2.5MB vào localStorage để tránh vượt hạn mức Storage của Firebase/trình duyệt
-    const canonicalForms = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
-    saveVcFormsCache(canonicalForms);
+    // 4. Khởi tạo đọc đệm IndexedDB an toàn mà KHÔNG ghi đè các kỳ khác (Tháng 7, 8, 11...)
+    hydrateVcFormsFromIndexedDb();
   } catch (error) {
     console.error('Error seeding initial VC KPI data:', error);
   }
@@ -168,7 +203,7 @@ const hasTeacherActuallyEvaluated = (form: KpiVcForm): boolean => {
   if (form.status === 'submitted' || form.status === 'ttcm_evaluated' || form.status === 'completed' || form.status === 'locked' || form.status === 'self_evaluated') {
     return true;
   }
-  if (!form.items || form.items.length === 0) return false;
+  if (!Array.isArray(form.items) || form.items.length === 0) return false;
   const hasScores = form.items.some(i => i.selfScore !== null && i.selfScore !== undefined && !Number.isNaN(Number(i.selfScore)));
   if (!hasScores) return false;
 
@@ -181,17 +216,43 @@ export const VC_FORMS_CACHE_KEY = 'kpi_vc_forms_cache_v7_workflow_unlocked';
 
 // In-memory primary cache for synchronous 0ms reads without touching 5MB localStorage quota
 let inMemoryVcFormsCache: KpiVcForm[] | null = null;
+const firestoreSyncedPeriods = new Set<string>();
 let idbHydrationStarted = false;
+
+const mergeFormsNonDestructive = (baseForms: KpiVcForm[], incomingForms: KpiVcForm[]): KpiVcForm[] => {
+  const byId = new Map<string, KpiVcForm>();
+  baseForms.forEach((f) => {
+    if (f && f.id && isValidVcFormDoc(f.id, f)) {
+      byId.set(f.id, f);
+    }
+  });
+  incomingForms.forEach((f) => {
+    if (!f || !f.id || !isValidVcFormDoc(f.id, f)) return;
+    const existing = byId.get(f.id);
+    if (!existing) {
+      byId.set(f.id, f);
+    } else {
+      const existingTime = toTimestampMs(existing.updatedAt || existing.createdAt);
+      const incomingTime = toTimestampMs(f.updatedAt || f.createdAt);
+      const existingEvaluated = hasTeacherActuallyEvaluated(existing) || (existing.totalScore || 0) > 0;
+      const incomingEvaluated = hasTeacherActuallyEvaluated(f) || (f.totalScore || 0) > 0;
+      if (incomingEvaluated && !existingEvaluated) {
+        byId.set(f.id, f);
+      } else if (incomingEvaluated === existingEvaluated && incomingTime >= existingTime) {
+        byId.set(f.id, f);
+      }
+    }
+  });
+  return deduplicateVcForms(Array.from(byId.values()));
+};
 
 const hydrateVcFormsFromIndexedDb = () => {
   if (idbHydrationStarted || typeof window === 'undefined') return;
   idbHydrationStarted = true;
   idbCacheGet<KpiVcForm[]>(VC_FORMS_CACHE_KEY)
     .then((stored) => {
-      if (Array.isArray(stored) && stored.length >= 40) {
-        const merged = deduplicateVcForms(
-          inMemoryVcFormsCache ? [...inMemoryVcFormsCache, ...stored] : stored
-        );
+      if (Array.isArray(stored) && stored.length > 0) {
+        const merged = mergeFormsNonDestructive(stored, inMemoryVcFormsCache || []);
         inMemoryVcFormsCache = merged;
         window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: merged }));
       }
@@ -201,15 +262,20 @@ const hydrateVcFormsFromIndexedDb = () => {
 
 /**
  * ĐỒNG BỘ DỮ LIỆU CHUẨN TỪ GOOGLE AI STUDIO:
- * Cập nhật 100% 51 phiếu Tháng 9 và 17 phiếu Tháng 10 có điểm chấm chuẩn, phân quyền TTCM và trạng thái quy trình.
- * Lưu vào bộ nhớ đệm RAM + IndexedDB an toàn (không làm đầy localStorage) và đồng bộ lên Firestore khi được yêu cầu.
+ * Cập nhật 100% 51 phiếu Tháng 9 và 17 phiếu Tháng 10 có điểm chấm chuẩn mà KHÔNG làm mất phiếu các kỳ khác (Tháng 7, 8, 11...).
  */
 export const syncCanonicalVcDataToStorageAndFirestore = async (force: boolean = false): Promise<{ success: boolean; count: number; message: string }> => {
   try {
     const canonicalForms = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
-    
-    // 1. Lưu vào RAM + IndexedDB để hiển thị tức thì 0ms mà không chiếm hạn mức 5MB của localStorage
-    saveVcFormsCache(canonicalForms);
+
+    // 1. Hợp nhất an toàn vào RAM + IndexedDB (tuyệt đối không ghi đè mất các kỳ Tháng 7, 8, 11...)
+    const current = inMemoryVcFormsCache || getVcFormsCache();
+    const merged = mergeFormsNonDestructive(current, canonicalForms);
+    inMemoryVcFormsCache = merged;
+    idbCacheSet(VC_FORMS_CACHE_KEY, merged).catch(() => {});
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: merged }));
+    }
 
     // 2. Thử đồng bộ lên Firestore theo từng document khi force = true
     if (force) {
@@ -221,7 +287,7 @@ export const syncCanonicalVcDataToStorageAndFirestore = async (force: boolean = 
         });
         await Promise.race([Promise.all(syncOps), timeoutPromise]);
       } catch (netErr) {
-        console.warn('Đồng bộ Firestore chạy ngầm hoặc hạn ngạch quá tải, dữ liệu đã được bảo toàn trong LocalStorage:', netErr);
+        console.warn('Đồng bộ Firestore chạy ngầm hoặc hạn ngạch quá tải, dữ liệu đã được bảo toàn trong bộ nhớ đệm:', netErr);
       }
     }
 
@@ -248,11 +314,18 @@ export const syncCanonicalVcDataToStorageAndFirestore = async (force: boolean = 
  * - Ưu tiên tuyệt đối phiếu có điểm chấm thực tế (> 0) từ CANONICAL_51_VC_FORMS khi phiếu từ máy chủ bị trống (0/100)
  * - Khôi phục điểm đã chấm từ nguồn chuẩn CANONICAL_51_VC_FORMS nếu phiếu bị lỗi trở về 0 chưa chấm
  */
-export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
+export const deduplicateVcForms = (
+  forms: KpiVcForm[],
+  options?: { scopePeriodId?: string }
+): KpiVcForm[] => {
   if (!forms) forms = [];
 
+  const scopePeriodId = options?.scopePeriodId;
+  const includeSep = !scopePeriodId || scopePeriodId === 'all' || scopePeriodId === 'vc_period_2026_09';
+  const includeOct = !scopePeriodId || scopePeriodId === 'all' || scopePeriodId === 'vc_period_2026_10';
+
   // BẢO TOÀN NGUYÊN VẸN: Tuyệt đối không xóa điểm, không hạ điểm đã chấm về 0
-  const inputForms = forms.filter(Boolean);
+  const inputForms = forms.filter((f) => f && isValidVcFormDoc(f.id || '', f));
 
   const eligibleTeachers = DEFAULT_TEACHERS.filter(isEligibleVcEmployee);
   const eligibleNameMap = new Map<string, typeof eligibleTeachers[0]>();
@@ -267,12 +340,12 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
 
   // Gom các phiếu theo: `${periodId}__${teacher.id}`
   const matchedMap = new Map<string, KpiVcForm[]>();
-  const allKnownPeriods = new Set<string>();
-  allKnownPeriods.add('vc_period_2026_09');
 
   inputForms.forEach(f => {
-    const periodId = f.periodId || 'vc_period_2026_09';
-    allKnownPeriods.add(periodId);
+    const periodId = f.periodId;
+    if (!periodId) return;
+    if (scopePeriodId && scopePeriodId !== 'all' && periodId !== scopePeriodId) return;
+
     const normName = normalizeTeacherName(f.employeeName);
     const code = (f.employeeCode || '').toUpperCase().trim();
     const teacher = (f.employeeId && eligibleIdMap.get(f.employeeId)) ||
@@ -307,9 +380,8 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     if (f.employeeName) canonicalOctFallbackMap.set(normalizeTeacherName(f.employeeName), f);
   });
 
-  // Duyệt qua từng giáo viên và kỳ đánh giá trọng tâm
-  eligibleTeachers.forEach(t => {
-    // 1. Kỳ trọng tâm: vc_period_2026_09 (Tháng 9/2026)
+  // 1. Kỳ trọng tâm: vc_period_2026_09 (Tháng 9/2026) - chỉ chạy khi phạm vi có Tháng 9
+  if (includeSep) eligibleTeachers.forEach(t => {
     const groupKey = `vc_period_2026_09__${t.id}`;
     const matched = matchedMap.get(groupKey) || [];
     const fallback = canonicalFallbackMap.get(t.id) || canonicalFallbackMap.get(normalizeTeacherName(t.name));
@@ -362,8 +434,8 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       if (scoreDiff !== 0) return scoreDiff;
 
       // 7. Tie-breaker: thời gian cập nhật mới nhất
-      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      const timeA = toTimestampMs(a.updatedAt || a.createdAt);
+      const timeB = toTimestampMs(b.updatedAt || b.createdAt);
       return timeB - timeA;
     });
 
@@ -507,11 +579,13 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
   });
 
   // 2. Kỳ Tháng 10/2026: Đảm bảo 100% 17 phiếu của Tổ Hóa-Sinh-GDTC-QPAN-NN hiển thị trên mọi môi trường
-  const octTargetTeachers = eligibleTeachers.filter(t => 
-    canonicalOctFallbackMap.has(t.id) || canonicalOctFallbackMap.has(normalizeTeacherName(t.name))
-  );
+  const octTargetTeachers = includeOct
+    ? eligibleTeachers.filter(t => 
+        canonicalOctFallbackMap.has(t.id) || canonicalOctFallbackMap.has(normalizeTeacherName(t.name))
+      )
+    : [];
 
-  octTargetTeachers.forEach(t => {
+  if (includeOct) octTargetTeachers.forEach(t => {
     const groupKey = `vc_period_2026_10__${t.id}`;
     const matched = matchedMap.get(groupKey) || [];
     const fallback = canonicalOctFallbackMap.get(t.id) || canonicalOctFallbackMap.get(normalizeTeacherName(t.name));
@@ -545,8 +619,8 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
       const bTtcm = (b.ttcmTotalScore !== null && b.ttcmTotalScore !== undefined) ? 1 : 0;
       if (bTtcm !== aTtcm) return bTtcm - aTtcm;
 
-      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      const timeA = toTimestampMs(a.updatedAt || a.createdAt);
+      const timeB = toTimestampMs(b.updatedAt || b.createdAt);
       return timeB - timeA;
     });
 
@@ -562,7 +636,7 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     result.push(primary);
   });
 
-  // 3. Xử lý các kỳ khác (Tháng 11, Cả năm, Học kỳ 1, v.v...) và các giáo viên khác trong Tháng 10
+  // 3. Xử lý các kỳ khác (Tháng 7, Tháng 8, Tháng 11, Cả năm, Học kỳ 1, v.v...) và các giáo viên khác trong Tháng 10
   const processedOctTeacherIds = new Set(octTargetTeachers.map(t => t.id));
   for (const [groupKey, matched] of matchedMap.entries()) {
     if (groupKey.startsWith('vc_period_2026_09__')) continue;
@@ -572,10 +646,20 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
     }
     if (matched.length > 0) {
       const sortedOther = [...matched].sort((a, b) => {
-        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-        if (timeA !== timeB) return timeB - timeA;
-        return (b.totalScore || 0) - (a.totalScore || 0);
+        const wA = getStatusWeight(a.status);
+        const wB = getStatusWeight(b.status);
+        if (wB !== wA) return wB - wA;
+
+        const aEval = (hasTeacherActuallyEvaluated(a) || (a.totalScore || 0) > 0) ? 1 : 0;
+        const bEval = (hasTeacherActuallyEvaluated(b) || (b.totalScore || 0) > 0) ? 1 : 0;
+        if (bEval !== aEval) return bEval - aEval;
+
+        const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+
+        const timeA = toTimestampMs(a.updatedAt || a.createdAt);
+        const timeB = toTimestampMs(b.updatedAt || b.createdAt);
+        return timeB - timeA;
       });
       result.push(sortedOther[0]);
     }
@@ -583,7 +667,7 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
 
   // 4. Chuẩn hóa tự động điểm CBQL (Cấp 3) = (Cá nhân + TTCM) / 2 trên toàn bộ phiếu ở mọi kỳ đánh giá
   return result.map(f => {
-    if (!f.items || f.items.length === 0) return f;
+    if (!Array.isArray(f.items) || f.items.length === 0) return f;
     const autoMgr = syncAutoManagerScores(f.items, f.maxTotalScore || 100);
     return {
       ...f,
@@ -596,10 +680,17 @@ export const deduplicateVcForms = (forms: KpiVcForm[]): KpiVcForm[] => {
 };
 
 
-export const getVcFormsCache = (): KpiVcForm[] => {
+export const getVcFormsCache = (scopePeriodId?: string): KpiVcForm[] => {
   hydrateVcFormsFromIndexedDb();
-  if (inMemoryVcFormsCache && inMemoryVcFormsCache.length >= 40) {
-    return inMemoryVcFormsCache;
+  if (inMemoryVcFormsCache && inMemoryVcFormsCache.length > 0) {
+    if (!scopePeriodId || scopePeriodId === 'all') {
+      return inMemoryVcFormsCache;
+    }
+    const scoped = inMemoryVcFormsCache.filter(f => f.periodId === scopePeriodId);
+    if (scoped.length > 0 || scopePeriodId === 'vc_period_2026_09' || scopePeriodId === 'vc_period_2026_10') {
+      return deduplicateVcForms(scoped, { scopePeriodId });
+    }
+    return [];
   }
   // Đọc một lần không phá hủy từ localStorage cũ (nếu máy từng lưu bản cục bộ trước đó) để bảo toàn dữ liệu
   try {
@@ -607,14 +698,12 @@ export const getVcFormsCache = (): KpiVcForm[] => {
       const raw = localStorage.getItem(VC_FORMS_CACHE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length >= 40) {
-          const scoredCount = parsed.filter(f => (f.totalScore || 0) > 0).length;
-          if (scoredCount >= 40) {
-            const deduped = deduplicateVcForms(parsed);
-            inMemoryVcFormsCache = deduped;
-            idbCacheSet(VC_FORMS_CACHE_KEY, deduped).catch(() => {});
-            return deduped;
-          }
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const deduped = deduplicateVcForms(parsed);
+          inMemoryVcFormsCache = deduped;
+          idbCacheSet(VC_FORMS_CACHE_KEY, deduped).catch(() => {});
+          if (!scopePeriodId || scopePeriodId === 'all') return deduped;
+          return deduplicateVcForms(deduped.filter(f => f.periodId === scopePeriodId), { scopePeriodId });
         }
       }
     }
@@ -624,68 +713,107 @@ export const getVcFormsCache = (): KpiVcForm[] => {
   const defaultList = deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
   inMemoryVcFormsCache = defaultList;
   idbCacheSet(VC_FORMS_CACHE_KEY, defaultList).catch(() => {});
-  return defaultList;
+  if (!scopePeriodId || scopePeriodId === 'all') return defaultList;
+  if (scopePeriodId === 'vc_period_2026_09' || scopePeriodId === 'vc_period_2026_10') {
+    return deduplicateVcForms(defaultList.filter(f => f.periodId === scopePeriodId), { scopePeriodId });
+  }
+  return [];
 };
 
-export const saveVcFormsCache = (forms: KpiVcForm[]) => {
+export const saveVcFormsCache = (
+  forms: KpiVcForm[],
+  options?: { replacePeriodId?: string; dispatchEvent?: boolean }
+) => {
   try {
-    const uniqueForms = deduplicateVcForms(forms);
-    inMemoryVcFormsCache = uniqueForms;
+    const replacePeriodId = options?.replacePeriodId;
+    const shouldDispatch = options?.dispatchEvent !== false;
+    let nextAllForms: KpiVcForm[];
+
+    if (replacePeriodId && replacePeriodId !== 'all') {
+      const preservedOtherPeriods = (inMemoryVcFormsCache || []).filter(f => f.periodId !== replacePeriodId);
+      const scopedNew = deduplicateVcForms(forms, { scopePeriodId: replacePeriodId });
+      nextAllForms = [...preservedOtherPeriods, ...scopedNew];
+    } else {
+      nextAllForms = deduplicateVcForms(forms);
+    }
+
+    inMemoryVcFormsCache = nextAllForms;
     // Lưu đệm vào IndexedDB thay vì localStorage để tuyệt đối không gây QuotaExceededError cho Firestore
-    idbCacheSet(VC_FORMS_CACHE_KEY, uniqueForms).catch(() => {});
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: uniqueForms }));
+    idbCacheSet(VC_FORMS_CACHE_KEY, nextAllForms).catch(() => {});
+    if (shouldDispatch && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kpi_vc_forms_updated', { detail: nextAllForms }));
     }
   } catch (err) {
     console.warn('Error saving VC forms cache:', err);
   }
 };
 
+const emitFirestoreStatus = (detail: { isOnline: boolean; error?: string; quotaExceeded?: boolean }) => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('kpi_firestore_status', { detail }));
+  }
+};
+
 /**
- * Lắng nghe danh sách Phiếu đánh giá (kpi_vc_forms)
+ * Lắng nghe danh sách Phiếu đánh giá theo Kỳ (giảm 90% lượt đọc Firestore, bảo toàn đầy đủ các kỳ Tháng 7, 8, 9, 10, 11...)
  */
-export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
-  // Load cache hoặc danh sách chuẩn lập tức để UI hiển thị đầy đủ điểm đã lưu 0ms
-  const cached = getVcFormsCache();
-  const initialList = (cached && cached.length >= 40 && cached.some(f => (f.totalScore || 0) > 0)) 
-    ? cached 
-    : deduplicateVcForms(CANONICAL_ALL_VC_FORMS);
-  callback(initialList);
+export const subscribeVcFormsByPeriod = (
+  periodId: string,
+  callback: (forms: KpiVcForm[]) => void
+) => {
+  const effectivePeriod = periodId || 'all';
+  let isDisposed = false;
+
+  // 1. Trả về cache cục bộ của kỳ đang chọn ngay lập tức (0ms)
+  const initialScoped = getVcFormsCache(effectivePeriod);
+  initialScoped.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
+  callback(initialScoped);
 
   const handleLocalEvent = () => {
-    const freshCached = getVcFormsCache();
-    if (freshCached && freshCached.length > 0) {
-      callback(freshCached);
-    }
+    if (isDisposed) return;
+    const freshScoped = getVcFormsCache(effectivePeriod);
+    freshScoped.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
+    callback(freshScoped);
   };
 
   if (typeof window !== 'undefined') {
     window.addEventListener('kpi_vc_forms_updated', handleLocalEvent);
   }
 
-  const q = query(collection(db, VC_COLLECTIONS.FORMS));
-  const unsubFirestore = onSnapshot(q, async (snapshot) => {
-    const firestoreList: KpiVcForm[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = { id: docSnap.id, ...docSnap.data() } as KpiVcForm;
-      firestoreList.push(data);
-    });
+  const q = effectivePeriod === 'all'
+    ? query(collection(db, VC_COLLECTIONS.FORMS))
+    : query(collection(db, VC_COLLECTIONS.FORMS), where('periodId', '==', effectivePeriod));
 
-    let finalList: KpiVcForm[] = firestoreList;
-    if (finalList.length === 0) {
-      const currentCached = getVcFormsCache();
-      finalList = currentCached && currentCached.length > 0 ? currentCached : CANONICAL_ALL_VC_FORMS;
-    } else {
-      // Kết hợp cache bộ nhớ cục bộ nếu có bản ghi vừa lưu chưa kịp đồng bộ snap
-      const currentCached = getVcFormsCache();
+  const unsubFirestore = onSnapshot(q, (snapshot) => {
+    if (isDisposed) return;
+    try {
+      const firestoreList: KpiVcForm[] = [];
+      snapshot.forEach((docSnap) => {
+        const raw = docSnap.data();
+        if (isValidVcFormDoc(docSnap.id, raw)) {
+          firestoreList.push({ id: docSnap.id, ...raw } as KpiVcForm);
+        }
+      });
+
+      const currentScopedCached = getVcFormsCache(effectivePeriod);
       const firestoreMap = new Map(firestoreList.map(f => [f.id, f]));
-      currentCached.forEach(cForm => {
+      let finalList: KpiVcForm[] = [...firestoreList];
+
+      // Giữ lại thay đổi cục bộ mới hơn đang chờ đồng bộ nếu có
+      currentScopedCached.forEach(cForm => {
         if (!firestoreMap.has(cForm.id)) {
-          finalList.push(cForm);
+          // Chỉ giữ form local chưa có trên Firestore nếu là form vừa tạo/offline hoặc thuộc canonical Sep/Oct
+          if (
+            firestoreList.length === 0 ||
+            cForm.periodId === 'vc_period_2026_09' ||
+            cForm.periodId === 'vc_period_2026_10'
+          ) {
+            finalList.push(cForm);
+          }
         } else {
           const fForm = firestoreMap.get(cForm.id)!;
-          const localTime = new Date(cForm.updatedAt || 0).getTime();
-          const firestoreTime = new Date(fForm.updatedAt || 0).getTime();
+          const localTime = toTimestampMs(cForm.updatedAt);
+          const firestoreTime = toTimestampMs(fForm.updatedAt);
           if (localTime > firestoreTime) {
             const idx = finalList.findIndex(f => f.id === cForm.id);
             if (idx >= 0) {
@@ -694,39 +822,45 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
           }
         }
       });
-    }
 
-    finalList = deduplicateVcForms(finalList);
-    finalList.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+      finalList = deduplicateVcForms(finalList, { scopePeriodId: effectivePeriod });
+      finalList.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
 
-    saveVcFormsCache(finalList);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('kpi_firestore_status', { 
-        detail: { isOnline: true } 
-      }));
+      firestoreSyncedPeriods.add(effectivePeriod);
+      saveVcFormsCache(finalList, { replacePeriodId: effectivePeriod, dispatchEvent: false });
+      emitFirestoreStatus({ isOnline: true });
+      callback(finalList);
+    } catch (snapErr: any) {
+      console.error('Error processing VC forms snapshot:', snapErr);
+      const fallbackList = getVcFormsCache(effectivePeriod);
+      callback(fallbackList);
     }
-    callback(finalList);
   }, (err) => {
-    console.warn('Firestore subscription notice for VC Forms (reading from persistent cache / backup):', err);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('kpi_firestore_status', { 
-        detail: { 
-          isOnline: false, 
-          error: err?.message || 'Firestore connection notice', 
-          quotaExceeded: String(err?.message || '').toLowerCase().includes('quota')
-        } 
-      }));
-    }
-    const fallbackList = getVcFormsCache();
+    if (isDisposed) return;
+    console.warn(`Firestore subscription notice for VC Forms (${effectivePeriod}):`, err);
+    emitFirestoreStatus({
+      isOnline: false,
+      error: err?.message || 'Firestore connection notice',
+      quotaExceeded: String(err?.message || '').toLowerCase().includes('quota') || (err as any)?.code === 'resource-exhausted'
+    });
+    const fallbackList = getVcFormsCache(effectivePeriod);
     callback(fallbackList);
   });
 
   return () => {
+    isDisposed = true;
     unsubFirestore();
     if (typeof window !== 'undefined') {
       window.removeEventListener('kpi_vc_forms_updated', handleLocalEvent);
     }
   };
+};
+
+/**
+ * Lắng nghe toàn bộ danh sách Phiếu đánh giá (tương thích ngược)
+ */
+export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
+  return subscribeVcFormsByPeriod('all', callback);
 };
 
 /**
@@ -805,13 +939,17 @@ export const subscribeVcGroups = (callback: (groups: KpiVcCriteriaGroup[]) => vo
  * Lắng nghe Audit Logs (kpi_vc_audit_logs)
  */
 export const subscribeVcAuditLogs = (callback: (logs: KpiVcAuditLog[]) => void) => {
-  const q = query(collection(db, VC_COLLECTIONS.AUDIT_LOGS));
+  const q = query(
+    collection(db, VC_COLLECTIONS.AUDIT_LOGS),
+    orderBy('timestamp', 'desc'),
+    limit(50)
+  );
   return onSnapshot(q, (snapshot) => {
     const list: KpiVcAuditLog[] = [];
     snapshot.forEach((docSnap) => {
       list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcAuditLog);
     });
-    list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    list.sort((a, b) => toTimestampMs(b.timestamp) - toTimestampMs(a.timestamp));
     callback(list);
   }, (err) => {
     console.error('Error subscribing to VC Audit Logs:', err);
@@ -876,16 +1014,17 @@ export const createVcForm = async (
   }
   saveVcFormsCache(cachedForms);
 
-  // 2. Ghi Firestore không chặn luồng UI (Background async)
-  (async () => {
-    try {
-      const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
-      const cleanData = cleanFirestoreData(fullForm);
-      await setDoc(docRef, cleanData, { merge: true });
-    } catch (e) {
-      console.warn('Firestore setDoc deferred or offline, data safely preserved in local storage:', e);
-    }
-  })();
+  // 2. Đồng bộ Firestore có await + timeout an toàn 10 giây
+  try {
+    const docRef = doc(db, VC_COLLECTIONS.FORMS, formId);
+    const cleanData = cleanFirestoreData(fullForm);
+    await Promise.race([
+      setDoc(docRef, cleanData, { merge: true }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ]);
+  } catch (e) {
+    console.warn('Firestore setDoc deferred or offline, data safely preserved in cache:', e);
+  }
 
   // 3. Ghi audit log ngầm
   try {
@@ -905,8 +1044,8 @@ export const createVcForm = async (
 };
 
 /**
- * TẠO HÀNG LOẠT PHIẾU ĐÁNH GIÁ (OPTIMISTIC & ULTRA-FAST 0MS)
- * Cập nhật cache và UI ngay lập tức, đồng bộ Firestore qua writeBatch ở background
+ * TẠO HÀNG LOẠT PHIẾU ĐÁNH GIÁ
+ * Cập nhật cache và UI ngay lập tức, đồng bộ Firestore qua writeBatch có await + timeout an toàn
  */
 export const createBatchVcForms = async (
   formsDataList: Omit<KpiVcForm, 'id' | 'createdAt' | 'updatedAt'>[],
@@ -945,9 +1084,9 @@ export const createBatchVcForms = async (
   const updatedAllForms = Array.from(formMap.values());
   saveVcFormsCache(updatedAllForms);
 
-  // 2. Đồng bộ Firestore non-blocking qua writeBatch ở Background
-  (async () => {
-    try {
+  // 2. Đồng bộ Firestore qua writeBatch có await + timeout an toàn 10 giây
+  try {
+    const commitAll = async () => {
       const chunkSize = 400; // Batch limit của Firestore là 500
       for (let i = 0; i < fullFormsToSave.length; i += chunkSize) {
         const chunk = fullFormsToSave.slice(i, i + chunkSize);
@@ -958,10 +1097,14 @@ export const createBatchVcForms = async (
         });
         await batch.commit();
       }
-    } catch (e) {
-      console.warn('Batch Firestore write deferred or offline, safely kept in local storage:', e);
-    }
-  })();
+    };
+    await Promise.race([
+      commitAll(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ]);
+  } catch (e) {
+    console.warn('Batch Firestore write deferred or offline, safely kept in cache:', e);
+  }
 
   // 3. Ghi audit log background
   try {

@@ -50,7 +50,7 @@ import {
   KpiVcRatingConfigHistory
 } from '../types/kpiVc';
 import { 
-  subscribeVcForms, 
+  subscribeVcFormsByPeriod, 
   subscribeVcPeriods, 
   subscribeVcCriteria, 
   subscribeVcGroups, 
@@ -146,6 +146,7 @@ export default function KpiTeacherStaff() {
   const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Total Delete Modal State
   const [isTotalDeleteModalOpen, setIsTotalDeleteModalOpen] = useState<boolean>(false);
@@ -163,7 +164,8 @@ export default function KpiTeacherStaff() {
 
   // Firestore Data State
   const [forms, setForms] = useState<KpiVcForm[]>([]);
-  const [periods, setPeriods] = useState<KpiVcPeriod[]>([]);
+  const [isLoadingForms, setIsLoadingForms] = useState<boolean>(false);
+  const [periods, setPeriods] = useState<KpiVcPeriod[]>(DEFAULT_VC_PERIODS);
   const [criteria, setCriteria] = useState<KpiVcCriterion[]>([]);
   const [groups, setGroups] = useState<KpiVcCriteriaGroup[]>([]);
   const [auditLogs, setAuditLogs] = useState<KpiVcAuditLog[]>([]);
@@ -206,16 +208,21 @@ export default function KpiTeacherStaff() {
     }
   }, []);
 
+  const showErrorBanner = (msg: string) => {
+    setErrorMessage(msg);
+    setTimeout(() => setErrorMessage(null), 6000);
+  };
+
   const handleExportWord = async (form: KpiVcForm) => {
     if (!form || !form.id) {
-      alert('Vui lòng lưu phiếu trước khi xuất Word.');
+      showErrorBanner('Vui lòng lưu phiếu trước khi xuất Word.');
       return;
     }
     setExportingWordId(form.id);
     try {
       await exportVcFormToWord(form);
     } catch (err) {
-      alert('Lỗi xuất file Word: ' + (err instanceof Error ? err.message : 'Không xác định'));
+      showErrorBanner('Lỗi xuất file Word: ' + (err instanceof Error ? err.message : 'Không xác định'));
     } finally {
       setExportingWordId(null);
     }
@@ -225,13 +232,12 @@ export default function KpiTeacherStaff() {
     setIsSyncingCanonical(true);
     try {
       const res = await syncCanonicalVcDataToStorageAndFirestore(true);
-      const freshForms = getVcFormsCache();
+      const freshForms = getVcFormsCache(selectedPeriodId);
       setForms(freshForms);
-      setNotificationMessage(res.message || 'Đã đồng bộ thành công toàn bộ 51 phiếu KPI có điểm từ Google AI Studio.');
+      setNotificationMessage(res.message || 'Đã đồng bộ dữ liệu KPI từ Google AI Studio.');
       setTimeout(() => setNotificationMessage(null), 5000);
     } catch (err: any) {
-      setNotificationMessage('Lỗi đồng bộ dữ liệu: ' + (err?.message || 'Không xác định'));
-      setTimeout(() => setNotificationMessage(null), 5000);
+      showErrorBanner('Lỗi đồng bộ dữ liệu: ' + (err?.message || 'Không xác định'));
     } finally {
       setIsSyncingCanonical(false);
     }
@@ -242,11 +248,10 @@ export default function KpiTeacherStaff() {
     return getEligibleVcTeachers(teachers);
   }, [teachers]);
 
-  // Initial Firestore subscriptions
+  // Initial Firestore metadata subscriptions (periods, criteria, groups, logs, rating config)
   useEffect(() => {
     seedVcInitialDataIfNeeded();
 
-    const unsubForms = subscribeVcForms(setForms);
     const unsubPeriods = subscribeVcPeriods((pList) => {
       setPeriods(pList);
     });
@@ -257,7 +262,6 @@ export default function KpiTeacherStaff() {
     const unsubRatingHistory = subscribeVcRatingConfigHistory(setRatingHistoryList);
 
     return () => {
-      unsubForms();
       unsubPeriods();
       unsubCriteria();
       unsubGroups();
@@ -266,6 +270,32 @@ export default function KpiTeacherStaff() {
       unsubRatingHistory();
     };
   }, []);
+
+  // Scoped Firestore forms subscription per selected period (preserves July/Aug/Nov & reduces reads)
+  useEffect(() => {
+    let isFirstEmission = true;
+    const initialCached = getVcFormsCache(selectedPeriodId);
+    setIsLoadingForms(initialCached.length === 0);
+
+    const unsubForms = subscribeVcFormsByPeriod(selectedPeriodId, (list) => {
+      if (isFirstEmission) {
+        isFirstEmission = false;
+        setForms(list);
+        if (list.length > 0) {
+          setIsLoadingForms(false);
+        }
+        return;
+      }
+      setForms(list);
+      setIsLoadingForms(false);
+    });
+
+    const fallbackTimer = setTimeout(() => setIsLoadingForms(false), 6000);
+    return () => {
+      clearTimeout(fallbackTimer);
+      unsubForms();
+    };
+  }, [selectedPeriodId]);
 
   // Hàm xác định xếp loại động của phiếu dựa theo cấu hình
   const getFormRating = (form: KpiVcForm) => {
@@ -446,7 +476,7 @@ export default function KpiTeacherStaff() {
   // Check if current user has a form in the selected period
   const myFormInPeriod = useMemo(() => {
     if (!user) return null;
-    return forms.find(f => f.employeeId === user.id && (selectedPeriodId === 'all' || f.periodId === selectedPeriodId));
+    return forms.find(f => isFormOwner(user, f) && (selectedPeriodId === 'all' || f.periodId === selectedPeriodId));
   }, [user, forms, selectedPeriodId]);
 
   // Open Document Handlers
@@ -555,7 +585,7 @@ export default function KpiTeacherStaff() {
       setNotificationMessage(`Đã ${!isLocked ? 'khóa' : 'mở khóa'} phiếu KPI thành công cho ${form.employeeName}.`);
       setTimeout(() => setNotificationMessage(null), 4000);
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi thay đổi trạng thái khóa');
+      showErrorBanner(err?.message || 'Lỗi khi thay đổi trạng thái khóa');
     } finally {
       setTogglingLockFormId(null);
     }
@@ -1134,6 +1164,23 @@ export default function KpiTeacherStaff() {
         </div>
       </div>
 
+      {/* Thông báo lỗi thao tác */}
+      {errorMessage && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 text-rose-900 font-semibold text-sm flex items-center justify-between shadow-xs animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="text-rose-600 shrink-0" size={20} />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-700 hover:text-rose-950 font-bold text-xs px-2 py-1 rounded-lg hover:bg-rose-100 cursor-pointer"
+          >
+            Đóng ✕
+          </button>
+        </div>
+      )}
+
       {/* Thông báo thao tác thành công */}
       {notificationMessage && (
         <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-emerald-900 font-bold text-sm flex items-center justify-between shadow-xs animate-fadeIn">
@@ -1144,7 +1191,7 @@ export default function KpiTeacherStaff() {
           <button 
             type="button" 
             onClick={() => setNotificationMessage(null)}
-            className="text-emerald-700 hover:text-emerald-950 font-bold text-xs px-2 py-1 rounded-lg hover:bg-emerald-100"
+            className="text-emerald-700 hover:text-emerald-950 font-bold text-xs px-2 py-1 rounded-lg hover:bg-emerald-100 cursor-pointer"
           >
             Đóng ✕
           </button>
@@ -1157,7 +1204,7 @@ export default function KpiTeacherStaff() {
           <div className="flex items-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
             <span>
-              <strong>Thông báo đồng bộ dữ liệu:</strong> Đang hoạt động ở chế độ lưu trữ an toàn (kết nối Firestore: đang chờ hạn mức miễn phí làm mới). Toàn bộ 51 phiếu đánh giá với điểm tự chấm, điểm TTCM và BGH được bảo toàn và hiển thị chính xác.
+              <strong>Thông báo đồng bộ dữ liệu:</strong> Đang hoạt động ở chế độ lưu trữ an toàn (kết nối Firestore: đang chờ hạn mức miễn phí làm mới). Hệ thống đang hiển thị dữ liệu bảo toàn cho {activePeriodObj?.name || 'kỳ đang chọn'} ({filteredForms.length} phiếu).
             </span>
           </div>
           <button 
@@ -1617,7 +1664,16 @@ export default function KpiTeacherStaff() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-200">
-                  {filteredForms.length === 0 ? (
+                  {isLoadingForms && filteredForms.length === 0 ? (
+                    <tr>
+                      <td colSpan={showAdminCheckbox ? 11 : 10} className="p-12 text-center text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-2.5">
+                          <Loader2 size={28} className="text-blue-500 animate-spin" />
+                          <p className="font-semibold text-slate-600">Đang tải danh sách phiếu đánh giá KPI...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredForms.length === 0 ? (
                     <tr>
                       <td colSpan={showAdminCheckbox ? 11 : 10} className="p-12 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-2">
@@ -1675,20 +1731,25 @@ export default function KpiTeacherStaff() {
         periods={periods}
         criteria={criteria}
         groups={groups}
+        defaultPeriodId={selectedPeriodId}
         onSaved={(targetPeriodOrFormId) => {
           setIsDocModalOpen(false);
-          const fresh = getVcFormsCache();
-          setForms(fresh);
+          let targetPeriod = selectedPeriodId;
+          const allFresh = getVcFormsCache();
           if (targetPeriodOrFormId && typeof targetPeriodOrFormId === 'string') {
             if (targetPeriodOrFormId.startsWith('vc_period_')) {
-              setSelectedPeriodId(targetPeriodOrFormId);
+              targetPeriod = targetPeriodOrFormId;
             } else {
-              const matchedForm = fresh.find(f => f.id === targetPeriodOrFormId);
+              const matchedForm = allFresh.find(f => f.id === targetPeriodOrFormId);
               if (matchedForm && matchedForm.periodId) {
-                setSelectedPeriodId(matchedForm.periodId);
+                targetPeriod = matchedForm.periodId;
               }
             }
           }
+          if (targetPeriod !== selectedPeriodId) {
+            setSelectedPeriodId(targetPeriod);
+          }
+          setForms(getVcFormsCache(targetPeriod));
           setStatusFilter('all');
           setClassificationFilter('all');
           setSelectedDeptId('all');
