@@ -15,6 +15,16 @@ import {
 } from '../services/accountService';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 
+import {
+  canAttemptFirestoreRead,
+  getQuotaManagerState,
+  reportFirestoreError,
+  reportFirestoreSuccess,
+  setQuotaRetrying,
+  subscribeQuotaManager,
+  triggerManualSyncReset
+} from '../utils/firestoreQuotaManager';
+
 export interface AppUser extends User {
   firebaseUid?: string;
   roleGroup?: RoleGroupCode;
@@ -34,11 +44,13 @@ interface AuthContextType {
   permissionsReady: boolean;
   permissionsVersion: number;
   permissionSyncError: string | null;
+  lastPermissionSyncedAt: number | null;
+  isRefreshingPermissions: boolean;
   isAdmin: boolean;
   login: (username: string, password?: string) => Promise<boolean>;
   logout: () => void;
   updateUser: (data: Partial<AppUser>) => Promise<void>;
-  refreshPermissions: () => Promise<void>;
+  refreshPermissions: (options?: { manual?: boolean }) => Promise<void>;
   changePassword: (oldPass: string, newPass: string) => Promise<{ success: boolean; message: string }>;
   switchRoleForDemo?: (role: Role | RoleGroupCode) => void;
   error: string | null;
@@ -49,16 +61,38 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Session lifetime: 8 hours of active work
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+// Revalidate permissions from Firestore at most once every 5 minutes on reload (never on page switches)
+const PERMISSION_REVALIDATE_TTL_MS = 5 * 60 * 1000;
+const PERM_LAST_SYNCED_KEY = 'thpt_sl_perm_last_synced_at_v1';
+
+function readStoredPermSyncedAt(): number | null {
+  try {
+    const raw = sessionStorage.getItem(PERM_LAST_SYNCED_KEY);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPermSyncedAt(ts: number): void {
+  try {
+    sessionStorage.setItem(PERM_LAST_SYNCED_KEY, String(ts));
+  } catch {
+    // ignore
+  }
+}
 
 function formatSyncError(code: string | null): string | null {
   if (!code) return null;
   if (code === 'resource-exhausted') {
-    return 'Cơ sở dữ liệu Firebase Firestore tạm thời đạt hạn mức đọc miễn phí trong ngày (Quota Exceeded). Hệ thống đang giữ nguyên phiên hiện tại; vui lòng làm mới lại sau khi hạn mức được mở lại.';
+    return 'Máy chủ đang tạm thời vượt hạn mức truy cập. Hệ thống đang duy trì phiên làm việc hiện tại.';
   }
   if (code === 'permission-denied') {
     return 'Không thể đọc dữ liệu phân quyền từ Firebase Firestore (Permission Denied). Vui lòng liên hệ Quản trị viên kiểm tra Firebase Security Rules.';
   }
-  return 'Không thể đồng bộ phân quyền mới nhất từ máy chủ Firebase. Vui lòng kiểm tra kết nối mạng và tải lại trang.';
+  return 'Không thể đồng bộ phân quyền mới nhất từ máy chủ Firebase. Hệ thống đang duy trì phiên làm việc hiện tại.';
 }
 
 function clearLegacyLocalCaches(): void {
@@ -78,12 +112,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permissionsReady, setPermissionsReady] = useState<boolean>(false);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
   const [permissionSyncError, setPermissionSyncError] = useState<string | null>(null);
+  const [lastPermissionSyncedAt, setLastPermissionSyncedAt] = useState<number | null>(
+    () => readStoredPermSyncedAt() || getQuotaManagerState().lastSyncedAt
+  );
+  const [isRefreshingPermissions, setIsRefreshingPermissions] = useState<boolean>(false);
+  const [quotaEpoch, setQuotaEpoch] = useState<number>(() => getQuotaManagerState().epoch);
   const [error, setError] = useState<string | null>(null);
   const userRef = useRef<AppUser | null>(null);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  // Keep lastPermissionSyncedAt & quotaEpoch synced with global firestoreQuotaManager
+  useEffect(() => {
+    return subscribeQuotaManager((qState) => {
+      if (qState.lastSyncedAt) {
+        setLastPermissionSyncedAt((prev) =>
+          !prev || qState.lastSyncedAt! > prev ? qState.lastSyncedAt! : prev
+        );
+      }
+      if (!qState.quotaExceeded && qState.lastSyncedAt) {
+        // Auto-clear quota warning as soon as any server sync succeeds
+        setPermissionSyncError((prev) =>
+          prev && prev.includes('vượt hạn mức') ? null : prev
+        );
+      }
+      setQuotaEpoch(qState.epoch);
+    });
+  }, []);
 
   const clearError = () => setError(null);
 
@@ -105,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       sessionStorage.removeItem('authUser');
       sessionStorage.removeItem('authSessionExpiry');
+      sessionStorage.removeItem(PERM_LAST_SYNCED_KEY);
       sessionStorage.clear();
     } catch {
       // ignore
@@ -114,69 +173,106 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     bumpPermissionsVersion();
   }, [bumpPermissionsVersion]);
 
-  // Manual or programmatic fresh sync from Firestore
-  const refreshPermissions = useCallback(async () => {
+  // Manual or programmatic fresh sync from Firestore (deduplicated & backoff-aware)
+  const refreshPermissions = useCallback(async (options?: { manual?: boolean }) => {
     const current = userRef.current;
     if (!current || !current.id) return;
-    if (current.id === 'admin' || normalizeIdentifier(current.username) === 'admin') {
-      await accountService.loadRoleGroupConfigs(true).catch(() => {});
-      setPermissionsReady(true);
-      setPermissionSyncError(null);
-      bumpPermissionsVersion();
+
+    const isManual = Boolean(options?.manual);
+    if (!isManual && !canAttemptFirestoreRead()) {
+      setPermissionSyncError(formatSyncError('resource-exhausted'));
       return;
     }
 
-    const [, livePerms] = await Promise.all([
-      accountService.loadRoleGroupConfigs(true).catch(() => {}),
-      getLiveUserPermissionsFromFirestore(current.id, current.username, current.teacherCode, {
-        firebaseUid: current.firebaseUid || auth.currentUser?.uid,
-        email: current.email,
-        forceServer: true
-      })
-    ]);
-
-    if (livePerms.accountStatus === 'Đã khóa' || livePerms.accountStatus === 'Vô hiệu hóa') {
-      forceLogoutWithReason(
-        `Tài khoản "${current.username}" đã bị ${livePerms.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
-      );
-      return;
+    if (refreshInFlightRef.current) {
+      return refreshInFlightRef.current;
     }
 
-    if (livePerms.errorCode === null) {
-      setPermissionSyncError(null);
-      const acc = livePerms.accountData;
-      const freshUser: AppUser = {
-        ...current,
-        firebaseUid: acc?.firebaseUid || current.firebaseUid || auth.currentUser?.uid,
-        name: acc?.fullName || current.name,
-        roleGroup: livePerms.roleGroup || acc?.roleGroup || current.roleGroup,
-        accountStatus: livePerms.accountStatus || acc?.status || current.accountStatus,
-        hasCustomPermissions: livePerms.hasCustom,
-        customPermissions: livePerms.hasCustom && livePerms.permissions ? livePerms.permissions : undefined,
-        position: acc?.position || current.position,
-        departmentName: acc?.departmentName || current.departmentName
-      };
-      setUser(freshUser);
-      try {
-        sessionStorage.setItem('authUser', JSON.stringify(freshUser));
-      } catch {
-        // ignore
+    const run = (async () => {
+      setIsRefreshingPermissions(true);
+      if (isManual) {
+        triggerManualSyncReset();
       }
-    } else {
-      setPermissionSyncError(formatSyncError(livePerms.errorCode));
-    }
+      try {
+        if (current.id === 'admin' || normalizeIdentifier(current.username) === 'admin') {
+          await accountService.loadRoleGroupConfigs(isManual);
+          const now = Date.now();
+          writeStoredPermSyncedAt(now);
+          setLastPermissionSyncedAt(now);
+          reportFirestoreSuccess();
+          setPermissionsReady(true);
+          setPermissionSyncError(null);
+          bumpPermissionsVersion();
+          return;
+        }
 
-    setPermissionsReady(true);
-    bumpPermissionsVersion();
+        const [, livePerms] = await Promise.all([
+          accountService.loadRoleGroupConfigs(isManual).catch(() => {}),
+          getLiveUserPermissionsFromFirestore(current.id, current.username, current.teacherCode, {
+            firebaseUid: current.firebaseUid || auth.currentUser?.uid,
+            email: current.email,
+            forceServer: isManual,
+            forceManual: isManual
+          })
+        ]);
+
+        if (livePerms.accountStatus === 'Đã khóa' || livePerms.accountStatus === 'Vô hiệu hóa') {
+          forceLogoutWithReason(
+            `Tài khoản "${current.username}" đã bị ${livePerms.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
+          );
+          return;
+        }
+
+        if (livePerms.errorCode === null) {
+          const now = Date.now();
+          writeStoredPermSyncedAt(now);
+          setLastPermissionSyncedAt(now);
+          setPermissionSyncError(null);
+          const acc = livePerms.accountData;
+          const freshUser: AppUser = {
+            ...current,
+            firebaseUid: acc?.firebaseUid || current.firebaseUid || auth.currentUser?.uid,
+            name: acc?.fullName || current.name,
+            roleGroup: livePerms.roleGroup || acc?.roleGroup || current.roleGroup,
+            accountStatus: livePerms.accountStatus || acc?.status || current.accountStatus,
+            hasCustomPermissions: livePerms.hasCustom,
+            customPermissions: livePerms.hasCustom && livePerms.permissions ? livePerms.permissions : undefined,
+            position: acc?.position || current.position,
+            departmentName: acc?.departmentName || current.departmentName
+          };
+          setUser(freshUser);
+          try {
+            sessionStorage.setItem('authUser', JSON.stringify(freshUser));
+          } catch {
+            // ignore
+          }
+        } else {
+          // NEVER escalate privileges or drop the active verified session on quota error
+          setPermissionSyncError(formatSyncError(livePerms.errorCode));
+        }
+
+        setPermissionsReady(true);
+        bumpPermissionsVersion();
+      } catch (err) {
+        reportFirestoreError(err, 'AuthContext.refreshPermissions');
+        setPermissionSyncError(formatSyncError('resource-exhausted'));
+      } finally {
+        setQuotaRetrying(false);
+        setIsRefreshingPermissions(false);
+        refreshInFlightRef.current = null;
+      }
+    })();
+
+    refreshInFlightRef.current = run;
+    return run;
   }, [bumpPermissionsVersion, forceLogoutWithReason]);
 
-  // Restore user from sessionStorage if exists, enforce session expiration, and await authoritative Firestore permissions
+  // Restore user from sessionStorage if exists, enforce session expiration, and apply 5-minute TTL revalidation
   useEffect(() => {
     let cancelled = false;
 
     const initAuth = async () => {
       try {
-        // Always purge legacy localStorage caches so permissions can NEVER be read from stale browser storage
         clearLegacyLocalCaches();
 
         const stored = sessionStorage.getItem('authUser');
@@ -197,6 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.warn('User session expired. Logging out.');
             sessionStorage.removeItem('authUser');
             sessionStorage.removeItem('authSessionExpiry');
+            sessionStorage.removeItem(PERM_LAST_SYNCED_KEY);
             if (!cancelled) {
               setUser(null);
               setPermissionsReady(true);
@@ -207,9 +304,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const initialUser: AppUser = JSON.parse(stored);
+        const lastSynced = readStoredPermSyncedAt();
+        const isWithinTtl = Boolean(lastSynced && Date.now() - lastSynced < PERMISSION_REVALIDATE_TTL_MS);
 
         if (initialUser.id === 'admin' || normalizeIdentifier(initialUser.username) === 'admin') {
-          await accountService.loadRoleGroupConfigs(true).catch(() => {});
+          if (!isWithinTtl && canAttemptFirestoreRead()) {
+            await accountService.loadRoleGroupConfigs(false).catch(() => {});
+            const now = Date.now();
+            writeStoredPermSyncedAt(now);
+            if (!cancelled) setLastPermissionSyncedAt(now);
+          }
           if (!cancelled) {
             setUser(initialUser);
             setPermissionsReady(true);
@@ -219,25 +323,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Keep user authenticated while awaiting fresh Firestore permissions BEFORE unlocking PermissionGuard
+        // Fast-path: if verified session was synced within the last 5 minutes, restore with 0 Firestore reads!
+        if (isWithinTtl) {
+          if (!cancelled) {
+            setUser(initialUser);
+            setLastPermissionSyncedAt(lastSynced);
+            setPermissionsReady(true);
+            setPermissionSyncError(null);
+            bumpPermissionsVersion();
+          }
+          return;
+        }
+
+        // Keep user authenticated while revalidating from Firestore (respecting quota circuit breaker)
         if (!cancelled) {
           setUser(initialUser);
           setPermissionsReady(false);
         }
 
-        // Fetch authoritative role_group_configs AND live user permissions directly from Firestore server
+        if (!canAttemptFirestoreRead()) {
+          // Circuit breaker open: preserve verified session without escalating privileges & show clear warning
+          if (!cancelled) {
+            setPermissionSyncError(formatSyncError('resource-exhausted'));
+            setPermissionsReady(true);
+            bumpPermissionsVersion();
+          }
+          return;
+        }
+
         const [, livePerms] = await Promise.all([
-          accountService.loadRoleGroupConfigs(true).catch(() => {}),
+          accountService.loadRoleGroupConfigs(false).catch(() => {}),
           getLiveUserPermissionsFromFirestore(initialUser.id, initialUser.username, initialUser.teacherCode, {
             firebaseUid: initialUser.firebaseUid || auth.currentUser?.uid,
             email: initialUser.email,
-            forceServer: true
+            forceServer: false
           })
         ]);
 
         if (cancelled) return;
 
-        // Enforce real-time account lock / deactivation
         if (livePerms.accountStatus === 'Đã khóa' || livePerms.accountStatus === 'Vô hiệu hóa') {
           forceLogoutWithReason(
             `Tài khoản "${initialUser.username}" đã bị ${livePerms.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
@@ -246,7 +370,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (livePerms.errorCode === null) {
-          // Authoritative Firestore response: strictly apply Firestore permissions (never preserve revoked session permissions)
+          const now = Date.now();
+          writeStoredPermSyncedAt(now);
+          setLastPermissionSyncedAt(now);
           const acc = livePerms.accountData;
           const freshUser: AppUser = {
             ...initialUser,
@@ -267,7 +393,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // ignore
           }
         } else {
-          // Firestore temporarily unavailable / quota exceeded: surface warning clearly without silently dropping verified session
+          // Firestore temporarily unavailable / quota exceeded: preserve verified session without escalating privileges
           setPermissionSyncError(formatSyncError(livePerms.errorCode));
         }
 
@@ -292,31 +418,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [bumpPermissionsVersion, forceLogoutWithReason]);
 
-  // Real-time Firestore listener so Admin permission grants/revokes propagate IMMEDIATELY to active user sessions
+  // Targeted real-time listener (max 2 single-doc listeners) stabilized on [user?.id, quotaEpoch]
+  // so updating user profile/roleGroup state NEVER tears down and re-subscribes listeners in a loop!
   useEffect(() => {
-    if (!user?.id) return;
-    if (user.id === 'admin' || normalizeIdentifier(user.username) === 'admin') return;
+    const activeUser = userRef.current;
+    if (!activeUser?.id) return;
+    if (activeUser.id === 'admin' || normalizeIdentifier(activeUser.username) === 'admin') return;
 
     const unsub = subscribeUserLivePermissions(
       {
-        userId: user.id,
-        firebaseUid: user.firebaseUid || auth.currentUser?.uid,
-        username: user.username,
-        teacherCode: user.teacherCode,
-        email: user.email,
-        roleGroup: user.roleGroup
+        userId: activeUser.id,
+        firebaseUid: activeUser.firebaseUid || auth.currentUser?.uid,
+        username: activeUser.username,
+        teacherCode: activeUser.teacherCode,
+        email: activeUser.email,
+        roleGroup: activeUser.roleGroup
       },
       (update) => {
         if (update.accountStatus === 'Đã khóa' || update.accountStatus === 'Vô hiệu hóa') {
           forceLogoutWithReason(
-            `Tài khoản "${user.username}" đã bị ${update.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
+            `Tài khoản "${activeUser.username}" đã bị ${update.accountStatus.toLowerCase()}. Vui lòng liên hệ Quản trị viên.`
           );
           return;
         }
 
+        const now = Date.now();
+        writeStoredPermSyncedAt(now);
+        setLastPermissionSyncedAt(now);
         setPermissionSyncError(null);
+
         setUser((prev) => {
-          if (!prev || prev.id !== user.id) return prev;
+          if (!prev || prev.id !== activeUser.id) return prev;
           const nextHasCustom =
             update.hasCustom !== undefined ? update.hasCustom : prev.hasCustomPermissions;
           const nextCustomPerms =
@@ -355,7 +487,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsub();
     };
-  }, [user?.id, user?.username, user?.teacherCode, user?.firebaseUid, user?.email, user?.roleGroup, bumpPermissionsVersion, forceLogoutWithReason]);
+  }, [user?.id, quotaEpoch, bumpPermissionsVersion, forceLogoutWithReason]);
 
   const doSuccessfulLogin = async (cleanIdentifier: string, extraDocData?: any): Promise<boolean> => {
     clearLegacyLocalCaches();
@@ -374,6 +506,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         accountStatus: 'Đang hoạt động'
       };
       const expiryTime = Date.now() + SESSION_MAX_AGE_MS;
+      const now = Date.now();
+      writeStoredPermSyncedAt(now);
+      setLastPermissionSyncedAt(now);
       setUser(adminUser);
       setPermissionsReady(true);
       sessionStorage.setItem('authUser', JSON.stringify(adminUser));
@@ -401,9 +536,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const canonicalCode = String(extraDocData?.teacherCode || teacher?.code || '').trim();
       const canonicalEmail = normalizeEmail(extraDocData?.email || teacher?.email);
 
-      // Load fresh role-group matrix AND authoritative live user permissions from Firestore before completing login
+      // Load role-group matrix (TTL cached) AND live user permissions from Firestore before completing login
       const [, livePerms] = await Promise.all([
-        accountService.loadRoleGroupConfigs(true).catch(() => {}),
+        accountService.loadRoleGroupConfigs(false).catch(() => {}),
         getLiveUserPermissionsFromFirestore(canonicalId, canonicalUsername, canonicalCode, {
           firebaseUid: currentFirebaseUid,
           email: canonicalEmail,
@@ -429,6 +564,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (livePerms.errorCode) {
         setPermissionSyncError(formatSyncError(livePerms.errorCode));
+      } else {
+        const now = Date.now();
+        writeStoredPermSyncedAt(now);
+        setLastPermissionSyncedAt(now);
       }
 
       const detectedRoleGroup = detectRoleGroupByPosition(
@@ -687,6 +826,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       sessionStorage.removeItem('authUser');
       sessionStorage.removeItem('authSessionExpiry');
+      sessionStorage.removeItem(PERM_LAST_SYNCED_KEY);
       sessionStorage.clear();
     } catch {
       // ignore
@@ -703,6 +843,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         permissionsReady,
         permissionsVersion,
         permissionSyncError,
+        lastPermissionSyncedAt,
+        isRefreshingPermissions,
         isAdmin,
         login,
         logout,

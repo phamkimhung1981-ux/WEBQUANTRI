@@ -8,11 +8,18 @@ import {
   deleteDoc,
   query,
   where,
-  onSnapshot,
+  limit,
   writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { safeLocalStorageSet } from '../utils/envUtils';
+import {
+  canAttemptFirestoreRead,
+  createCachedSubscriptionChannel,
+  isQuotaExceededError,
+  reportFirestoreError,
+  reportFirestoreSuccess
+} from '../utils/firestoreQuotaManager';
 import {
   ClassInfo,
   Student,
@@ -135,8 +142,13 @@ export enum OperationType {
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const msg = error instanceof Error ? error.message : String(error);
-  if (msg.includes('Quota limit exceeded') || msg.includes('quota') || msg.includes('Quota exceeded')) {
+  const isQuota =
+    isQuotaExceededError(error) ||
+    msg.includes('Quota limit exceeded') ||
+    msg.toLowerCase().includes('quota');
+  if (isQuota) {
     notifyQuotaStatus(true);
+    reportFirestoreError(error, `homeroom:${path || operationType}`);
   }
   const errInfo = {
     error: msg,
@@ -150,17 +162,216 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   console.warn('Firestore Homeroom Warning/Error (using cache/offline fallback): ', JSON.stringify(errInfo));
 }
 
+const HOMEROOM_SEEDED_KEY = 'thpt_sl_homeroom_seeded_v1';
+const HOMEROOM_META_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const HOMEROOM_DATA_TTL_MS = 5 * 60 * 1000;  // 5 minutes
+
+const sortStudentsList = (data: Student[]): Student[] =>
+  [...data].sort((a, b) => {
+    if (a.stt !== undefined && b.stt !== undefined && a.stt !== null && b.stt !== null) {
+      const numA = Number(a.stt);
+      const numB = Number(b.stt);
+      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) return numA - numB;
+    }
+    return (a.name || '').localeCompare(b.name || '', 'vi-VN');
+  });
+
+const classesChannel = createCachedSubscriptionChannel<ClassInfo[]>({
+  cacheKey: 'homeroom:classes',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'classes'));
+    let data = snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
+    if (data.length === 0) data = DEFAULT_CLASSES;
+    const sorted = [...data].sort((a, b) => a.name.localeCompare(b.name));
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, sorted);
+    return sorted;
+  },
+  getFallback: () => {
+    const cached = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES);
+    return cached && cached.length > 0 ? [...cached].sort((a, b) => a.name.localeCompare(b.name)) : DEFAULT_CLASSES;
+  },
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'classes')
+});
+
+const studentsChannel = createCachedSubscriptionChannel<Student[]>({
+  cacheKey: 'homeroom:students',
+  ttlMs: HOMEROOM_DATA_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'students'));
+    const data = sortStudentsList(snap.docs.map(d => ({ id: d.id, ...d.data() } as Student)));
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, data);
+    return data;
+  },
+  getFallback: () => {
+    const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
+    return cached ? sortStudentsList(cached) : [];
+  },
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'students')
+});
+
+const assignmentsChannel = createCachedSubscriptionChannel<HomeroomAssignment[]>({
+  cacheKey: 'homeroom:assignments',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'homeroom_assignments'));
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, data);
+    return data;
+  },
+  getFallback: () => safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS) || [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'homeroom_assignments')
+});
+
+const categoriesChannel = createCachedSubscriptionChannel<ConductCategory[]>({
+  cacheKey: 'homeroom:conduct_categories',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'conduct_categories'));
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as ConductCategory));
+    return data.length > 0 ? data.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : DEFAULT_CONDUCT_CATEGORIES;
+  },
+  getFallback: () => DEFAULT_CONDUCT_CATEGORIES,
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'conduct_categories')
+});
+
+const criteriaChannel = createCachedSubscriptionChannel<ConductCriterion[]>({
+  cacheKey: 'homeroom:conduct_criteria',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'conduct_criteria'));
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as ConductCriterion));
+    return data.length > 0 ? data.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : DEFAULT_CONDUCT_CRITERIA;
+  },
+  getFallback: () => DEFAULT_CONDUCT_CRITERIA,
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'conduct_criteria')
+});
+
+const recordsChannel = createCachedSubscriptionChannel<ConductRecord[]>({
+  cacheKey: 'homeroom:conduct_records',
+  ttlMs: HOMEROOM_DATA_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'conduct_records'));
+    const data = snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as ConductRecord))
+      .sort((a, b) => new Date(b.recordDate).getTime() - new Date(a.recordDate).getTime());
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, data);
+    return data;
+  },
+  getFallback: () => safeStorage.getItem<ConductRecord[]>(HOMEROOM_CACHE_KEYS.RECORDS) || [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'conduct_records')
+});
+
+const evaluationsChannel = createCachedSubscriptionChannel<ConductEvaluation[]>({
+  cacheKey: 'homeroom:conduct_evaluations',
+  ttlMs: HOMEROOM_DATA_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'conduct_evaluations'));
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as ConductEvaluation));
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, data);
+    return data;
+  },
+  getFallback: () => safeStorage.getItem<ConductEvaluation[]>(HOMEROOM_CACHE_KEYS.EVALUATIONS) || [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'conduct_evaluations')
+});
+
+const settingsChannel = createCachedSubscriptionChannel<ConductSettings>({
+  cacheKey: 'homeroom:conduct_settings',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(query(collection(db, 'conduct_settings'), limit(5)));
+    if (!snap.empty) {
+      const d = snap.docs[0];
+      const cfg = { id: d.id, ...d.data() } as ConductSettings;
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.SETTINGS, cfg);
+      return cfg;
+    }
+    return DEFAULT_CONDUCT_SETTINGS;
+  },
+  getFallback: () => safeStorage.getItem<ConductSettings>(HOMEROOM_CACHE_KEYS.SETTINGS) || DEFAULT_CONDUCT_SETTINGS,
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'conduct_settings')
+});
+
+const violationConfigsChannel = createCachedSubscriptionChannel<SeriousViolationConfig[]>({
+  cacheKey: 'homeroom:serious_violation_configs',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'serious_violation_configs'));
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as SeriousViolationConfig));
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.SERIOUS_CONFIGS, data);
+    return data.length > 0 ? data : DEFAULT_SERIOUS_VIOLATION_CONFIGS;
+  },
+  getFallback: () => safeStorage.getItem<SeriousViolationConfig[]>(HOMEROOM_CACHE_KEYS.SERIOUS_CONFIGS) || DEFAULT_SERIOUS_VIOLATION_CONFIGS,
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'serious_violation_configs')
+});
+
+const teacherAssessmentsChannel = createCachedSubscriptionChannel<TeacherAssessment[]>({
+  cacheKey: 'homeroom:teacher_assessments',
+  ttlMs: HOMEROOM_DATA_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'teacher_assessments'));
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as TeacherAssessment));
+    safeStorage.setItem(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS, data);
+    return data;
+  },
+  getFallback: () => safeStorage.getItem<TeacherAssessment[]>(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS) || [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'teacher_assessments')
+});
+
+const ratingConfigsChannel = createCachedSubscriptionChannel<EvaluationRatingConfig[]>({
+  cacheKey: 'homeroom:evaluation_rating_configs',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'evaluation_rating_configs'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as EvaluationRatingConfig));
+  },
+  getFallback: () => [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'evaluation_rating_configs')
+});
+
+const ratingHistoryChannel = createCachedSubscriptionChannel<EvaluationRatingConfigHistory[]>({
+  cacheKey: 'homeroom:evaluation_rating_config_history',
+  ttlMs: HOMEROOM_META_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(query(collection(db, 'evaluation_rating_config_history'), limit(50)));
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as EvaluationRatingConfigHistory))
+      .sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime());
+  },
+  getFallback: () => [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'evaluation_rating_config_history')
+});
+
+const teacherAssessmentCompletionsChannel = createCachedSubscriptionChannel<TeacherAssessmentCompletion[]>({
+  cacheKey: 'homeroom:teacher_assessment_completions',
+  ttlMs: HOMEROOM_DATA_TTL_MS,
+  fetcher: async () => {
+    const snap = await getDocs(collection(db, 'teacher_assessment_completions'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as TeacherAssessmentCompletion));
+  },
+  getFallback: () => [],
+  onError: (err) => handleFirestoreError(err, OperationType.GET, 'teacher_assessment_completions')
+});
+
 let hasSeeded = false;
 
 export const homeroomService = {
-  // 1. SEED DEFAULT DATA IF EMPTY
+  // 1. SEED DEFAULT DATA IF EMPTY (guarded by localStorage + circuit breaker so it never re-scans 7 collections on reload)
   async seedIfEmpty() {
     if (hasSeeded) return;
     hasSeeded = true;
     try {
+      if (typeof window !== 'undefined' && window.localStorage.getItem(HOMEROOM_SEEDED_KEY) === '1') {
+        return;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    if (!canAttemptFirestoreRead()) return;
+    try {
       // Seed Categories
       const catCol = collection(db, 'conduct_categories');
-      const catSnap = await getDocs(catCol);
+      const catSnap = await getDocs(query(catCol, limit(1)));
       if (catSnap.empty) {
         const batch = writeBatch(db);
         DEFAULT_CONDUCT_CATEGORIES.forEach(c => {
@@ -171,7 +382,7 @@ export const homeroomService = {
 
       // Seed Criteria
       const critCol = collection(db, 'conduct_criteria');
-      const critSnap = await getDocs(critCol);
+      const critSnap = await getDocs(query(critCol, limit(1)));
       if (critSnap.empty) {
         const batch = writeBatch(db);
         DEFAULT_CONDUCT_CRITERIA.forEach(c => {
@@ -182,7 +393,7 @@ export const homeroomService = {
 
       // Seed Classes
       const clsCol = collection(db, 'classes');
-      const clsSnap = await getDocs(clsCol);
+      const clsSnap = await getDocs(query(clsCol, limit(1)));
       if (clsSnap.empty) {
         const batch = writeBatch(db);
         DEFAULT_CLASSES.forEach(c => {
@@ -196,7 +407,7 @@ export const homeroomService = {
 
       // Seed Homeroom Assignments
       const assignCol = collection(db, 'homeroom_assignments');
-      const assignSnap = await getDocs(assignCol);
+      const assignSnap = await getDocs(query(assignCol, limit(1)));
       if (assignSnap.empty) {
         const sampleAssignments: HomeroomAssignment[] = [
           { id: 'assign_1', teacherId: 't1', teacherName: 'Nguyễn Thị A', classId: 'class_10a1', className: '10A1', schoolYear: '2026–2027', startDate: '2026-09-01', status: 'active' },
@@ -212,14 +423,14 @@ export const homeroomService = {
 
       // Seed Settings
       const setCol = collection(db, 'conduct_settings');
-      const setSnap = await getDocs(setCol);
+      const setSnap = await getDocs(query(setCol, limit(1)));
       if (setSnap.empty) {
         await setDoc(doc(db, 'conduct_settings', DEFAULT_CONDUCT_SETTINGS.id), sanitize(DEFAULT_CONDUCT_SETTINGS));
       }
 
       // Seed Serious Violation Configs
       const vioCol = collection(db, 'serious_violation_configs');
-      const vioSnap = await getDocs(vioCol);
+      const vioSnap = await getDocs(query(vioCol, limit(1)));
       if (vioSnap.empty) {
         const batch = writeBatch(db);
         DEFAULT_SERIOUS_VIOLATION_CONFIGS.forEach(v => {
@@ -230,7 +441,7 @@ export const homeroomService = {
 
       // Seed Default Rating Config
       const ratingCol = collection(db, 'evaluation_rating_configs');
-      const ratingSnap = await getDocs(ratingCol);
+      const ratingSnap = await getDocs(query(ratingCol, limit(1)));
       if (ratingSnap.empty) {
         const defaultRatingConfig: EvaluationRatingConfig = {
           id: 'rating_config_default_2026_2027',
@@ -248,188 +459,59 @@ export const homeroomService = {
         };
         await setDoc(doc(db, 'evaluation_rating_configs', defaultRatingConfig.id), sanitize(defaultRatingConfig));
       }
+      reportFirestoreSuccess();
+      safeLocalStorageSet(HOMEROOM_SEEDED_KEY, '1');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'homeroom_seed');
     }
   },
 
-  // 2. LISTENERS FOR REAL-TIME SYNC WITH LOCALSTORAGE BACKUP
-  async getClasses(): Promise<ClassInfo[]> {
-    try {
-      const snap = await getDocs(collection(db, 'classes'));
-      if (!snap.empty) {
-        let classesList = snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
-
-        // Ensure 12I exists or has GVCN Hà Thị Thúy
-        const has12I = classesList.some(c => c.name.toUpperCase() === '12I' || c.id === 'class_12i');
-        safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, classesList);
-        return classesList.sort((a, b) => a.name.localeCompare(b.name));
-      }
-    } catch (e) {
-      handleFirestoreError(e, OperationType.GET, 'classes');
-    }
-    const cached = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES);
-    if (cached && cached.length > 0) {
-      return cached;
-    }
-    return DEFAULT_CLASSES;
+  // 2. TTL-CACHED SHARED QUERIES & SUBSCRIPTIONS (ZERO REDUNDANT READS ACROSS MODULE SWITCHES)
+  async getClasses(forceRefresh = false): Promise<ClassInfo[]> {
+    const res = await classesChannel.refresh(forceRefresh);
+    return res || safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES) || DEFAULT_CLASSES;
   },
 
-  async getAssignments(): Promise<HomeroomAssignment[]> {
-    try {
-      const snap = await getDocs(collection(db, 'homeroom_assignments'));
-      if (!snap.empty) {
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
-        safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, list);
-        return list;
-      }
-    } catch (e) {
-      handleFirestoreError(e, OperationType.GET, 'homeroom_assignments');
-    }
-    const cached = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS);
-    if (cached && cached.length > 0) return cached;
-    return [];
+  async getAssignments(forceRefresh = false): Promise<HomeroomAssignment[]> {
+    const res = await assignmentsChannel.refresh(forceRefresh);
+    return res || safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS) || [];
   },
 
-  async getStudents(): Promise<Student[]> {
-    try {
-      const snap = await getDocs(collection(db, 'students'));
-      if (!snap.empty) {
-        const students = snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-        safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, students);
-        return students;
-      }
-    } catch (e) {
-      handleFirestoreError(e, OperationType.GET, 'students');
-    }
-    const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
-    return cached || [];
+  async getStudents(forceRefresh = false): Promise<Student[]> {
+    const res = await studentsChannel.refresh(forceRefresh);
+    return res || safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS) || [];
   },
 
   subscribeClasses(callback: (classes: ClassInfo[]) => void) {
-    // 1. If cache exists, use it initially
-    const cached = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES);
-    if (cached && cached.length > 0) {
-      callback([...cached].sort((a, b) => a.name.localeCompare(b.name)));
-    }
-
-    // 2. Subscribe to Firestore
-    const q = collection(db, 'classes');
-    return onSnapshot(q, (snapshot) => {
-      let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClassInfo));
-      if (data.length === 0) {
-        data = DEFAULT_CLASSES;
-      }
-      safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, data);
-      callback(data.sort((a, b) => a.name.localeCompare(b.name)));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'classes');
-      const fallback = safeStorage.getItem<ClassInfo[]>(HOMEROOM_CACHE_KEYS.CLASSES) || DEFAULT_CLASSES;
-      callback(fallback);
-    });
+    return classesChannel.subscribe(callback);
   },
 
   subscribeStudents(callback: (students: Student[]) => void) {
-    const cached = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
-    if (cached && cached.length > 0) {
-      callback([...cached]);
-    }
-
-    const q = collection(db, 'students');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-      safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, data);
-      callback(data.sort((a, b) => {
-        if (a.stt !== undefined && b.stt !== undefined && a.stt !== null && b.stt !== null) {
-          const numA = Number(a.stt);
-          const numB = Number(b.stt);
-          if (!isNaN(numA) && !isNaN(numB) && numA !== numB) return numA - numB;
-        }
-        return (a.name || '').localeCompare(b.name || '', 'vi-VN');
-      }));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'students');
-      const cachedFallback = safeStorage.getItem<Student[]>(HOMEROOM_CACHE_KEYS.STUDENTS);
-      if (cachedFallback && cachedFallback.length > 0) {
-        callback(cachedFallback);
-      }
-    });
+    return studentsChannel.subscribe(callback);
   },
 
   subscribeAssignments(callback: (assignments: HomeroomAssignment[]) => void) {
-    const cached = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS);
-    if (cached) callback(cached);
-
-    const q = collection(db, 'homeroom_assignments');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as HomeroomAssignment));
-      safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, data);
-      callback(data);
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'homeroom_assignments');
-      const fallback = safeStorage.getItem<HomeroomAssignment[]>(HOMEROOM_CACHE_KEYS.ASSIGNMENTS) || [];
-      callback(fallback);
-    });
+    return assignmentsChannel.subscribe(callback);
   },
 
   subscribeCategories(callback: (categories: ConductCategory[]) => void) {
-    const q = collection(db, 'conduct_categories');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConductCategory));
-      callback(data.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'conduct_categories'));
+    return categoriesChannel.subscribe(callback);
   },
 
   subscribeCriteria(callback: (criteria: ConductCriterion[]) => void) {
-    const q = collection(db, 'conduct_criteria');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConductCriterion));
-      callback(data.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'conduct_criteria'));
+    return criteriaChannel.subscribe(callback);
   },
 
   subscribeRecords(callback: (records: ConductRecord[]) => void) {
-    const cached = safeStorage.getItem<ConductRecord[]>(HOMEROOM_CACHE_KEYS.RECORDS);
-    if (cached) callback(cached);
-
-    const q = collection(db, 'conduct_records');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConductRecord));
-      safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, data);
-      callback(data.sort((a, b) => new Date(b.recordDate).getTime() - new Date(a.recordDate).getTime()));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'conduct_records');
-      const fallback = safeStorage.getItem<ConductRecord[]>(HOMEROOM_CACHE_KEYS.RECORDS) || [];
-      callback(fallback);
-    });
+    return recordsChannel.subscribe(callback);
   },
 
   subscribeEvaluations(callback: (evaluations: ConductEvaluation[]) => void) {
-    const cached = safeStorage.getItem<ConductEvaluation[]>(HOMEROOM_CACHE_KEYS.EVALUATIONS);
-    if (cached) callback(cached);
-
-    const q = collection(db, 'conduct_evaluations');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConductEvaluation));
-      safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, data);
-      callback(data);
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'conduct_evaluations');
-      const fallback = safeStorage.getItem<ConductEvaluation[]>(HOMEROOM_CACHE_KEYS.EVALUATIONS) || [];
-      callback(fallback);
-    });
+    return evaluationsChannel.subscribe(callback);
   },
 
   subscribeSettings(callback: (settings: ConductSettings) => void) {
-    const q = collection(db, 'conduct_settings');
-    return onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const d = snapshot.docs[0];
-        callback({ id: d.id, ...d.data() } as ConductSettings);
-      } else {
-        callback(DEFAULT_CONDUCT_SETTINGS);
-      }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'conduct_settings'));
+    return settingsChannel.subscribe(callback);
   },
 
   // 3. CRUD ACTIONS FOR CONDUCT RECORDS
@@ -442,6 +524,10 @@ export const homeroomService = {
         createdAt: new Date().toISOString()
       };
       await setDoc(doc(db, 'conduct_records', id), sanitize(newRecord));
+      const nextRecs = [newRecord, ...(recordsChannel.getSnapshot() || []).filter(r => r.id !== id)]
+        .sort((a, b) => new Date(b.recordDate).getTime() - new Date(a.recordDate).getTime());
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, nextRecs);
+      recordsChannel.publish(nextRecs);
       return newRecord;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'conduct_records');
@@ -453,6 +539,9 @@ export const homeroomService = {
     try {
       const updateData = { ...data, updatedAt: new Date().toISOString() };
       await updateDoc(doc(db, 'conduct_records', id), sanitize(updateData));
+      const nextRecs = (recordsChannel.getSnapshot() || []).map(r => r.id === id ? { ...r, ...updateData } : r);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, nextRecs);
+      recordsChannel.publish(nextRecs);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'conduct_records');
       throw err;
@@ -462,6 +551,9 @@ export const homeroomService = {
   async deleteConductRecord(id: string) {
     try {
       await deleteDoc(doc(db, 'conduct_records', id));
+      const nextRecs = (recordsChannel.getSnapshot() || []).filter(r => r.id !== id);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, nextRecs);
+      recordsChannel.publish(nextRecs);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'conduct_records');
       throw err;
@@ -474,6 +566,8 @@ export const homeroomService = {
       const id = `crit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const newCrit: ConductCriterion = { ...criterion, id };
       await setDoc(doc(db, 'conduct_criteria', id), sanitize(newCrit));
+      const nextCrits = [...(criteriaChannel.getSnapshot() || []), newCrit].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      criteriaChannel.publish(nextCrits);
       return newCrit;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'conduct_criteria');
@@ -484,6 +578,8 @@ export const homeroomService = {
   async updateCriterion(id: string, data: Partial<ConductCriterion>) {
     try {
       await updateDoc(doc(db, 'conduct_criteria', id), sanitize(data));
+      const nextCrits = (criteriaChannel.getSnapshot() || []).map(c => c.id === id ? { ...c, ...data } : c);
+      criteriaChannel.publish(nextCrits);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'conduct_criteria');
       throw err;
@@ -493,6 +589,8 @@ export const homeroomService = {
   async deleteCriterion(id: string) {
     try {
       await deleteDoc(doc(db, 'conduct_criteria', id));
+      const nextCrits = (criteriaChannel.getSnapshot() || []).filter(c => c.id !== id);
+      criteriaChannel.publish(nextCrits);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'conduct_criteria');
       throw err;
@@ -510,6 +608,12 @@ export const homeroomService = {
         updatedAt: new Date().toISOString()
       };
       await setDoc(doc(db, 'conduct_evaluations', id), sanitize(payload), { merge: true });
+      const prevEvals = evaluationsChannel.getSnapshot() || [];
+      const nextEvals = prevEvals.some(e => e.id === id)
+        ? prevEvals.map(e => e.id === id ? { ...e, ...payload } : e)
+        : [payload, ...prevEvals];
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, nextEvals);
+      evaluationsChannel.publish(nextEvals);
       return payload;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'conduct_evaluations');
@@ -519,7 +623,11 @@ export const homeroomService = {
 
   async updateEvaluationStatus(id: string, updates: Partial<ConductEvaluation>) {
     try {
-      await updateDoc(doc(db, 'conduct_evaluations', id), sanitize({ ...updates, updatedAt: new Date().toISOString() }));
+      const updateData = { ...updates, updatedAt: new Date().toISOString() };
+      await updateDoc(doc(db, 'conduct_evaluations', id), sanitize(updateData));
+      const nextEvals = (evaluationsChannel.getSnapshot() || []).map(e => e.id === id ? { ...e, ...updateData } : e);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, nextEvals);
+      evaluationsChannel.publish(nextEvals);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'conduct_evaluations');
       throw err;
@@ -530,6 +638,8 @@ export const homeroomService = {
   async saveSettings(settings: ConductSettings) {
     try {
       await setDoc(doc(db, 'conduct_settings', settings.id || 'default_conduct_settings'), sanitize(settings), { merge: true });
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.SETTINGS, settings);
+      settingsChannel.publish(settings);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'conduct_settings');
       throw err;
@@ -541,6 +651,12 @@ export const homeroomService = {
       const id = assignment.id || `assign_${Date.now()}`;
       const payload: HomeroomAssignment = { ...assignment, id };
       await setDoc(doc(db, 'homeroom_assignments', id), sanitize(payload), { merge: true });
+      const prevAssign = assignmentsChannel.getSnapshot() || [];
+      const nextAssign = prevAssign.some(a => a.id === id)
+        ? prevAssign.map(a => a.id === id ? payload : a)
+        : [...prevAssign, payload];
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.ASSIGNMENTS, nextAssign);
+      assignmentsChannel.publish(nextAssign);
       return payload;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'homeroom_assignments');
@@ -563,12 +679,17 @@ export const homeroomService = {
         updatedAt: new Date().toISOString()
       };
       await setDoc(doc(db, 'students', id), sanitize(payload));
+      const nextStudents = sortStudentsList([...(studentsChannel.getSnapshot() || []), payload]);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, nextStudents);
+      studentsChannel.publish(nextStudents);
 
-      // Sync class total
+      // Sync class total using cached/updated list without extra collection scan
       if (student.classId) {
-        const q = query(collection(db, 'students'), where('classId', '==', student.classId));
-        const snap = await getDocs(q);
-        await updateDoc(doc(db, 'classes', student.classId), { totalStudents: snap.size });
+        const classCount = nextStudents.filter(s => s.classId === student.classId).length;
+        await updateDoc(doc(db, 'classes', student.classId), { totalStudents: classCount });
+        const nextClasses = (classesChannel.getSnapshot() || []).map(c => c.id === student.classId ? { ...c, totalStudents: classCount } : c);
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.CLASSES, nextClasses);
+        classesChannel.publish(nextClasses);
       }
 
       return payload;
@@ -728,6 +849,8 @@ export const homeroomService = {
         const snap = await getDocs(q);
         await updateDoc(doc(db, 'classes', cId), { totalStudents: snap.size });
       }
+      studentsChannel.invalidate(true);
+      classesChannel.invalidate(true);
 
       return {
         totalProcessed: studentsList.length,
@@ -748,6 +871,9 @@ export const homeroomService = {
   async updateStudent(id: string, updates: Partial<Student>) {
     try {
       await updateDoc(doc(db, 'students', id), sanitize(updates));
+      const next = sortStudentsList((studentsChannel.getSnapshot() || []).map(s => s.id === id ? { ...s, ...updates } : s));
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, next);
+      studentsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'students');
       throw err;
@@ -757,6 +883,9 @@ export const homeroomService = {
   async deleteStudent(id: string) {
     try {
       await deleteDoc(doc(db, 'students', id));
+      const next = (studentsChannel.getSnapshot() || []).filter(s => s.id !== id);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.STUDENTS, next);
+      studentsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students');
       throw err;
@@ -871,6 +1000,11 @@ export const homeroomService = {
           console.warn('Error updating class student count after bulk delete:', e);
         }
       }
+      studentsChannel.invalidate(true);
+      classesChannel.invalidate(true);
+      recordsChannel.invalidate(true);
+      evaluationsChannel.invalidate(true);
+      teacherAssessmentsChannel.invalidate(true);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students_bulk');
       throw err;
@@ -928,6 +1062,8 @@ export const homeroomService = {
         }
       }
 
+      studentsChannel.invalidate(true);
+      classesChannel.invalidate(true);
       return { success: true, count: rankedStudents.length };
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'students_save_abc_ranking');
@@ -1074,6 +1210,11 @@ export const homeroomService = {
         }
       }
 
+      studentsChannel.invalidate(true);
+      classesChannel.invalidate(true);
+      recordsChannel.invalidate(true);
+      evaluationsChannel.invalidate(true);
+      teacherAssessmentsChannel.invalidate(true);
       return { deletedCount: matchingDocs.length };
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'students_deleteAll');
@@ -1112,6 +1253,7 @@ export const homeroomService = {
         });
       }
 
+      classesChannel.invalidate(true);
       return payload;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'classes');
@@ -1143,6 +1285,7 @@ export const homeroomService = {
       });
 
       await batch.commit();
+      classesChannel.invalidate(true);
       return created;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'classes_bulk');
@@ -1231,6 +1374,8 @@ export const homeroomService = {
         }
         await batch.commit();
       }
+      classesChannel.invalidate(true);
+      assignmentsChannel.invalidate(true);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'classes');
       throw err;
@@ -1260,6 +1405,9 @@ export const homeroomService = {
         });
         await batchStd.commit();
       }
+      classesChannel.invalidate(true);
+      assignmentsChannel.invalidate(true);
+      studentsChannel.invalidate(true);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'classes');
       throw err;
@@ -1268,17 +1416,18 @@ export const homeroomService = {
 
   // 10. SERIOUS VIOLATION CONFIGS CRUD
   subscribeViolationConfigs(callback: (configs: SeriousViolationConfig[]) => void) {
-    const q = collection(db, 'serious_violation_configs');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as SeriousViolationConfig));
-      callback(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'serious_violation_configs'));
+    return violationConfigsChannel.subscribe(callback);
   },
 
   async saveViolationConfig(config: SeriousViolationConfig) {
     try {
       const id = config.id || `cfg_${Date.now()}`;
-      await setDoc(doc(db, 'serious_violation_configs', id), sanitize({ ...config, id }));
+      const saved = { ...config, id };
+      await setDoc(doc(db, 'serious_violation_configs', id), sanitize(saved));
+      const prev = violationConfigsChannel.getSnapshot() || [];
+      const next = prev.some(c => c.id === id) ? prev.map(c => c.id === id ? saved : c) : [...prev, saved];
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.SERIOUS_CONFIGS, next);
+      violationConfigsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'serious_violation_configs');
       throw err;
@@ -1288,6 +1437,9 @@ export const homeroomService = {
   async deleteViolationConfig(id: string) {
     try {
       await deleteDoc(doc(db, 'serious_violation_configs', id));
+      const next = (violationConfigsChannel.getSnapshot() || []).filter(c => c.id !== id);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.SERIOUS_CONFIGS, next);
+      violationConfigsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'serious_violation_configs');
       throw err;
@@ -1315,6 +1467,9 @@ export const homeroomService = {
         payload.proposedRating = proposedRating;
       }
       await updateDoc(ref, sanitize(payload));
+      const nextRecs = (recordsChannel.getSnapshot() || []).map(r => r.id === recordId ? { ...r, ...payload } : r);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.RECORDS, nextRecs);
+      recordsChannel.publish(nextRecs);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'conduct_records');
       throw err;
@@ -1341,6 +1496,9 @@ export const homeroomService = {
         updatePayload.classification = classification;
       }
       await updateDoc(ref, sanitize(updatePayload));
+      const nextEvals = (evaluationsChannel.getSnapshot() || []).map(e => e.id === evaluationId ? { ...e, ...updatePayload } : e);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.EVALUATIONS, nextEvals);
+      evaluationsChannel.publish(nextEvals);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'conduct_evaluations');
       throw err;
@@ -1535,6 +1693,13 @@ export const homeroomService = {
         }
         const existingAuditLogs = safeStorage.getItem<any[]>(HOMEROOM_CACHE_KEYS.AUDIT_LOGS) || [];
         safeStorage.setItem(HOMEROOM_CACHE_KEYS.AUDIT_LOGS, [auditLog, ...existingAuditLogs]);
+        recordsChannel.publish(updatedRecs);
+        evaluationsChannel.publish(updatedEvals);
+        if (resetTeacherAssessments) {
+          teacherAssessmentsChannel.publish(
+            safeStorage.getItem<TeacherAssessment[]>(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS) || []
+          );
+        }
       }
 
       return {
@@ -1550,11 +1715,7 @@ export const homeroomService = {
 
   // 13. TEACHER ASSESSMENTS (GHI NHẬN GVCN)
   subscribeTeacherAssessments(callback: (assessments: TeacherAssessment[]) => void) {
-    const q = collection(db, 'teacher_assessments');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TeacherAssessment));
-      callback(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'teacher_assessments'));
+    return teacherAssessmentsChannel.subscribe(callback);
   },
 
   async saveTeacherAssessment(assessmentPayload: Partial<TeacherAssessment>): Promise<{ payload: TeacherAssessment; isUpdate: boolean }> {
@@ -1639,6 +1800,12 @@ export const homeroomService = {
       };
 
       await setDoc(doc(db, 'teacher_assessments', targetId), sanitize(payload), { merge: true });
+      const prevTAs = teacherAssessmentsChannel.getSnapshot() || [];
+      const nextTAs = prevTAs.some(a => a.id === targetId)
+        ? prevTAs.map(a => a.id === targetId ? payload : a)
+        : [payload, ...prevTAs];
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS, nextTAs);
+      teacherAssessmentsChannel.publish(nextTAs);
 
       return { payload, isUpdate };
     } catch (err) {
@@ -1880,6 +2047,14 @@ export const homeroomService = {
         await batch.commit();
       }
 
+      if (savedAssessments.length > 0) {
+        const prevMap = new Map<string, TeacherAssessment>((teacherAssessmentsChannel.getSnapshot() || []).map(a => [a.id, a]));
+        savedAssessments.forEach(a => prevMap.set(a.id, a));
+        const nextTAs = Array.from(prevMap.values());
+        safeStorage.setItem(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS, nextTAs);
+        teacherAssessmentsChannel.publish(nextTAs);
+      }
+
       return {
         totalProcessed: operations.length,
         successCount: operations.length,
@@ -1933,6 +2108,9 @@ export const homeroomService = {
   async deleteTeacherAssessment(id: string) {
     try {
       await deleteDoc(doc(db, 'teacher_assessments', id));
+      const nextTAs = (teacherAssessmentsChannel.getSnapshot() || []).filter(a => a.id !== id);
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS, nextTAs);
+      teacherAssessmentsChannel.publish(nextTAs);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'teacher_assessments');
       throw err;
@@ -1941,19 +2119,11 @@ export const homeroomService = {
 
   // 14. EVALUATION RATING CONFIGS & AUDIT LOGS
   subscribeRatingConfigs(callback: (configs: EvaluationRatingConfig[]) => void) {
-    const q = collection(db, 'evaluation_rating_configs');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as EvaluationRatingConfig));
-      callback(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'evaluation_rating_configs'));
+    return ratingConfigsChannel.subscribe(callback);
   },
 
   subscribeRatingHistory(callback: (history: EvaluationRatingConfigHistory[]) => void) {
-    const q = collection(db, 'evaluation_rating_config_history');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as EvaluationRatingConfigHistory));
-      callback(data.sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime()));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'evaluation_rating_config_history'));
+    return ratingHistoryChannel.subscribe(callback);
   },
 
   async saveRatingConfig(
@@ -1997,6 +2167,11 @@ export const homeroomService = {
 
       await setDoc(doc(db, 'evaluation_rating_config_history', historyId), sanitize(historyEntry));
 
+      const prevCfgs = ratingConfigsChannel.getSnapshot() || [];
+      const nextCfgs = prevCfgs.some(c => c.id === id) ? prevCfgs.map(c => c.id === id ? payload : c) : [...prevCfgs, payload];
+      ratingConfigsChannel.publish(nextCfgs);
+      ratingHistoryChannel.publish([historyEntry, ...(ratingHistoryChannel.getSnapshot() || [])].slice(0, 50));
+
       return payload;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'evaluation_rating_configs');
@@ -2035,11 +2210,7 @@ export const homeroomService = {
 
   // 17. THEO DÕI VÀ BÁO CÁO HOÀN THÀNH XẾP LOẠI HỌC SINH CỦA GVCN
   subscribeTeacherAssessmentCompletions(callback: (completions: TeacherAssessmentCompletion[]) => void) {
-    const q = collection(db, 'teacher_assessment_completions');
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TeacherAssessmentCompletion));
-      callback(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'teacher_assessment_completions'));
+    return teacherAssessmentCompletionsChannel.subscribe(callback);
   },
 
   async reportTeacherAssessmentCompletion(data: {
@@ -2081,6 +2252,9 @@ export const homeroomService = {
       };
 
       await setDoc(doc(db, 'teacher_assessment_completions', docId), sanitize(payload), { merge: true });
+      const prev = teacherAssessmentCompletionsChannel.getSnapshot() || [];
+      const next = prev.some(c => c.id === docId) ? prev.map(c => c.id === docId ? payload : c) : [...prev, payload];
+      teacherAssessmentCompletionsChannel.publish(next);
       return payload;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'teacher_assessment_completions');
@@ -2093,7 +2267,12 @@ export const homeroomService = {
       const yearSlug = (schoolYear || '2026–2027').replace(/[^a-zA-Z0-9]/g, '_');
       const monthSlug = (month || 'Thang_09').replace(/[^a-zA-Z0-9]/g, '_');
       const docId = `completion_${classId}_${yearSlug}_${monthSlug}`;
-      await setDoc(doc(db, 'teacher_assessment_completions', docId), { isCompleted: false, approvalStatus: undefined, updatedAt: new Date().toISOString() }, { merge: true });
+      const updatedAt = new Date().toISOString();
+      await setDoc(doc(db, 'teacher_assessment_completions', docId), { isCompleted: false, approvalStatus: undefined, updatedAt }, { merge: true });
+      const next = (teacherAssessmentCompletionsChannel.getSnapshot() || []).map(c =>
+        c.id === docId ? { ...c, isCompleted: false, approvalStatus: undefined, updatedAt } : c
+      );
+      teacherAssessmentCompletionsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'teacher_assessment_completions');
       throw err;
@@ -2121,6 +2300,10 @@ export const homeroomService = {
       };
 
       await setDoc(doc(db, 'teacher_assessment_completions', docId), sanitize(payload), { merge: true });
+      const next = (teacherAssessmentCompletionsChannel.getSnapshot() || []).map(c =>
+        c.id === docId ? { ...c, ...payload } : c
+      );
+      teacherAssessmentCompletionsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'teacher_assessment_completions');
       throw err;
@@ -2155,6 +2338,11 @@ export const homeroomService = {
       }
 
       await setDoc(doc(db, 'teacher_assessments', assessmentId), sanitize(payload), { merge: true });
+      const next = (teacherAssessmentsChannel.getSnapshot() || []).map(a =>
+        a.id === assessmentId ? { ...a, ...payload } : a
+      );
+      safeStorage.setItem(HOMEROOM_CACHE_KEYS.TEACHER_ASSESSMENTS, next);
+      teacherAssessmentsChannel.publish(next);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'teacher_assessments');
       throw err;

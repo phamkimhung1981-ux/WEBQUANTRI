@@ -9,11 +9,29 @@ import {
   query,
   where,
   orderBy,
-  limit,
-  onSnapshot
+  limit
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { safeLocalStorageSet } from '../utils/envUtils';
+import {
+  cachedFirestoreFetch,
+  getQuotaManagerState,
+  invalidateFirestoreCache,
+  reportFirestoreError,
+  reportFirestoreSuccess,
+  subscribeQuotaManager
+} from '../utils/firestoreQuotaManager';
+
+const violationSubscribers = new Set<() => void>();
+function notifyYouthViolationsChanged(): void {
+  violationSubscribers.forEach(fn => {
+    try {
+      fn();
+    } catch (e) {
+      console.warn('Youth violation subscriber callback error:', e);
+    }
+  });
+}
 import {
   YouthDisciplineCriterion,
   YouthViolationRecord,
@@ -272,13 +290,22 @@ export function cleanFirestoreData<T extends Record<string, any>>(obj: T): Recor
   return result;
 }
 
+const YOUTH_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
+const YOUTH_SEEDED_STORAGE_KEY = 'thpt_sl_youth_discipline_seeded_v1';
 let isSeeded = false;
 
 export const youthDisciplineService = {
-  // 1. SEED DEFAULT DATA IF EMPTY
+  // 1. SEED DEFAULT DATA IF EMPTY (guarded by localStorage so it never re-scans Firestore on every reload)
   async seedIfEmpty() {
     if (isSeeded) return;
     isSeeded = true;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage.getItem(YOUTH_SEEDED_STORAGE_KEY) === '1') {
+        return;
+      }
+    } catch {
+      // ignore storage errors
+    }
 
     try {
       // 1.1 Criteria
@@ -306,9 +333,10 @@ export const youthDisciplineService = {
         safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(DEFAULT_YOUTH_SETTINGS));
       }
 
-      // 1.3 Clean up any old sample violations if present
-      await this.cleanupSampleViolations();
+      // 1.3 Mark seeded so future sessions skip redundant seed scans
+      safeStorage.setItem(YOUTH_SEEDED_STORAGE_KEY, '1');
     } catch (e) {
+      reportFirestoreError(e, 'youthDisciplineService.seedIfEmpty');
       console.warn('YouthDiscipline seed error (using local storage fallback):', e);
       if (!safeStorage.getItem(CACHE_KEYS.CRITERIA)) {
         safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(DEFAULT_YOUTH_CRITERIA));
@@ -348,50 +376,57 @@ export const youthDisciplineService = {
     }
   },
 
-  // 2. CRITERIA CRUD
-  async getCriteria(): Promise<YouthDisciplineCriterion[]> {
-    try {
-      const snap = await getDocs(collection(db, COLLECTIONS.CRITERIA));
-      if (!snap.empty) {
-        const list = snap.docs.map(d => d.data() as YouthDisciplineCriterion);
-        
-        // Đảm bảo tất cả tiêu chí chuẩn (kể cả tiêu chí mới thêm) đều có mặt
-        const existingCodes = new Set(list.map(c => c.code));
-        const existingNames = new Set(list.map(c => c.name.toLowerCase().trim()));
-        for (const defCrit of DEFAULT_YOUTH_CRITERIA) {
-          if (!existingCodes.has(defCrit.code) && !existingNames.has(defCrit.name.toLowerCase().trim())) {
-            list.push(defCrit);
-            setDoc(doc(db, COLLECTIONS.CRITERIA, defCrit.id), defCrit).catch(() => {});
+  // 2. CRITERIA CRUD (5-min TTL cached)
+  async getCriteria(forceRefresh = false): Promise<YouthDisciplineCriterion[]> {
+    const readCached = (): YouthDisciplineCriterion[] => {
+      const cached = safeStorage.getItem(CACHE_KEYS.CRITERIA);
+      if (cached) {
+        try {
+          const list: YouthDisciplineCriterion[] = JSON.parse(cached);
+          const existingCodes = new Set(list.map(c => c.code));
+          const existingNames = new Set(list.map(c => c.name.toLowerCase().trim()));
+          for (const defCrit of DEFAULT_YOUTH_CRITERIA) {
+            if (!existingCodes.has(defCrit.code) && !existingNames.has(defCrit.name.toLowerCase().trim())) {
+              list.push(defCrit);
+            }
           }
+          list.sort((a, b) => (a.order || 0) - (b.order || 0));
+          return list;
+        } catch {
+          // ignore
         }
-
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
-        safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
-        return list;
       }
+      return DEFAULT_YOUTH_CRITERIA;
+    };
+
+    try {
+      return await cachedFirestoreFetch<YouthDisciplineCriterion[]>(
+        'youth:criteria',
+        YOUTH_TTL_MS,
+        async () => {
+          const snap = await getDocs(collection(db, COLLECTIONS.CRITERIA));
+          if (!snap.empty) {
+            const list = snap.docs.map(d => d.data() as YouthDisciplineCriterion);
+            const existingCodes = new Set(list.map(c => c.code));
+            const existingNames = new Set(list.map(c => c.name.toLowerCase().trim()));
+            for (const defCrit of DEFAULT_YOUTH_CRITERIA) {
+              if (!existingCodes.has(defCrit.code) && !existingNames.has(defCrit.name.toLowerCase().trim())) {
+                list.push(defCrit);
+                setDoc(doc(db, COLLECTIONS.CRITERIA, defCrit.id), defCrit).catch(() => {});
+              }
+            }
+            list.sort((a, b) => (a.order || 0) - (b.order || 0));
+            safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
+            return list;
+          }
+          return readCached();
+        },
+        { force: forceRefresh, fallback: readCached }
+      );
     } catch (e) {
       console.warn('Cannot fetch youth criteria from Firestore, using cache:', e);
+      return readCached();
     }
-
-    const cached = safeStorage.getItem(CACHE_KEYS.CRITERIA);
-    if (cached) {
-      try {
-        let list: YouthDisciplineCriterion[] = JSON.parse(cached);
-        const existingCodes = new Set(list.map(c => c.code));
-        const existingNames = new Set(list.map(c => c.name.toLowerCase().trim()));
-        for (const defCrit of DEFAULT_YOUTH_CRITERIA) {
-          if (!existingCodes.has(defCrit.code) && !existingNames.has(defCrit.name.toLowerCase().trim())) {
-            list.push(defCrit);
-          }
-        }
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
-        safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(list));
-        return list;
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    return DEFAULT_YOUTH_CRITERIA;
   },
 
   async saveCriterion(criterion: YouthDisciplineCriterion, userRole: string = 'BI_THU_DOAN'): Promise<void> {
@@ -413,11 +448,14 @@ export const youthDisciplineService = {
       current.push(item);
     }
     safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(current));
+    invalidateFirestoreCache('youth:criteria');
 
     // Save Firestore
     try {
       await setDoc(doc(db, COLLECTIONS.CRITERIA, id), item, { merge: true });
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore saveCriterion error, saved locally:', e);
     }
 
@@ -439,10 +477,13 @@ export const youthDisciplineService = {
     const target = current.find(c => c.id === id);
     const filtered = current.filter(c => c.id !== id);
     safeStorage.setItem(CACHE_KEYS.CRITERIA, JSON.stringify(filtered));
+    invalidateFirestoreCache('youth:criteria');
 
     try {
       await deleteDoc(doc(db, COLLECTIONS.CRITERIA, id));
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore deleteCriterion error:', e);
     }
 
@@ -461,7 +502,7 @@ export const youthDisciplineService = {
     }
   },
 
-  // 3. VIOLATIONS CRUD
+  // 3. VIOLATIONS CRUD (5-min TTL cached, filtered in memory across weeks/months)
   async getViolations(filters?: {
     schoolYear?: string;
     weekNumber?: number;
@@ -471,15 +512,28 @@ export const youthDisciplineService = {
     date?: string;
     severity?: string;
     status?: string;
+    forceRefresh?: boolean;
   }): Promise<YouthViolationRecord[]> {
-    let list: YouthViolationRecord[] = [];
-    let firestoreSuccess = false;
+    const readCachedViolations = (): YouthViolationRecord[] => {
+      const cached = safeStorage.getItem(CACHE_KEYS.VIOLATIONS);
+      if (cached) {
+        try {
+          return JSON.parse(cached) || [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
 
-    // 1. Fetch Firestore documents
+    let list: YouthViolationRecord[] = [];
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.VIOLATIONS));
-      firestoreSuccess = true;
-      list = snap.docs.map(d => {
+      list = await cachedFirestoreFetch<YouthViolationRecord[]>(
+        'youth:violations',
+        YOUTH_TTL_MS,
+        async () => {
+          const snap = await getDocs(collection(db, COLLECTIONS.VIOLATIONS));
+          const mapped = snap.docs.map(d => {
         const raw = d.data();
         const stdId = raw.studentId || raw.student_id || '';
         const stdName = raw.studentName || raw.student_name || '';
@@ -556,23 +610,18 @@ export const youthDisciplineService = {
         } as unknown as YouthViolationRecord;
       });
 
-      // Update local storage cache with live DB records
-      safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
+          // Update local storage cache with live DB records
+          safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(mapped));
+          return mapped;
+        },
+        { force: Boolean(filters?.forceRefresh), fallback: readCachedViolations }
+      );
     } catch (e) {
       console.warn('Firestore getViolations query error, falling back to cache:', e);
+      list = readCachedViolations();
     }
-
-    // 2. Fall back to local cache if Firestore query failed
-    if (!firestoreSuccess) {
-      const cached = safeStorage.getItem(CACHE_KEYS.VIOLATIONS);
-      if (cached) {
-        try {
-          list = JSON.parse(cached) || [];
-        } catch (err) {
-          console.error('Error parsing cached violations:', err);
-        }
-      }
-    }
+    // Clone so downstream filters never mutate cached array
+    list = [...list];
 
     // Apply filtering
     if (filters) {
@@ -611,114 +660,50 @@ export const youthDisciplineService = {
     return list.sort((a, b) => new Date(b.violationDate + 'T' + (b.violationTime || '00:00')).getTime() - new Date(a.violationDate + 'T' + (a.violationTime || '00:00')).getTime());
   },
 
-  // 3.1 REALTIME SUBSCRIPTION FOR VIOLATIONS
+  // 3.1 TTL-CACHED SUBSCRIPTION FOR VIOLATIONS (replaces permanent onSnapshot)
   subscribeViolations(
     callback: (violations: YouthViolationRecord[]) => void,
     filters?: { schoolYear?: string }
   ): () => void {
-    const q = collection(db, COLLECTIONS.VIOLATIONS);
-    return onSnapshot(
-      q,
-      (snap) => {
-        const list: YouthViolationRecord[] = snap.docs.map(d => {
-          const raw = d.data();
-          const stdId = raw.studentId || raw.student_id || '';
-          const stdName = raw.studentName || raw.student_name || '';
-          const stdCode = raw.studentCode || raw.student_code || '';
-          const clsId = raw.classId || raw.class_id || '';
-          const clsName = raw.className || raw.class_name || '';
-          const vDate = raw.violationDate || raw.violation_date || '';
-          const vTime = raw.violationTime || raw.violation_time || '07:15';
-          const pSlot = raw.periodSlot || raw.period_slot || 'Sáng';
-          const critId = raw.criterionId || raw.criterion_id || '';
-          const critCode = raw.criterionCode || raw.criterion_code || '';
-          const critName = raw.criterionName || raw.criterion_name || '';
-          const cat = raw.category || 'CHUYEN_CAN';
-          const catName = raw.categoryName || raw.category_name || 'Chuyên cần';
-          const sev = raw.severity || 'Nhẹ';
-          const minus = Math.abs(Number(raw.minusPoints ?? raw.minus_points ?? 0));
-          const loc = raw.location || '';
-          const cnt = raw.content || critName || '';
-          const recBy = raw.recordedBy || raw.recorded_by || '';
-          const recByName = raw.recordedByName || raw.recorded_by_name || 'Cán bộ ghi nhận';
-          const recByRole = raw.recordedByRole || raw.recorded_by_role || 'CAN_BO_DOAN';
-          const stat = raw.status || 'CHO_XAC_NHAN';
-          const cAt = raw.createdAt || raw.created_at || new Date().toISOString();
-          const uAt = raw.updatedAt || raw.updated_at || new Date().toISOString();
+    let active = true;
+    let lastEpoch = getQuotaManagerState().epoch;
 
-          return {
-            id: d.id,
-            schoolYear: raw.schoolYear || raw.school_year || '2026–2027',
-            weekNumber: Number(raw.weekNumber ?? raw.week_number ?? 1),
-            monthNumber: Number(raw.monthNumber ?? raw.month_number ?? 1),
-            violationDate: vDate,
-            violationTime: vTime,
-            periodSlot: pSlot,
-            classId: clsId,
-            className: clsName,
-            studentId: stdId,
-            studentName: stdName,
-            studentCode: stdCode,
-            isWholeClass: Boolean(raw.isWholeClass ?? raw.is_whole_class ?? false),
-            criterionId: critId,
-            criterionCode: critCode,
-            criterionName: critName,
-            category: cat,
-            categoryName: catName,
-            severity: sev,
-            minusPoints: minus,
-            location: loc,
-            content: cnt,
-            evidenceUrl: raw.evidenceUrl || raw.evidence_url || '',
-            evidenceName: raw.evidenceName || raw.evidence_name || '',
-            recordedBy: recBy,
-            recordedByName: recByName,
-            recordedByRole: recByRole,
-            confirmedBy: raw.confirmedBy || raw.confirmed_by || '',
-            confirmedByName: raw.confirmedByName || raw.confirmed_by_name || '',
-            confirmedAt: raw.confirmedAt || raw.confirmed_at || '',
-            status: stat,
-            notes: raw.notes || '',
-            teacherComment: raw.teacherComment || raw.teacher_comment || '',
-            youthComment: raw.youthComment || raw.youth_comment || '',
-            createdAt: cAt,
-            updatedAt: uAt,
-            student_id: stdId,
-            student_name: stdName,
-            student_code: stdCode,
-            class_id: clsId,
-            class_name: clsName,
-            violation_date: vDate,
-            violation_time: vTime,
-            minus_points: minus,
-            recorded_by: recBy,
-            recorded_by_name: recByName,
-            created_at: cAt
-          } as unknown as YouthViolationRecord;
+    const load = async (forceRefresh: boolean = false) => {
+      try {
+        const list = await this.getViolations({
+          schoolYear: filters?.schoolYear,
+          forceRefresh
         });
-
-        // Update local storage cache
-        safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(list));
-
-        let filtered = list;
-        if (filters?.schoolYear && filters.schoolYear !== 'All') {
-          const fY = filters.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
-          filtered = list.filter(v => {
-            if (!v.schoolYear) return true;
-            const vY = v.schoolYear.replace(/[\u2010-\u2015]/g, '-').trim();
-            return vY === fY;
-          });
+        if (active) {
+          callback(list);
         }
-
-        // Sort descending
-        filtered.sort((a, b) => new Date(b.violationDate + 'T' + (b.violationTime || '00:00')).getTime() - new Date(a.violationDate + 'T' + (a.violationTime || '00:00')).getTime());
-
-        callback(filtered);
-      },
-      (err) => {
-        console.warn('subscribeViolations listener error:', err);
+      } catch (err) {
+        console.warn('subscribeViolations fetch error:', err);
       }
-    );
+    };
+
+    // Initial load (0 reads if within 5-min TTL cache)
+    void load(false);
+
+    // Refresh immediately when local mutations occur
+    const onMutation = () => {
+      void load(false);
+    };
+    violationSubscribers.add(onMutation);
+
+    // Re-sync once when user clicks manual "Thử đồng bộ lại"
+    const unsubQuota = subscribeQuotaManager((state) => {
+      if (state.epoch !== lastEpoch) {
+        lastEpoch = state.epoch;
+        void load(true);
+      }
+    });
+
+    return () => {
+      active = false;
+      violationSubscribers.delete(onMutation);
+      unsubQuota();
+    };
   },
 
   async saveViolation(
@@ -864,7 +849,7 @@ export const youthDisciplineService = {
       throw new Error(`Lỗi lưu vào cơ sở dữ liệu: ${e?.message || 'Không thể lưu bản ghi vi phạm'}`);
     }
 
-    // 2. Update local cache
+    // 2. Update local cache & invalidate TTL cache
     const current = await this.getViolations();
     const existingIdx = current.findIndex(v => v.id === id);
     if (existingIdx >= 0) {
@@ -873,6 +858,8 @@ export const youthDisciplineService = {
       current.unshift(record);
     }
     safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:violations');
+    notifyYouthViolationsChanged();
 
     // 3. Add Audit Log
     try {
@@ -916,6 +903,8 @@ export const youthDisciplineService = {
     target.updatedAt = new Date().toISOString();
 
     safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:violations');
+    notifyYouthViolationsChanged();
 
     try {
       await updateDoc(doc(db, COLLECTIONS.VIOLATIONS, id), {
@@ -932,7 +921,9 @@ export const youthDisciplineService = {
         updatedAt: target.updatedAt,
         updated_at: target.updatedAt
       });
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore unlockViolation error:', e);
     }
 
@@ -967,13 +958,17 @@ export const youthDisciplineService = {
 
     try {
       await deleteDoc(doc(db, COLLECTIONS.VIOLATIONS, id));
+      reportFirestoreSuccess();
     } catch (e: any) {
+      reportFirestoreError(e);
       console.error('Firestore deleteViolation error:', e);
       throw new Error(`Lỗi khi xóa bản ghi trong cơ sở dữ liệu: ${e?.message || ''}`);
     }
 
     const filtered = current.filter(v => v.id !== id);
     safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(filtered));
+    invalidateFirestoreCache('youth:violations');
+    notifyYouthViolationsChanged();
 
     if (target) {
       try {
@@ -1022,6 +1017,8 @@ export const youthDisciplineService = {
     }
 
     safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(remaining));
+    invalidateFirestoreCache('youth:violations');
+    notifyYouthViolationsChanged();
 
     try {
       await this.addAuditLog({
@@ -1095,6 +1092,8 @@ export const youthDisciplineService = {
     target.updatedAt = new Date().toISOString();
 
     safeStorage.setItem(CACHE_KEYS.VIOLATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:violations');
+    notifyYouthViolationsChanged();
 
     try {
       await updateDoc(doc(db, COLLECTIONS.VIOLATIONS, id), {
@@ -1104,7 +1103,9 @@ export const youthDisciplineService = {
         confirmedAt: target.confirmedAt,
         updatedAt: target.updatedAt
       });
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore updateViolationStatus error:', e);
     }
 
@@ -1170,27 +1171,57 @@ export const youthDisciplineService = {
     });
   },
 
-  // 5. WEEKLY LOCK / UNLOCK
-  async getWeeklyLock(schoolYear: string, weekNumber: number): Promise<YouthWeeklyLockRecord> {
-    const lockId = `lock_${schoolYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${weekNumber}`;
+  // 5. WEEKLY LOCK / UNLOCK (1 single query for all 37 weeks instead of 37 sequential getDoc calls!)
+  async getAllWeeklyLocks(schoolYear: string, forceRefresh = false): Promise<Record<number, YouthWeeklyLockRecord>> {
+    const buildEmptyMap = (): Record<number, YouthWeeklyLockRecord> => {
+      const map: Record<number, YouthWeeklyLockRecord> = {};
+      for (let w = 1; w <= 37; w++) {
+        const lockId = `lock_${schoolYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${w}`;
+        const cached = safeStorage.getItem(`${CACHE_KEYS.LOCKS}_${lockId}`);
+        if (cached) {
+          try {
+            map[w] = JSON.parse(cached);
+            continue;
+          } catch {
+            // ignore
+          }
+        }
+        map[w] = { id: lockId, schoolYear, weekNumber: w, isLocked: false };
+      }
+      return map;
+    };
+
     try {
-      const snap = await getDoc(doc(db, COLLECTIONS.WEEKLY_LOCKS, lockId));
-      if (snap.exists()) {
-        return snap.data() as YouthWeeklyLockRecord;
-      }
+      return await cachedFirestoreFetch<Record<number, YouthWeeklyLockRecord>>(
+        `youth:weekly_locks:${schoolYear}`,
+        YOUTH_TTL_MS,
+        async () => {
+          const map = buildEmptyMap();
+          const qLocks = query(collection(db, COLLECTIONS.WEEKLY_LOCKS), where('schoolYear', '==', schoolYear));
+          const snap = await getDocs(qLocks);
+          snap.docs.forEach((d) => {
+            const data = d.data() as YouthWeeklyLockRecord;
+            if (data && typeof data.weekNumber === 'number') {
+              map[data.weekNumber] = data;
+              safeStorage.setItem(`${CACHE_KEYS.LOCKS}_${d.id}`, JSON.stringify(data));
+            }
+          });
+          return map;
+        },
+        { force: forceRefresh, fallback: buildEmptyMap }
+      );
     } catch (e) {
-      console.warn('Firestore getWeeklyLock error:', e);
+      console.warn('Firestore getAllWeeklyLocks error, using cache:', e);
+      return buildEmptyMap();
     }
+  },
 
-    const cached = safeStorage.getItem(`${CACHE_KEYS.LOCKS}_${lockId}`);
-    if (cached) {
-      try {
-        return JSON.parse(cached);
-      } catch (err) {
-        console.error(err);
-      }
+  async getWeeklyLock(schoolYear: string, weekNumber: number): Promise<YouthWeeklyLockRecord> {
+    const allLocks = await this.getAllWeeklyLocks(schoolYear);
+    if (allLocks[weekNumber]) {
+      return allLocks[weekNumber];
     }
-
+    const lockId = `lock_${schoolYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${weekNumber}`;
     return {
       id: lockId,
       schoolYear,
@@ -1220,10 +1251,12 @@ export const youthDisciplineService = {
     };
 
     safeStorage.setItem(`${CACHE_KEYS.LOCKS}_${lockId}`, JSON.stringify(payload));
+    invalidateFirestoreCache(`youth:weekly_locks:${schoolYear}`);
 
     try {
       await setDoc(doc(db, COLLECTIONS.WEEKLY_LOCKS, lockId), payload, { merge: true });
     } catch (e) {
+      reportFirestoreError(e, 'youthDisciplineService.lockWeek');
       console.warn('Firestore lockWeek error:', e);
     }
 
@@ -1263,10 +1296,12 @@ export const youthDisciplineService = {
     };
 
     safeStorage.setItem(`${CACHE_KEYS.LOCKS}_${lockId}`, JSON.stringify(payload));
+    invalidateFirestoreCache(`youth:weekly_locks:${schoolYear}`);
 
     try {
       await setDoc(doc(db, COLLECTIONS.WEEKLY_LOCKS, lockId), payload, { merge: true });
     } catch (e) {
+      reportFirestoreError(e, 'youthDisciplineService.unlockWeek');
       console.warn('Firestore unlockWeek error:', e);
     }
 
@@ -1285,35 +1320,48 @@ export const youthDisciplineService = {
     return payload;
   },
 
-  // 6. SETTINGS
+  // 6. SETTINGS (5-min TTL cached)
   async getSettings(schoolYear: string = '2026–2027'): Promise<YouthDisciplineSettings> {
-    try {
-      const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, DEFAULT_YOUTH_SETTINGS.id));
-      if (snap.exists()) {
-        const data = snap.data() as YouthDisciplineSettings;
-        safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(data));
-        return data;
+    const readCached = (): YouthDisciplineSettings => {
+      const cached = safeStorage.getItem(CACHE_KEYS.SETTINGS);
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch {
+          // ignore
+        }
       }
+      return DEFAULT_YOUTH_SETTINGS;
+    };
+
+    try {
+      return await cachedFirestoreFetch<YouthDisciplineSettings>(
+        `youth:settings:${schoolYear}`,
+        YOUTH_TTL_MS,
+        async () => {
+          const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, DEFAULT_YOUTH_SETTINGS.id));
+          if (snap.exists()) {
+            const data = snap.data() as YouthDisciplineSettings;
+            safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(data));
+            return data;
+          }
+          return readCached();
+        },
+        { fallback: readCached }
+      );
     } catch (e) {
       console.warn('Firestore getSettings error:', e);
+      return readCached();
     }
-
-    const cached = safeStorage.getItem(CACHE_KEYS.SETTINGS);
-    if (cached) {
-      try {
-        return JSON.parse(cached);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    return DEFAULT_YOUTH_SETTINGS;
   },
 
   async saveSettings(settings: YouthDisciplineSettings, performedByRole: string = 'ADMIN'): Promise<void> {
     safeStorage.setItem(CACHE_KEYS.SETTINGS, JSON.stringify(settings));
+    invalidateFirestoreCache('youth:settings:');
     try {
       await setDoc(doc(db, COLLECTIONS.SETTINGS, settings.id), settings, { merge: true });
     } catch (e) {
+      reportFirestoreError(e, 'youthDisciplineService.saveSettings');
       console.warn('Firestore saveSettings error:', e);
     }
 
@@ -1330,45 +1378,62 @@ export const youthDisciplineService = {
     });
   },
 
-  // 7. AUDIT LOGS
+  // 7. AUDIT LOGS (bounded + 5-min TTL cached; addAuditLog updates cache directly without triggering extra Firestore read)
   async addAuditLog(log: Omit<YouthAuditLog, 'id'>): Promise<void> {
     const id = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const fullLog: YouthAuditLog = { ...log, id };
 
-    // Update local cache
-    const current = await this.getAuditLogs(100);
-    current.unshift(fullLog);
-    safeStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(current.slice(0, 100)));
+    try {
+      const cached = safeStorage.getItem(CACHE_KEYS.AUDIT_LOGS);
+      const current: YouthAuditLog[] = cached ? JSON.parse(cached) : [];
+      current.unshift(fullLog);
+      safeStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(current.slice(0, 50)));
+    } catch {
+      // ignore cache parse errors
+    }
+    invalidateFirestoreCache('youth:audit_logs');
 
     try {
       await setDoc(doc(db, COLLECTIONS.AUDIT_LOGS, id), fullLog);
     } catch (e) {
+      reportFirestoreError(e, 'youthDisciplineService.addAuditLog');
       console.warn('Firestore addAuditLog warning:', e);
     }
   },
 
-  async getAuditLogs(limitCount: number = 50): Promise<YouthAuditLog[]> {
-    try {
-      const q = query(collection(db, COLLECTIONS.AUDIT_LOGS), orderBy('timestamp', 'desc'), limit(limitCount));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const logs = snap.docs.map(d => d.data() as YouthAuditLog);
-        safeStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(logs));
-        return logs;
+  async getAuditLogs(limitCount: number = 30): Promise<YouthAuditLog[]> {
+    const readCached = (): YouthAuditLog[] => {
+      const cached = safeStorage.getItem(CACHE_KEYS.AUDIT_LOGS);
+      if (cached) {
+        try {
+          return (JSON.parse(cached) as YouthAuditLog[]).slice(0, limitCount);
+        } catch {
+          return [];
+        }
       }
+      return [];
+    };
+
+    try {
+      return await cachedFirestoreFetch<YouthAuditLog[]>(
+        `youth:audit_logs:${limitCount}`,
+        YOUTH_TTL_MS,
+        async () => {
+          const q = query(collection(db, COLLECTIONS.AUDIT_LOGS), orderBy('timestamp', 'desc'), limit(limitCount));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const logs = snap.docs.map(d => d.data() as YouthAuditLog);
+            safeStorage.setItem(CACHE_KEYS.AUDIT_LOGS, JSON.stringify(logs));
+            return logs;
+          }
+          return readCached();
+        },
+        { fallback: readCached }
+      );
     } catch (e) {
       console.warn('Firestore getAuditLogs error, using cache:', e);
+      return readCached();
     }
-
-    const cached = safeStorage.getItem(CACHE_KEYS.AUDIT_LOGS);
-    if (cached) {
-      try {
-        return JSON.parse(cached);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    return [];
   },
 
   // 8. SUMMARY CALCULATION & STUDENT VIOLATION DEDUCTION

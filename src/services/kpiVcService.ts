@@ -6,7 +6,6 @@ import {
   getDocs, 
   updateDoc, 
   deleteDoc, 
-  onSnapshot, 
   query, 
   orderBy, 
   where,
@@ -14,6 +13,14 @@ import {
   writeBatch 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import {
+  canAttemptFirestoreRead,
+  createCachedSubscriptionChannel,
+  isQuotaExceededError,
+  reportFirestoreError,
+  reportFirestoreSuccess,
+  type CachedSubscriptionChannel
+} from '../utils/firestoreQuotaManager';
 import { 
   KpiVcForm, 
   KpiVcPeriod, 
@@ -130,58 +137,74 @@ const isValidVcFormDoc = (docId: string, data: any): boolean => {
  * Bảo vệ hạn ngạch Firestore: Chỉ chạy 1 lần/phiên trình duyệt và chỉ nạp khi collection rỗng
  */
 export const seedVcInitialDataIfNeeded = async () => {
+  const seedKey = 'kpi_vc_seed_done_v2';
   if (typeof window !== 'undefined') {
     try {
-      const sessionKey = 'kpi_vc_seed_done_v2';
-      if (window.sessionStorage && sessionStorage.getItem(sessionKey)) {
-        return; // Đã kiểm tra trong phiên này, tránh lãng phí hạn ngạch Firestore
+      if (
+        window.localStorage?.getItem(seedKey) === 'true' ||
+        window.sessionStorage?.getItem(seedKey) === 'true'
+      ) {
+        hydrateVcFormsFromIndexedDb();
+        return; // Đã kiểm tra, tránh lãng phí hạn ngạch Firestore
       }
-      window.sessionStorage?.setItem(sessionKey, 'true');
+      window.sessionStorage?.setItem(seedKey, 'true');
     } catch {
-      // Ignore sessionStorage restrictions
+      // Ignore storage restrictions
     }
   }
 
+  if (!canAttemptFirestoreRead()) {
+    hydrateVcFormsFromIndexedDb();
+    return;
+  }
+
   try {
-    // 1. Groups - Kiểm tra trước khi ghi
+    // 1. Groups - Kiểm tra bằng limit(1) thay vì đọc toàn bộ collection
     try {
-      const groupsSnap = await getDocs(collection(db, VC_COLLECTIONS.GROUPS));
+      const groupsSnap = await getDocs(query(collection(db, VC_COLLECTIONS.GROUPS), limit(1)));
       if (groupsSnap.empty) {
         for (const grp of DEFAULT_VC_GROUPS) {
           await setDoc(doc(db, VC_COLLECTIONS.GROUPS, grp.id), cleanFirestoreData(grp), { merge: true }).catch(() => {});
         }
       }
     } catch (grpErr) {
+      reportFirestoreError(grpErr, 'kpiVc:seedGroups');
       console.warn('Groups check skipped:', grpErr);
     }
 
-    // 2. Criteria - Kiểm tra trước khi ghi
+    // 2. Criteria - Kiểm tra bằng limit(1)
     try {
-      const criteriaSnap = await getDocs(collection(db, VC_COLLECTIONS.CRITERIA));
+      const criteriaSnap = await getDocs(query(collection(db, VC_COLLECTIONS.CRITERIA), limit(1)));
       if (criteriaSnap.empty) {
         for (const crit of DEFAULT_VC_CRITERIA) {
           await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, crit.id), cleanFirestoreData(crit), { merge: true }).catch(() => {});
         }
       }
     } catch (critErr) {
+      reportFirestoreError(critErr, 'kpiVc:seedCriteria');
       console.warn('Criteria seeding skipped or deferred:', critErr);
     }
 
-    // 3. Periods - Kiểm tra trước khi ghi
+    // 3. Periods - Kiểm tra bằng limit(1)
     try {
-      const periodsSnap = await getDocs(collection(db, VC_COLLECTIONS.PERIODS));
+      const periodsSnap = await getDocs(query(collection(db, VC_COLLECTIONS.PERIODS), limit(1)));
       if (periodsSnap.empty) {
         for (const p of DEFAULT_VC_PERIODS) {
           await setDoc(doc(db, VC_COLLECTIONS.PERIODS, p.id), cleanFirestoreData(p)).catch(() => {});
         }
       }
     } catch (pErr) {
+      reportFirestoreError(pErr, 'kpiVc:seedPeriods');
       console.warn('Periods seeding skipped or deferred:', pErr);
     }
+
+    reportFirestoreSuccess();
+    safeLocalStorageSet(seedKey, 'true');
 
     // 4. Khởi tạo đọc đệm IndexedDB an toàn mà KHÔNG ghi đè các kỳ khác (Tháng 7, 8, 11...)
     hydrateVcFormsFromIndexedDb();
   } catch (error) {
+    reportFirestoreError(error, 'kpiVc:seedInitial');
     console.error('Error seeding initial VC KPI data:', error);
   }
 };
@@ -754,39 +777,24 @@ const emitFirestoreStatus = (detail: { isOnline: boolean; error?: string; quotaE
   }
 };
 
-/**
- * Lắng nghe danh sách Phiếu đánh giá theo Kỳ (giảm 90% lượt đọc Firestore, bảo toàn đầy đủ các kỳ Tháng 7, 8, 9, 10, 11...)
- */
-export const subscribeVcFormsByPeriod = (
-  periodId: string,
-  callback: (forms: KpiVcForm[]) => void
-) => {
-  const effectivePeriod = periodId || 'all';
-  let isDisposed = false;
+const VC_META_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const VC_FORMS_TTL_MS = 3 * 60 * 1000; // 3 minutes
+const VC_LOGS_TTL_MS = 3 * 60 * 1000;  // 3 minutes
 
-  // 1. Trả về cache cục bộ của kỳ đang chọn ngay lập tức (0ms)
-  const initialScoped = getVcFormsCache(effectivePeriod);
-  initialScoped.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
-  callback(initialScoped);
+const vcFormsPeriodChannels = new Map<string, CachedSubscriptionChannel<KpiVcForm[]>>();
 
-  const handleLocalEvent = () => {
-    if (isDisposed) return;
-    const freshScoped = getVcFormsCache(effectivePeriod);
-    freshScoped.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
-    callback(freshScoped);
-  };
+const getVcFormsPeriodChannel = (effectivePeriod: string): CachedSubscriptionChannel<KpiVcForm[]> => {
+  const existing = vcFormsPeriodChannels.get(effectivePeriod);
+  if (existing) return existing;
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('kpi_vc_forms_updated', handleLocalEvent);
-  }
-
-  const q = effectivePeriod === 'all'
-    ? query(collection(db, VC_COLLECTIONS.FORMS))
-    : query(collection(db, VC_COLLECTIONS.FORMS), where('periodId', '==', effectivePeriod));
-
-  const unsubFirestore = onSnapshot(q, (snapshot) => {
-    if (isDisposed) return;
-    try {
+  const channel = createCachedSubscriptionChannel<KpiVcForm[]>({
+    cacheKey: `kpi_vc:forms:${effectivePeriod}`,
+    ttlMs: VC_FORMS_TTL_MS,
+    fetcher: async () => {
+      const q = effectivePeriod === 'all'
+        ? query(collection(db, VC_COLLECTIONS.FORMS))
+        : query(collection(db, VC_COLLECTIONS.FORMS), where('periodId', '==', effectivePeriod));
+      const snapshot = await getDocs(q);
       const firestoreList: KpiVcForm[] = [];
       snapshot.forEach((docSnap) => {
         const raw = docSnap.data();
@@ -799,10 +807,8 @@ export const subscribeVcFormsByPeriod = (
       const firestoreMap = new Map(firestoreList.map(f => [f.id, f]));
       let finalList: KpiVcForm[] = [...firestoreList];
 
-      // Giữ lại thay đổi cục bộ mới hơn đang chờ đồng bộ nếu có
       currentScopedCached.forEach(cForm => {
         if (!firestoreMap.has(cForm.id)) {
-          // Chỉ giữ form local chưa có trên Firestore nếu là form vừa tạo/offline hoặc thuộc canonical Sep/Oct
           if (
             firestoreList.length === 0 ||
             cForm.periodId === 'vc_period_2026_09' ||
@@ -829,27 +835,57 @@ export const subscribeVcFormsByPeriod = (
       firestoreSyncedPeriods.add(effectivePeriod);
       saveVcFormsCache(finalList, { replacePeriodId: effectivePeriod, dispatchEvent: false });
       emitFirestoreStatus({ isOnline: true });
-      callback(finalList);
-    } catch (snapErr: any) {
-      console.error('Error processing VC forms snapshot:', snapErr);
+      return finalList;
+    },
+    getFallback: () => {
       const fallbackList = getVcFormsCache(effectivePeriod);
-      callback(fallbackList);
+      fallbackList.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
+      return fallbackList;
+    },
+    onError: (err: any) => {
+      console.warn(`Firestore fetch notice for VC Forms (${effectivePeriod}):`, err);
+      emitFirestoreStatus({
+        isOnline: false,
+        error: err?.message || 'Firestore connection notice',
+        quotaExceeded: isQuotaExceededError(err)
+      });
     }
-  }, (err) => {
+  });
+
+  vcFormsPeriodChannels.set(effectivePeriod, channel);
+  return channel;
+};
+
+/**
+ * Lắng nghe danh sách Phiếu đánh giá theo Kỳ với TTL cache 3 phút & bảo vệ Quota
+ * Chuyển qua lại giữa các kỳ đánh giá hoặc module trong 3 phút = 0 lượt đọc Firestore mới.
+ */
+export const subscribeVcFormsByPeriod = (
+  periodId: string,
+  callback: (forms: KpiVcForm[]) => void
+) => {
+  const effectivePeriod = periodId || 'all';
+  let isDisposed = false;
+
+  const handleLocalEvent = () => {
     if (isDisposed) return;
-    console.warn(`Firestore subscription notice for VC Forms (${effectivePeriod}):`, err);
-    emitFirestoreStatus({
-      isOnline: false,
-      error: err?.message || 'Firestore connection notice',
-      quotaExceeded: String(err?.message || '').toLowerCase().includes('quota') || (err as any)?.code === 'resource-exhausted'
-    });
-    const fallbackList = getVcFormsCache(effectivePeriod);
-    callback(fallbackList);
+    const freshScoped = getVcFormsCache(effectivePeriod);
+    freshScoped.sort((a, b) => toTimestampMs(b.updatedAt || b.createdAt) - toTimestampMs(a.updatedAt || a.createdAt));
+    callback(freshScoped);
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('kpi_vc_forms_updated', handleLocalEvent);
+  }
+
+  const channel = getVcFormsPeriodChannel(effectivePeriod);
+  const unsubChannel = channel.subscribe((list) => {
+    if (!isDisposed) callback(list);
   });
 
   return () => {
     isDisposed = true;
-    unsubFirestore();
+    unsubChannel();
     if (typeof window !== 'undefined') {
       window.removeEventListener('kpi_vc_forms_updated', handleLocalEvent);
     }
@@ -863,97 +899,114 @@ export const subscribeVcForms = (callback: (forms: KpiVcForm[]) => void) => {
   return subscribeVcFormsByPeriod('all', callback);
 };
 
-/**
- * Lắng nghe danh sách Kỳ đánh giá (kpi_vc_periods)
- */
-export const subscribeVcPeriods = (callback: (periods: KpiVcPeriod[]) => void) => {
-  const q = query(collection(db, VC_COLLECTIONS.PERIODS));
-  return onSnapshot(q, (snapshot) => {
+const vcPeriodsChannel = createCachedSubscriptionChannel<KpiVcPeriod[]>({
+  cacheKey: 'kpi_vc:periods',
+  ttlMs: VC_META_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, VC_COLLECTIONS.PERIODS)));
     const list: KpiVcPeriod[] = [];
     snapshot.forEach((docSnap) => {
       list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcPeriod);
     });
-    
-    // Merge DEFAULT_VC_PERIODS to ensure all months (1-12) and semesters are present
     const existingIds = new Set(list.map(p => p.id));
     const combined = [...list];
     for (const defP of DEFAULT_VC_PERIODS) {
-      if (!existingIds.has(defP.id)) {
-        combined.push(defP);
-      }
+      if (!existingIds.has(defP.id)) combined.push(defP);
     }
-    
-    callback(combined.length > 0 ? combined : DEFAULT_VC_PERIODS);
-  }, (err) => {
-    console.error('Error subscribing to VC Periods:', err);
-    callback(DEFAULT_VC_PERIODS);
-  });
-};
+    return combined.length > 0 ? combined : DEFAULT_VC_PERIODS;
+  },
+  getFallback: () => DEFAULT_VC_PERIODS
+});
 
 /**
- * Lắng nghe danh sách Tiêu chí (kpi_vc_criteria)
+ * Lắng nghe danh sách Kỳ đánh giá (kpi_vc_periods) - TTL 10 phút
  */
-export const subscribeVcCriteria = (callback: (criteria: KpiVcCriterion[]) => void) => {
-  const q = query(collection(db, VC_COLLECTIONS.CRITERIA));
-  const defaultMap = new Map(DEFAULT_VC_CRITERIA.map(c => [c.id, c]));
+export const subscribeVcPeriods = (callback: (periods: KpiVcPeriod[]) => void) => {
+  return vcPeriodsChannel.subscribe(callback);
+};
 
-  return onSnapshot(q, (snapshot) => {
+const vcCriteriaChannel = createCachedSubscriptionChannel<KpiVcCriterion[]>({
+  cacheKey: 'kpi_vc:criteria',
+  ttlMs: VC_META_TTL_MS,
+  fetcher: async () => {
+    const defaultMap = new Map(DEFAULT_VC_CRITERIA.map(c => [c.id, c]));
+    const snapshot = await getDocs(query(collection(db, VC_COLLECTIONS.CRITERIA)));
     const list: KpiVcCriterion[] = [];
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as KpiVcCriterion;
       const def = defaultMap.get(docSnap.id);
-      // Đồng bộ chuẩn điểm tối đa mục II (kết quả thực hiện nhiệm vụ được giao: 60 điểm)
-      const maxScore = def && def.groupId === 'group_III' && def.subGroup === 'B' 
-        ? def.maxScore 
+      const maxScore = def && def.groupId === 'group_III' && def.subGroup === 'B'
+        ? def.maxScore
         : (typeof data.maxScore === 'number' ? data.maxScore : (def?.maxScore ?? 2));
-
       list.push({ id: docSnap.id, ...data, maxScore } as KpiVcCriterion);
     });
     list.sort((a, b) => a.order - b.order);
-    callback(list.length > 0 ? list : DEFAULT_VC_CRITERIA);
-  }, (err) => {
-    console.error('Error subscribing to VC Criteria:', err);
-    callback(DEFAULT_VC_CRITERIA);
-  });
-};
+    return list.length > 0 ? list : DEFAULT_VC_CRITERIA;
+  },
+  getFallback: () => DEFAULT_VC_CRITERIA
+});
 
 /**
- * Lắng nghe danh sách Nhóm tiêu chí (kpi_vc_groups)
+ * Lắng nghe danh sách Tiêu chí (kpi_vc_criteria) - TTL 10 phút
  */
-export const subscribeVcGroups = (callback: (groups: KpiVcCriteriaGroup[]) => void) => {
-  const q = query(collection(db, VC_COLLECTIONS.GROUPS));
-  return onSnapshot(q, (snapshot) => {
+export const subscribeVcCriteria = (callback: (criteria: KpiVcCriterion[]) => void) => {
+  return vcCriteriaChannel.subscribe(callback);
+};
+
+const vcGroupsChannel = createCachedSubscriptionChannel<KpiVcCriteriaGroup[]>({
+  cacheKey: 'kpi_vc:groups',
+  ttlMs: VC_META_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, VC_COLLECTIONS.GROUPS)));
     const list: KpiVcCriteriaGroup[] = [];
     snapshot.forEach((docSnap) => {
       list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcCriteriaGroup);
     });
     list.sort((a, b) => a.order - b.order);
-    callback(list.length > 0 ? list : DEFAULT_VC_GROUPS);
-  }, (err) => {
-    console.error('Error subscribing to VC Groups:', err);
-    callback(DEFAULT_VC_GROUPS);
-  });
-};
+    return list.length > 0 ? list : DEFAULT_VC_GROUPS;
+  },
+  getFallback: () => DEFAULT_VC_GROUPS
+});
 
 /**
- * Lắng nghe Audit Logs (kpi_vc_audit_logs)
+ * Lắng nghe danh sách Nhóm tiêu chí (kpi_vc_groups) - TTL 10 phút
  */
-export const subscribeVcAuditLogs = (callback: (logs: KpiVcAuditLog[]) => void) => {
-  const q = query(
-    collection(db, VC_COLLECTIONS.AUDIT_LOGS),
-    orderBy('timestamp', 'desc'),
-    limit(50)
-  );
-  return onSnapshot(q, (snapshot) => {
+export const subscribeVcGroups = (callback: (groups: KpiVcCriteriaGroup[]) => void) => {
+  return vcGroupsChannel.subscribe(callback);
+};
+
+const vcAuditLogsChannel = createCachedSubscriptionChannel<KpiVcAuditLog[]>({
+  cacheKey: 'kpi_vc:audit_logs',
+  ttlMs: VC_LOGS_TTL_MS,
+  fetcher: async () => {
+    const q = query(
+      collection(db, VC_COLLECTIONS.AUDIT_LOGS),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+    const snapshot = await getDocs(q);
     const list: KpiVcAuditLog[] = [];
     snapshot.forEach((docSnap) => {
       list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcAuditLog);
     });
     list.sort((a, b) => toTimestampMs(b.timestamp) - toTimestampMs(a.timestamp));
-    callback(list);
-  }, (err) => {
-    console.error('Error subscribing to VC Audit Logs:', err);
-  });
+    return list;
+  },
+  getFallback: () => {
+    try {
+      const cached = localStorage.getItem('kpi_vc_audit_logs_cache');
+      return cached ? (JSON.parse(cached) as KpiVcAuditLog[]) : [];
+    } catch {
+      return [];
+    }
+  }
+});
+
+/**
+ * Lắng nghe Audit Logs (kpi_vc_audit_logs) - giới hạn 50 bản ghi, TTL 3 phút
+ */
+export const subscribeVcAuditLogs = (callback: (logs: KpiVcAuditLog[]) => void) => {
+  return vcAuditLogsChannel.subscribe(callback);
 };
 
 /**
@@ -970,7 +1023,9 @@ export const addVcAuditLog = async (logData: Omit<KpiVcAuditLog, 'id' | 'timesta
     try {
       const cached = localStorage.getItem('kpi_vc_audit_logs_cache');
       const list = cached ? JSON.parse(cached) : [];
-      safeLocalStorageSet('kpi_vc_audit_logs_cache', JSON.stringify([fullLog, ...list].slice(0, 100)));
+      const next = [fullLog, ...list].slice(0, 100);
+      safeLocalStorageSet('kpi_vc_audit_logs_cache', JSON.stringify(next));
+      vcAuditLogsChannel.publish(next.slice(0, 50));
     } catch (e) {}
 
     await setDoc(doc(db, VC_COLLECTIONS.AUDIT_LOGS, logId), cleanFirestoreData(fullLog));
@@ -1407,6 +1462,7 @@ export const createVcCriterion = async (
   };
 
   await setDoc(doc(db, VC_COLLECTIONS.CRITERIA, critId), cleanFirestoreData(fullCrit));
+  vcCriteriaChannel.invalidate(true);
 
   await addVcAuditLog({
     criterionId: critId,
@@ -1438,6 +1494,7 @@ export const updateVcCriterion = async (
   };
 
   await updateDoc(docRef, cleanFirestoreData(payload));
+  vcCriteriaChannel.invalidate(true);
 
   await addVcAuditLog({
     criterionId: critId,
@@ -1466,6 +1523,7 @@ export const toggleActiveVcCriterion = async (
     isActive,
     updatedAt: now
   }));
+  vcCriteriaChannel.invalidate(true);
 
   await addVcAuditLog({
     criterionId: critId,
@@ -1496,6 +1554,7 @@ export const createVcPeriod = async (
   };
 
   await setDoc(doc(db, VC_COLLECTIONS.PERIODS, periodId), cleanFirestoreData(fullPeriod));
+  vcPeriodsChannel.invalidate(true);
 
   await addVcAuditLog({
     periodId,
@@ -1517,6 +1576,7 @@ export const updateVcPeriod = async (
 ) => {
   const docRef = doc(db, VC_COLLECTIONS.PERIODS, periodId);
   await updateDoc(docRef, cleanFirestoreData(updateData));
+  vcPeriodsChannel.invalidate(true);
 
   await addVcAuditLog({
     periodId,
@@ -1535,6 +1595,7 @@ export const createVcGroup = async (
 ): Promise<string> => {
   const grpId = groupData.code ? `group_${groupData.code}` : `group_${Date.now()}`;
   await setDoc(doc(db, VC_COLLECTIONS.GROUPS, grpId), cleanFirestoreData({ ...groupData, id: grpId }));
+  vcGroupsChannel.invalidate(true);
   return grpId;
 };
 
@@ -1545,6 +1606,7 @@ export const updateVcGroup = async (
 ) => {
   const docRef = doc(db, VC_COLLECTIONS.GROUPS, groupId);
   await updateDoc(docRef, cleanFirestoreData(updateData));
+  vcGroupsChannel.invalidate(true);
 };
 
 // ==========================================
@@ -1571,77 +1633,64 @@ const saveVcRatingConfigsCache = (configs: KpiVcRatingConfig[]) => {
   }
 };
 
-/**
- * Lắng nghe danh sách Cấu hình xếp loại (kpi_vc_rating_configs)
- */
-export const subscribeVcRatingConfigs = (callback: (configs: KpiVcRatingConfig[]) => void) => {
-  const cached = getVcRatingConfigsCache();
-  if (cached.length > 0) {
-    callback(cached);
-  }
+const buildDefaultVcRatingConfig = (): KpiVcRatingConfig => ({
+  id: 'vc_rating_default',
+  periodId: 'all',
+  periodName: 'Mặc định toàn trường',
+  scaleMaxScore: 100,
+  tiers: DEFAULT_VC_RATING_TIERS,
+  isActive: true,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  note: 'Cấu hình xếp loại 4 mức mặc định của nhà trường'
+});
 
-  const q = query(collection(db, VC_COLLECTIONS.RATING_CONFIGS));
-  return onSnapshot(q, (snapshot) => {
+const vcRatingConfigsChannel = createCachedSubscriptionChannel<KpiVcRatingConfig[]>({
+  cacheKey: 'kpi_vc:rating_configs',
+  ttlMs: VC_META_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, VC_COLLECTIONS.RATING_CONFIGS)));
     const list: KpiVcRatingConfig[] = [];
     snapshot.forEach((docSnap) => {
       list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcRatingConfig);
     });
-
-    // Nếu chưa có cấu hình nào trong Firestore, tạo cấu hình mặc định toàn trường
-    if (list.length === 0) {
-      const defaultGlobalConfig: KpiVcRatingConfig = {
-        id: 'vc_rating_default',
-        periodId: 'all',
-        periodName: 'Mặc định toàn trường',
-        scaleMaxScore: 100,
-        tiers: DEFAULT_VC_RATING_TIERS,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        note: 'Cấu hình xếp loại 4 mức mặc định của nhà trường'
-      };
-      saveVcRatingConfigsCache([defaultGlobalConfig]);
-      callback([defaultGlobalConfig]);
-      return;
-    }
-
-    saveVcRatingConfigsCache(list);
-    callback(list);
-  }, (err) => {
-    console.error('Error subscribing to VC rating configs:', err);
-    const fallbackList = getVcRatingConfigsCache();
-    if (fallbackList.length > 0) {
-      callback(fallbackList);
-    } else {
-      callback([{
-        id: 'vc_rating_default',
-        periodId: 'all',
-        periodName: 'Mặc định toàn trường',
-        scaleMaxScore: 100,
-        tiers: DEFAULT_VC_RATING_TIERS,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }]);
-    }
-  });
-};
+    const final = list.length > 0 ? list : [buildDefaultVcRatingConfig()];
+    saveVcRatingConfigsCache(final);
+    return final;
+  },
+  getFallback: () => {
+    const cached = getVcRatingConfigsCache();
+    return cached.length > 0 ? cached : [buildDefaultVcRatingConfig()];
+  }
+});
 
 /**
- * Lắng nghe Lịch sử thay đổi cấu hình xếp loại (kpi_vc_rating_config_history)
+ * Lắng nghe danh sách Cấu hình xếp loại (kpi_vc_rating_configs) - TTL 10 phút
  */
-export const subscribeVcRatingConfigHistory = (callback: (history: KpiVcRatingConfigHistory[]) => void) => {
-  const q = query(collection(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY));
-  return onSnapshot(q, (snapshot) => {
+export const subscribeVcRatingConfigs = (callback: (configs: KpiVcRatingConfig[]) => void) => {
+  return vcRatingConfigsChannel.subscribe(callback);
+};
+
+const vcRatingConfigHistoryChannel = createCachedSubscriptionChannel<KpiVcRatingConfigHistory[]>({
+  cacheKey: 'kpi_vc:rating_config_history',
+  ttlMs: VC_LOGS_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY), limit(50)));
     const list: KpiVcRatingConfigHistory[] = [];
     snapshot.forEach((docSnap) => {
       list.push({ id: docSnap.id, ...docSnap.data() } as KpiVcRatingConfigHistory);
     });
     list.sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
-    callback(list);
-  }, (err) => {
-    console.error('Error subscribing to VC rating config history:', err);
-  });
+    return list;
+  },
+  getFallback: () => []
+});
+
+/**
+ * Lắng nghe Lịch sử thay đổi cấu hình xếp loại (kpi_vc_rating_config_history) - giới hạn 50, TTL 3 phút
+ */
+export const subscribeVcRatingConfigHistory = (callback: (history: KpiVcRatingConfigHistory[]) => void) => {
+  return vcRatingConfigHistoryChannel.subscribe(callback);
 };
 
 /**
@@ -1681,6 +1730,7 @@ export const saveVcRatingConfig = async (
     cachedConfigs.push(fullConfig);
   }
   saveVcRatingConfigsCache(cachedConfigs);
+  vcRatingConfigsChannel.publish(cachedConfigs);
 
   // Ghi Lịch sử cấu hình
   const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -1698,6 +1748,7 @@ export const saveVcRatingConfig = async (
   };
 
   await setDoc(doc(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY, historyId), cleanFirestoreData(historyItem));
+  vcRatingConfigHistoryChannel.publish([historyItem, ...(vcRatingConfigHistoryChannel.getSnapshot() || [])].slice(0, 50));
 
   // Ghi Audit Log chung
   await addVcAuditLog({
@@ -1746,10 +1797,11 @@ export const restoreDefaultVcRatingConfig = async (
   const cached = getVcRatingConfigsCache().filter(c => c.id !== configId);
   cached.push(restoredConfig);
   saveVcRatingConfigsCache(cached);
+  vcRatingConfigsChannel.publish(cached);
 
   // History log
   const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-  await setDoc(doc(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY, historyId), cleanFirestoreData({
+  const historyItem: KpiVcRatingConfigHistory = {
     id: historyId,
     configId,
     periodId,
@@ -1760,7 +1812,9 @@ export const restoreDefaultVcRatingConfig = async (
     action: 'restore_default',
     tiers: DEFAULT_VC_RATING_TIERS,
     note: 'Khôi phục về cấu hình xếp loại mặc định ban đầu'
-  }));
+  };
+  await setDoc(doc(db, VC_COLLECTIONS.RATING_CONFIG_HISTORY, historyId), cleanFirestoreData(historyItem));
+  vcRatingConfigHistoryChannel.publish([historyItem, ...(vcRatingConfigHistoryChannel.getSnapshot() || [])].slice(0, 50));
 };
 
 /**

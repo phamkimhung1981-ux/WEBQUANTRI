@@ -2,17 +2,23 @@ import {
   collection, 
   doc, 
   getDocs, 
-  getDoc, 
   setDoc, 
   updateDoc, 
   deleteDoc, 
   query, 
   where, 
   orderBy, 
-  onSnapshot, 
+  limit,
   Unsubscribe 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { safeLocalStorageSet } from '../utils/envUtils';
+import {
+  canAttemptFirestoreRead,
+  createCachedSubscriptionChannel,
+  reportFirestoreError,
+  reportFirestoreSuccess
+} from '../utils/firestoreQuotaManager';
 import { 
   KpiCbqlPeriod, 
   KpiCbqlCriteriaGroup, 
@@ -78,90 +84,57 @@ export function cleanFirestoreData<T>(obj: T): T {
 
 export const removeUndefined = cleanFirestoreData;
 
+const CBQL_SEEDED_KEY = 'thpt_sl_kpi_cbql_seeded_v1';
+const CBQL_META_TTL_MS = 10 * 60 * 1000;
+const CBQL_DATA_TTL_MS = 3 * 60 * 1000;
+
 /**
- * 1. SEED INITIAL DATA IF FIRESTORE IS EMPTY
+ * 1. SEED INITIAL DATA IF FIRESTORE IS EMPTY (guarded by localStorage + limit(1))
  */
 export async function seedCbqlInitialDataIfNeeded() {
   try {
-    // Seed Groups
-    const groupsSnap = await getDocs(collection(db, CBQL_COLLECTIONS.CRITERIA_GROUPS));
+    if (
+      typeof window !== 'undefined' &&
+      (window.localStorage.getItem(CBQL_SEEDED_KEY) === '1' ||
+        window.sessionStorage.getItem(CBQL_SEEDED_KEY) === '1')
+    ) {
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.sessionStorage?.setItem(CBQL_SEEDED_KEY, '1');
+    }
+  } catch {
+    // ignore
+  }
+  if (!canAttemptFirestoreRead()) return;
+
+  try {
+    const groupsSnap = await getDocs(query(collection(db, CBQL_COLLECTIONS.CRITERIA_GROUPS), limit(1)));
     if (groupsSnap.empty) {
       for (const group of DEFAULT_CBQL_CRITERIA_GROUPS) {
         await setDoc(doc(db, CBQL_COLLECTIONS.CRITERIA_GROUPS, group.id), cleanFirestoreData(group));
       }
     }
 
-    // Seed Criteria
-    const criteriaSnap = await getDocs(collection(db, CBQL_COLLECTIONS.CRITERIA));
+    const criteriaSnap = await getDocs(query(collection(db, CBQL_COLLECTIONS.CRITERIA), limit(1)));
     if (criteriaSnap.empty) {
       for (const criterion of DEFAULT_CBQL_CRITERIA) {
         await setDoc(doc(db, CBQL_COLLECTIONS.CRITERIA, criterion.id), cleanFirestoreData(criterion));
       }
     }
 
-    // Seed Periods
-    const periodsSnap = await getDocs(collection(db, CBQL_COLLECTIONS.PERIODS));
+    const periodsSnap = await getDocs(query(collection(db, CBQL_COLLECTIONS.PERIODS), limit(1)));
     if (periodsSnap.empty) {
       for (const period of DEFAULT_CBQL_PERIODS) {
         await setDoc(doc(db, CBQL_COLLECTIONS.PERIODS, period.id), cleanFirestoreData(period));
       }
     }
+
+    reportFirestoreSuccess();
+    safeLocalStorageSet(CBQL_SEEDED_KEY, '1');
   } catch (err) {
+    reportFirestoreError(err, 'kpiCbql:seed');
     console.warn('Error during seeding initial CBQL data:', err);
-  }
-}
-
-/**
- * 2. REALTIME SUBSCRIPTION HELPERS
- */
-export function subscribeCbqlPeriods(onUpdate: (periods: KpiCbqlPeriod[]) => void): Unsubscribe {
-  try {
-    const q = query(collection(db, CBQL_COLLECTIONS.PERIODS));
-    return onSnapshot(q, (snapshot) => {
-      const list: KpiCbqlPeriod[] = [];
-      snapshot.forEach(docSnap => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlPeriod);
-      });
-      
-      // Merge DEFAULT_CBQL_PERIODS to ensure all months (1-12) and semesters are present
-      const existingIds = new Set(list.map(p => p.id));
-      const combined = [...list];
-      for (const defP of DEFAULT_CBQL_PERIODS) {
-        if (!existingIds.has(defP.id)) {
-          combined.push(defP);
-        }
-      }
-
-      // Sort by startDate desc or createdAt desc
-      combined.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
-      onUpdate(combined.length > 0 ? combined : DEFAULT_CBQL_PERIODS);
-    }, (err) => {
-      console.warn('subscribeCbqlPeriods error:', err);
-      onUpdate(DEFAULT_CBQL_PERIODS);
-    });
-  } catch {
-    onUpdate(DEFAULT_CBQL_PERIODS);
-    return () => {};
-  }
-}
-
-export function subscribeCbqlCriteria(onUpdate: (criteria: KpiCbqlCriterion[]) => void): Unsubscribe {
-  try {
-    const q = query(collection(db, CBQL_COLLECTIONS.CRITERIA));
-    return onSnapshot(q, (snapshot) => {
-      const list: KpiCbqlCriterion[] = [];
-      snapshot.forEach(docSnap => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlCriterion);
-      });
-      list.sort((a, b) => (a.order || 0) - (b.order || 0));
-      onUpdate(list.length > 0 ? list : DEFAULT_CBQL_CRITERIA);
-    }, (err) => {
-      console.warn('subscribeCbqlCriteria error:', err);
-      onUpdate(DEFAULT_CBQL_CRITERIA);
-    });
-  } catch {
-    onUpdate(DEFAULT_CBQL_CRITERIA);
-    return () => {};
   }
 }
 
@@ -178,8 +151,6 @@ const getCbqlFormsCache = (): KpiCbqlForm[] => {
   }
 };
 
-import { safeLocalStorageSet } from '../utils/envUtils';
-
 const saveCbqlFormsCache = (forms: KpiCbqlForm[]) => {
   try {
     safeLocalStorageSet(CBQL_FORMS_CACHE_KEY, JSON.stringify(forms));
@@ -188,59 +159,98 @@ const saveCbqlFormsCache = (forms: KpiCbqlForm[]) => {
   }
 };
 
-export function subscribeCbqlForms(onUpdate: (forms: KpiCbqlForm[]) => void): Unsubscribe {
-  // Load cache immediately
-  const cached = getCbqlFormsCache();
-  if (cached.length > 0) {
-    onUpdate(cached);
-  }
-
-  try {
-    const q = query(collection(db, CBQL_COLLECTIONS.FORMS));
-    return onSnapshot(q, (snapshot) => {
-      const firestoreList: KpiCbqlForm[] = [];
-      snapshot.forEach(docSnap => {
-        firestoreList.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlForm);
-      });
-
-      const currentCached = getCbqlFormsCache();
-      const map = new Map<string, KpiCbqlForm>();
-      currentCached.forEach(f => map.set(f.id, f));
-      firestoreList.forEach(f => map.set(f.id, f));
-
-      const mergedList = Array.from(map.values());
-      mergedList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-
-      saveCbqlFormsCache(mergedList);
-      onUpdate(mergedList);
-    }, (err) => {
-      console.warn('subscribeCbqlForms error, falling back to cache:', err);
-      onUpdate(getCbqlFormsCache());
+const cbqlPeriodsChannel = createCachedSubscriptionChannel<KpiCbqlPeriod[]>({
+  cacheKey: 'kpi_cbql:periods',
+  ttlMs: CBQL_META_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, CBQL_COLLECTIONS.PERIODS)));
+    const list: KpiCbqlPeriod[] = [];
+    snapshot.forEach(docSnap => {
+      list.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlPeriod);
     });
-  } catch {
-    onUpdate(getCbqlFormsCache());
-    return () => {};
-  }
+    const existingIds = new Set(list.map(p => p.id));
+    const combined = [...list];
+    for (const defP of DEFAULT_CBQL_PERIODS) {
+      if (!existingIds.has(defP.id)) combined.push(defP);
+    }
+    combined.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+    return combined.length > 0 ? combined : DEFAULT_CBQL_PERIODS;
+  },
+  getFallback: () => DEFAULT_CBQL_PERIODS
+});
+
+const cbqlCriteriaChannel = createCachedSubscriptionChannel<KpiCbqlCriterion[]>({
+  cacheKey: 'kpi_cbql:criteria',
+  ttlMs: CBQL_META_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, CBQL_COLLECTIONS.CRITERIA)));
+    const list: KpiCbqlCriterion[] = [];
+    snapshot.forEach(docSnap => {
+      list.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlCriterion);
+    });
+    list.sort((a, b) => (a.order || 0) - (b.order || 0));
+    return list.length > 0 ? list : DEFAULT_CBQL_CRITERIA;
+  },
+  getFallback: () => DEFAULT_CBQL_CRITERIA
+});
+
+const cbqlFormsChannel = createCachedSubscriptionChannel<KpiCbqlForm[]>({
+  cacheKey: 'kpi_cbql:forms',
+  ttlMs: CBQL_DATA_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(query(collection(db, CBQL_COLLECTIONS.FORMS)));
+    const firestoreList: KpiCbqlForm[] = [];
+    snapshot.forEach(docSnap => {
+      firestoreList.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlForm);
+    });
+    const currentCached = getCbqlFormsCache();
+    const map = new Map<string, KpiCbqlForm>();
+    currentCached.forEach(f => map.set(f.id, f));
+    firestoreList.forEach(f => map.set(f.id, f));
+    const mergedList = Array.from(map.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    saveCbqlFormsCache(mergedList);
+    return mergedList;
+  },
+  getFallback: () => getCbqlFormsCache()
+});
+
+const cbqlAuditLogsChannel = createCachedSubscriptionChannel<KpiCbqlAuditLog[]>({
+  cacheKey: 'kpi_cbql:audit_logs',
+  ttlMs: CBQL_DATA_TTL_MS,
+  fetcher: async () => {
+    const q = query(
+      collection(db, CBQL_COLLECTIONS.AUDIT_LOGS),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+    const snapshot = await getDocs(q);
+    const list: KpiCbqlAuditLog[] = [];
+    snapshot.forEach(docSnap => {
+      list.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlAuditLog);
+    });
+    list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+    return list;
+  },
+  getFallback: () => []
+});
+
+/**
+ * 2. TTL-CACHED SUBSCRIPTION HELPERS
+ */
+export function subscribeCbqlPeriods(onUpdate: (periods: KpiCbqlPeriod[]) => void): Unsubscribe {
+  return cbqlPeriodsChannel.subscribe(onUpdate);
+}
+
+export function subscribeCbqlCriteria(onUpdate: (criteria: KpiCbqlCriterion[]) => void): Unsubscribe {
+  return cbqlCriteriaChannel.subscribe(onUpdate);
+}
+
+export function subscribeCbqlForms(onUpdate: (forms: KpiCbqlForm[]) => void): Unsubscribe {
+  return cbqlFormsChannel.subscribe(onUpdate);
 }
 
 export function subscribeCbqlAuditLogs(onUpdate: (logs: KpiCbqlAuditLog[]) => void): Unsubscribe {
-  try {
-    const q = query(collection(db, CBQL_COLLECTIONS.AUDIT_LOGS));
-    return onSnapshot(q, (snapshot) => {
-      const list: KpiCbqlAuditLog[] = [];
-      snapshot.forEach(docSnap => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as KpiCbqlAuditLog);
-      });
-      list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-      onUpdate(list);
-    }, (err) => {
-      console.warn('subscribeCbqlAuditLogs error:', err);
-      onUpdate([]);
-    });
-  } catch {
-    onUpdate([]);
-    return () => {};
-  }
+  return cbqlAuditLogsChannel.subscribe(onUpdate);
 }
 
 /**
@@ -273,6 +283,7 @@ export async function logCbqlAction(
       metadata: metadata || undefined
     };
     await setDoc(doc(db, CBQL_COLLECTIONS.AUDIT_LOGS, logId), cleanFirestoreData(logEntry));
+    cbqlAuditLogsChannel.publish([logEntry, ...(cbqlAuditLogsChannel.getSnapshot() || [])].slice(0, 50));
   } catch (err) {
     console.warn('Could not record CBQL audit log:', err);
   }
@@ -325,7 +336,7 @@ export async function createCbqlForm(
   const safeData = cleanFirestoreData(newForm);
   await setDoc(doc(db, CBQL_COLLECTIONS.FORMS, formId), safeData);
 
-  // Update local cache immediately
+  // Update local cache & active subscribers immediately
   const cachedForms = getCbqlFormsCache();
   const existingIdx = cachedForms.findIndex(f => f.id === formId);
   if (existingIdx >= 0) {
@@ -334,6 +345,7 @@ export async function createCbqlForm(
     cachedForms.unshift(newForm);
   }
   saveCbqlFormsCache(cachedForms);
+  cbqlFormsChannel.publish(cachedForms);
 
   // Ghi log
   await logCbqlAction(
@@ -349,6 +361,13 @@ export async function createCbqlForm(
 
   return formId;
 }
+
+const patchCachedCbqlForm = (formId: string, patch: Partial<KpiCbqlForm>) => {
+  const current = cbqlFormsChannel.getSnapshot() || getCbqlFormsCache();
+  const next = current.map(f => f.id === formId ? { ...f, ...patch } : f);
+  saveCbqlFormsCache(next);
+  cbqlFormsChannel.publish(next);
+};
 
 // Cập nhật phần tự đánh giá
 export async function saveCbqlSelfEvaluation(
@@ -366,6 +385,7 @@ export async function saveCbqlSelfEvaluation(
 
   const safeData = cleanFirestoreData(payload);
   await updateDoc(formRef, safeData);
+  patchCachedCbqlForm(formId, payload);
 
   await logCbqlAction(
     'save_self_evaluation',
@@ -395,6 +415,7 @@ export async function submitCbqlForm(
 
   const safeData = cleanFirestoreData(payload);
   await updateDoc(formRef, safeData);
+  patchCachedCbqlForm(formId, payload);
 
   await logCbqlAction(
     'submit_form',
@@ -426,6 +447,7 @@ export async function evaluateCbqlForm(
 
   const safeData = cleanFirestoreData(payload);
   await updateDoc(formRef, safeData);
+  patchCachedCbqlForm(formId, payload);
 
   await logCbqlAction(
     'evaluate',
@@ -456,6 +478,7 @@ export async function lockCbqlForm(
 
   const safeData = cleanFirestoreData(payload);
   await updateDoc(formRef, safeData);
+  patchCachedCbqlForm(formId, payload);
 
   await logCbqlAction(
     'lock_form',
@@ -487,6 +510,7 @@ export async function unlockCbqlForm(
 
   const safeData = cleanFirestoreData(payload);
   await updateDoc(formRef, safeData);
+  patchCachedCbqlForm(formId, payload);
 
   await logCbqlAction(
     'unlock_form',
@@ -506,6 +530,9 @@ export async function deleteCbqlForm(
   user: { id: string; name: string; role?: string }
 ) {
   await deleteDoc(doc(db, CBQL_COLLECTIONS.FORMS, formId));
+  const next = (cbqlFormsChannel.getSnapshot() || getCbqlFormsCache()).filter(f => f.id !== formId);
+  saveCbqlFormsCache(next);
+  cbqlFormsChannel.publish(next);
 
   await logCbqlAction(
     'delete_form',
@@ -538,6 +565,7 @@ export async function saveCbqlPeriod(
 
   const safeData = cleanFirestoreData(payload);
   await setDoc(doc(db, CBQL_COLLECTIONS.PERIODS, id), safeData);
+  cbqlPeriodsChannel.invalidate(true);
 
   await logCbqlAction(
     'update_period',
@@ -554,6 +582,7 @@ export async function deleteCbqlPeriod(
   user: { id: string; name: string; role?: string }
 ) {
   await deleteDoc(doc(db, CBQL_COLLECTIONS.PERIODS, periodId));
+  cbqlPeriodsChannel.invalidate(true);
 
   await logCbqlAction(
     'update_period',
@@ -580,6 +609,7 @@ export async function saveCbqlCriterion(
     id
   });
   await setDoc(doc(db, CBQL_COLLECTIONS.CRITERIA, id), safeData);
+  cbqlCriteriaChannel.invalidate(true);
 
   await logCbqlAction(
     'update_criteria',

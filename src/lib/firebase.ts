@@ -12,6 +12,7 @@ import {
 import { getAuth } from 'firebase/auth';
 import firebaseConfigFile from '../../firebase-applet-config.json';
 import { probeLocalStorageHeadroom, isStorageQuotaError } from '../utils/envUtils';
+import { reportFirestoreError, reportFirestoreSuccess } from '../utils/firestoreQuotaManager';
 
 // Cấu hình Firebase thống nhất hỗ trợ đồng bộ giữa Google AI Studio, Localhost và Vercel
 const activeConfig = {
@@ -237,12 +238,23 @@ if (typeof window !== 'undefined' && !(window as any).__thptSlFirestoreGuardAtta
   });
 }
 
-// Non-blocking startup connectivity check
+// Non-blocking startup connectivity check (at most once per browser session to avoid wasting Firestore reads)
+const CONNECTION_CHECKED_SESSION_KEY = 'thpt_sl_firestore_conn_checked_v1';
 async function testConnection() {
   if (typeof window === 'undefined' || !navigator.onLine) return;
   try {
+    if (window.sessionStorage.getItem(CONNECTION_CHECKED_SESSION_KEY) === '1') {
+      return;
+    }
+    window.sessionStorage.setItem(CONNECTION_CHECKED_SESSION_KEY, '1');
+  } catch {
+    // ignore storage errors
+  }
+  try {
     await getDocFromServer(doc(db, 'test', 'connection'));
+    reportFirestoreSuccess();
   } catch (error) {
+    reportFirestoreError(error, 'firebase.testConnection');
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firestore connectivity check: client appears offline or network restricted.');
     }

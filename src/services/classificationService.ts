@@ -12,6 +12,16 @@ import {
 import { db, auth } from '../lib/firebase';
 import { safeLocalStorageSet } from '../utils/envUtils';
 import { YouthClassificationConfig, YouthAuditLog } from '../types/youthDiscipline';
+import {
+  cachedFirestoreFetch,
+  canAttemptFirestoreRead,
+  invalidateFirestoreCache,
+  reportFirestoreError,
+  reportFirestoreSuccess
+} from '../utils/firestoreQuotaManager';
+
+const CLASSIFICATION_CACHE_TTL_MS = 10 * 60 * 1000;
+const CLASSIFICATION_SEEDED_PREFIX = 'thpt_sl_classification_seeded_v1_';
 
 const COLLECTIONS = {
   CLASSIFICATIONS: 'classification_configs',
@@ -92,16 +102,38 @@ const sanitize = (obj: any) => {
 let isSeededMap: Record<string, boolean> = {};
 
 export const classificationService = {
-  // 1. SEED DEFAULT CONFIG IF EMPTY
+  // 1. SEED DEFAULT CONFIG IF EMPTY (guarded by localStorage + circuit breaker)
   async seedIfEmpty(academicYear: string = '2026–2027'): Promise<void> {
     const normYear = academicYear.replace(/[\u2010-\u2015]/g, '-').trim();
     if (isSeededMap[normYear]) return;
+    const seededKey = `${CLASSIFICATION_SEEDED_PREFIX}${normYear}`;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage.getItem(seededKey) === '1') {
+        isSeededMap[normYear] = true;
+        return;
+      }
+    } catch {
+      // ignore storage error
+    }
+    if (!canAttemptFirestoreRead()) return;
     isSeededMap[normYear] = true;
 
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.CLASSIFICATIONS));
-      const existingInYear = snap.docs.filter(d => {
-        const data = d.data() as YouthClassificationConfig;
+      const existingAll = await cachedFirestoreFetch<YouthClassificationConfig[]>(
+        'youth:classifications:all',
+        CLASSIFICATION_CACHE_TTL_MS,
+        async () => {
+          const snap = await getDocs(collection(db, COLLECTIONS.CLASSIFICATIONS));
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as YouthClassificationConfig));
+          if (list.length > 0) {
+            safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(list));
+          }
+          return list;
+        },
+        { fallback: () => this.getLocalCached() }
+      );
+
+      const existingInYear = existingAll.filter(data => {
         const dY = (data.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
         return dY === normYear;
       });
@@ -121,8 +153,11 @@ export const classificationService = {
         const currentCache = this.getLocalCached();
         const updated = [...currentCache.filter(c => (c.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim() !== normYear), ...seedItems];
         safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(updated));
+        invalidateFirestoreCache('youth:classifications:all');
       }
+      safeLocalStorageSet(seededKey, '1');
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore classification seed error, using local fallback:', e);
       const currentCache = this.getLocalCached();
       const existingLocal = currentCache.filter(c => (c.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim() === normYear);
@@ -150,34 +185,28 @@ export const classificationService = {
     return [];
   },
 
-  // 2. GET ALL CLASSIFICATIONS (BY ACADEMIC YEAR)
+  // 2. GET ALL CLASSIFICATIONS (BY ACADEMIC YEAR, 10-min TTL cached)
   async getClassifications(academicYear: string = '2026–2027', includeInactive: boolean = false): Promise<YouthClassificationConfig[]> {
     const normYear = academicYear.replace(/[\u2010-\u2015]/g, '-').trim();
+    const localCached = this.getLocalCached();
 
-    try {
-      const snap = await getDocs(collection(db, COLLECTIONS.CLASSIFICATIONS));
-      if (!snap.empty) {
-        const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as YouthClassificationConfig));
-        safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(all));
-
-        let filtered = all.filter(c => {
-          const cY = (c.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
-          return !cY || cY === normYear;
-        });
-
-        if (!includeInactive) {
-          filtered = filtered.filter(c => c.active !== false);
+    const all = await cachedFirestoreFetch<YouthClassificationConfig[]>(
+      'youth:classifications:all',
+      CLASSIFICATION_CACHE_TTL_MS,
+      async () => {
+        const snap = await getDocs(collection(db, COLLECTIONS.CLASSIFICATIONS));
+        if (!snap.empty) {
+          const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() } as YouthClassificationConfig));
+          safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(loaded));
+          return loaded;
         }
+        return localCached;
+      },
+      { fallback: () => localCached }
+    );
 
-        return filtered.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || b.minScore - a.minScore);
-      }
-    } catch (e) {
-      console.warn('Firestore getClassifications error, using local cache:', e);
-    }
-
-    const cached = this.getLocalCached();
-    if (cached.length > 0) {
-      let filtered = cached.filter(c => {
+    if (all.length > 0) {
+      let filtered = all.filter(c => {
         const cY = (c.academicYear || '').replace(/[\u2010-\u2015]/g, '-').trim();
         return !cY || cY === normYear;
       });
@@ -337,7 +366,9 @@ export const classificationService = {
 
     try {
       await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(record));
+      reportFirestoreSuccess();
     } catch (e: any) {
+      reportFirestoreError(e);
       console.error('Firestore createClassification error:', e);
       throw new Error(`Không thể lưu mức xếp loại lên máy chủ: ${e?.message || e}`);
     }
@@ -345,6 +376,7 @@ export const classificationService = {
     const current = this.getLocalCached();
     current.push(record);
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:classifications:all');
 
     await this.addAuditLog({
       action: 'CREATE',
@@ -381,7 +413,9 @@ export const classificationService = {
 
     try {
       await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), sanitize(updatedRecord), { merge: true });
+      reportFirestoreSuccess();
     } catch (e: any) {
+      reportFirestoreError(e);
       console.error('Firestore updateClassification error:', e);
       throw new Error(`Không thể cập nhật mức xếp loại lên máy chủ: ${e?.message || e}`);
     }
@@ -392,6 +426,7 @@ export const classificationService = {
       current.push(updatedRecord);
     }
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:classifications:all');
 
     await this.addAuditLog({
       action: 'UPDATE',
@@ -426,7 +461,9 @@ export const classificationService = {
         active: false,
         updatedAt
       });
+      reportFirestoreSuccess();
     } catch (e: any) {
+      reportFirestoreError(e);
       console.error('Firestore deactivateClassification error:', e);
       throw new Error(`Không thể ngừng sử dụng mức xếp loại trên máy chủ: ${e?.message || e}`);
     }
@@ -434,6 +471,7 @@ export const classificationService = {
     target.active = false;
     target.updatedAt = updatedAt;
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:classifications:all');
 
     await this.addAuditLog({
       action: 'CONFIG_CHANGE',
@@ -462,13 +500,16 @@ export const classificationService = {
     target.active = true;
     target.updatedAt = new Date().toISOString();
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(current));
+    invalidateFirestoreCache('youth:classifications:all');
 
     try {
       await updateDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, id), {
         active: true,
         updatedAt: target.updatedAt
       });
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore restoreClassification error:', e);
     }
 
@@ -508,6 +549,7 @@ export const classificationService = {
 
     const combined = [...remaining, ...defaultItems];
     safeStorage.setItem(CACHE_KEYS.CLASSIFICATIONS, JSON.stringify(combined));
+    invalidateFirestoreCache('youth:classifications:all');
 
     try {
       // Delete old from firestore
@@ -523,7 +565,9 @@ export const classificationService = {
       for (const item of defaultItems) {
         await setDoc(doc(db, COLLECTIONS.CLASSIFICATIONS, item.id), sanitize(item));
       }
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Firestore restoreDefaults error:', e);
     }
 

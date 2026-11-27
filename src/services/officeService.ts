@@ -3,25 +3,28 @@ import {
   doc, 
   getDocs, 
   setDoc, 
-  deleteDoc, 
-  onSnapshot, 
-  query, 
-  where 
+  deleteDoc
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { 
   OfficeTask, 
   OfficeDocument, 
-  OfficeJobStandard, 
-  OfficeStaffMember 
+  OfficeJobStandard
 } from '../types/officeDepartment';
 import { getLocalCollectionCache, setLocalCollectionCache } from '../store/AppContext';
+import {
+  createCachedSubscriptionChannel,
+  reportFirestoreError,
+  reportFirestoreSuccess
+} from '../utils/firestoreQuotaManager';
 
 const CACHE_KEYS = {
   TASKS: 'office_tasks',
   DOCUMENTS: 'office_documents',
   STANDARDS: 'office_standards'
 };
+
+const OFFICE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const sanitize = <T extends Record<string, any>>(data: T): T => {
   const result = { ...data };
@@ -262,44 +265,44 @@ export const DEFAULT_OFFICE_STANDARDS: OfficeJobStandard[] = [
   }
 ];
 
+const officeTasksChannel = createCachedSubscriptionChannel<OfficeTask[]>({
+  cacheKey: 'office:tasks',
+  ttlMs: OFFICE_CACHE_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(collection(db, 'office_tasks'));
+    if (!snapshot.empty) {
+      const loaded = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as OfficeTask[];
+      setLocalCollectionCache(CACHE_KEYS.TASKS, loaded);
+      return loaded;
+    }
+    return getLocalCollectionCache<OfficeTask[]>(CACHE_KEYS.TASKS, DEFAULT_OFFICE_TASKS);
+  },
+  getFallback: () => getLocalCollectionCache<OfficeTask[]>(CACHE_KEYS.TASKS, DEFAULT_OFFICE_TASKS)
+});
+
+const officeDocumentsChannel = createCachedSubscriptionChannel<OfficeDocument[]>({
+  cacheKey: 'office:documents',
+  ttlMs: OFFICE_CACHE_TTL_MS,
+  fetcher: async () => {
+    const snapshot = await getDocs(collection(db, 'office_documents'));
+    if (!snapshot.empty) {
+      const loaded = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as OfficeDocument[];
+      setLocalCollectionCache(CACHE_KEYS.DOCUMENTS, loaded);
+      return loaded;
+    }
+    return getLocalCollectionCache<OfficeDocument[]>(CACHE_KEYS.DOCUMENTS, DEFAULT_OFFICE_DOCUMENTS);
+  },
+  getFallback: () => getLocalCollectionCache<OfficeDocument[]>(CACHE_KEYS.DOCUMENTS, DEFAULT_OFFICE_DOCUMENTS)
+});
+
 export const officeService = {
-  // Subscriptions & Data Retrieval
+  // TTL-cached Subscriptions & Data Retrieval (replaces permanent onSnapshot)
   subscribeOfficeTasks(callback: (tasks: OfficeTask[]) => void) {
-    const q = collection(db, 'office_tasks');
-    const unsub = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as OfficeTask[];
-        setLocalCollectionCache(CACHE_KEYS.TASKS, loaded);
-        callback(loaded);
-      } else {
-        const cached = getLocalCollectionCache<OfficeTask[]>(CACHE_KEYS.TASKS, DEFAULT_OFFICE_TASKS);
-        callback(cached);
-      }
-    }, (err) => {
-      console.warn('Error fetching office_tasks from Firestore:', err);
-      const cached = getLocalCollectionCache<OfficeTask[]>(CACHE_KEYS.TASKS, DEFAULT_OFFICE_TASKS);
-      callback(cached);
-    });
-    return unsub;
+    return officeTasksChannel.subscribe(callback);
   },
 
   subscribeOfficeDocuments(callback: (docs: OfficeDocument[]) => void) {
-    const q = collection(db, 'office_documents');
-    const unsub = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as OfficeDocument[];
-        setLocalCollectionCache(CACHE_KEYS.DOCUMENTS, loaded);
-        callback(loaded);
-      } else {
-        const cached = getLocalCollectionCache<OfficeDocument[]>(CACHE_KEYS.DOCUMENTS, DEFAULT_OFFICE_DOCUMENTS);
-        callback(cached);
-      }
-    }, (err) => {
-      console.warn('Error fetching office_documents from Firestore:', err);
-      const cached = getLocalCollectionCache<OfficeDocument[]>(CACHE_KEYS.DOCUMENTS, DEFAULT_OFFICE_DOCUMENTS);
-      callback(cached);
-    });
-    return unsub;
+    return officeDocumentsChannel.subscribe(callback);
   },
 
   // Save / Update Task
@@ -324,7 +327,7 @@ export const officeService = {
       updatedAt
     };
 
-    // 1. Local Cache Update
+    // 1. Local Cache Update + Instant UI publish
     const currentTasks = getLocalCollectionCache<OfficeTask[]>(CACHE_KEYS.TASKS, DEFAULT_OFFICE_TASKS);
     const existingIdx = currentTasks.findIndex(t => t.id === id);
     let updatedTasksList: OfficeTask[] = [];
@@ -335,11 +338,14 @@ export const officeService = {
       updatedTasksList = [payload, ...currentTasks];
     }
     setLocalCollectionCache(CACHE_KEYS.TASKS, updatedTasksList);
+    officeTasksChannel.publish(updatedTasksList);
 
     // 2. Firestore Sync
     try {
       await setDoc(doc(db, 'office_tasks', id), sanitize(payload), { merge: true });
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Could not write office task to Firestore:', e);
     }
 
@@ -351,10 +357,13 @@ export const officeService = {
     const currentTasks = getLocalCollectionCache<OfficeTask[]>(CACHE_KEYS.TASKS, DEFAULT_OFFICE_TASKS);
     const updated = currentTasks.filter(t => t.id !== id);
     setLocalCollectionCache(CACHE_KEYS.TASKS, updated);
+    officeTasksChannel.publish(updated);
 
     try {
       await deleteDoc(doc(db, 'office_tasks', id));
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Could not delete office task from Firestore:', e);
     }
     return true;
@@ -388,10 +397,13 @@ export const officeService = {
       updatedDocs = [payload, ...currentDocs];
     }
     setLocalCollectionCache(CACHE_KEYS.DOCUMENTS, updatedDocs);
+    officeDocumentsChannel.publish(updatedDocs);
 
     try {
       await setDoc(doc(db, 'office_documents', id), sanitize(payload), { merge: true });
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Could not write office document to Firestore:', e);
     }
 
@@ -403,10 +415,13 @@ export const officeService = {
     const currentDocs = getLocalCollectionCache<OfficeDocument[]>(CACHE_KEYS.DOCUMENTS, DEFAULT_OFFICE_DOCUMENTS);
     const updated = currentDocs.filter(d => d.id !== id);
     setLocalCollectionCache(CACHE_KEYS.DOCUMENTS, updated);
+    officeDocumentsChannel.publish(updated);
 
     try {
       await deleteDoc(doc(db, 'office_documents', id));
+      reportFirestoreSuccess();
     } catch (e) {
+      reportFirestoreError(e);
       console.warn('Could not delete office document from Firestore:', e);
     }
     return true;

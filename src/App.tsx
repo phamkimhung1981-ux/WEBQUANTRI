@@ -1,7 +1,7 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './store/AuthContext';
-import { AppProvider } from './store/AppContext';
+import { AppProvider, useAppContext, LazyAppCollectionKey } from './store/AppContext';
 import { UnsavedChangesProvider } from './store/UnsavedChangesContext';
 import Login from './pages/Login';
 import Layout from './components/layout/Layout';
@@ -37,6 +37,12 @@ import {
   isFirestoreRuntimeStorageError
 } from './lib/firebase';
 import { logClientError, ClientErrorRecord } from './utils/errorLogger';
+import {
+  formatSyncTimestamp,
+  getQuotaManagerState,
+  subscribeQuotaManager,
+  FirestoreQuotaState
+} from './utils/firestoreQuotaManager';
 
 function PermissionGuard({ moduleCode, children }: { moduleCode: ModuleCode; children: React.ReactNode }) {
   const { canAccessModule, isAdmin, permissionsReady } = usePermission();
@@ -87,8 +93,62 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { user, authLoading, permissionSyncError, refreshPermissions } = useAuth();
-  const [dismissedSyncError, setDismissedSyncError] = React.useState<string | null>(null);
+  const {
+    user,
+    authLoading,
+    permissionSyncError,
+    lastPermissionSyncedAt,
+    isRefreshingPermissions,
+    refreshPermissions
+  } = useAuth();
+  const { ensureCollectionsLoaded } = useAppContext();
+  const location = useLocation();
+  const [quotaState, setQuotaState] = React.useState<FirestoreQuotaState>(() => getQuotaManagerState());
+  const [dismissedErrorKey, setDismissedErrorKey] = React.useState<string | null>(null);
+
+  // Lazy-load ONLY the AppContext collections required by the active route (cached for 5 min -> 0 reads on revisit)
+  React.useEffect(() => {
+    if (!user?.id) return;
+    const p = location.pathname.toLowerCase();
+    const needed: LazyAppCollectionKey[] = [];
+    if (p.startsWith('/kpi-nv') || p.startsWith('/kpi-nhan-vien') || p.startsWith('/kpi-staff')) {
+      needed.push('kpiStaff');
+    } else if (p.startsWith('/calendar')) {
+      needed.push('calendarEvents');
+    } else if (p.startsWith('/leaves')) {
+      needed.push('leaveRecords', 'attendance');
+    } else if (p.startsWith('/reports') || p.startsWith('/analytics')) {
+      needed.push('reports');
+    } else if (
+      p.startsWith('/youth-discipline') ||
+      p.startsWith('/doan-tn/nen-nep') ||
+      p.startsWith('/nen-nep-hoc-sinh') ||
+      p.startsWith('/doan-thanh-nien')
+    ) {
+      needed.push('workAssignments');
+    } else if (p.startsWith('/departments')) {
+      needed.push('tasks');
+    }
+    if (needed.length > 0) {
+      ensureCollectionsLoaded(needed).catch(() => {});
+    }
+  }, [user?.id, location.pathname, ensureCollectionsLoaded]);
+
+  React.useEffect(() => {
+    return subscribeQuotaManager((nextState) => {
+      setQuotaState(nextState);
+      if (!nextState.quotaExceeded) {
+        setDismissedErrorKey(null);
+      }
+    });
+  }, []);
+
+  // Auto-reset dismissal when sync succeeds and clears errors
+  React.useEffect(() => {
+    if (!quotaState.quotaExceeded && !permissionSyncError) {
+      setDismissedErrorKey(null);
+    }
+  }, [quotaState.quotaExceeded, permissionSyncError]);
 
   if (authLoading) {
     return (
@@ -109,33 +169,58 @@ function AppRoutes() {
     );
   }
 
-  const showSyncAlert = Boolean(permissionSyncError && permissionSyncError !== dismissedSyncError);
+  const effectiveAlertMessage = quotaState.quotaExceeded
+    ? 'Máy chủ đang tạm thời vượt hạn mức truy cập. Hệ thống đang duy trì phiên làm việc hiện tại.'
+    : permissionSyncError;
+  const activeErrorKey = effectiveAlertMessage
+    ? `${quotaState.quotaExceeded ? 'quota' : 'perm'}:${quotaState.lastErrorAt || ''}:${effectiveAlertMessage}`
+    : null;
+  const showSyncAlert = Boolean(effectiveAlertMessage && activeErrorKey !== dismissedErrorKey);
+  const effectiveLastSyncedAt = Math.max(lastPermissionSyncedAt || 0, quotaState.lastSyncedAt || 0) || null;
+  const isRetrying = isRefreshingPermissions || quotaState.isRetrying;
+
+  const handleManualRetry = async () => {
+    setDismissedErrorKey(null);
+    await refreshPermissions({ manual: true });
+  };
 
   return (
     <Layout>
       {showSyncAlert && (
         <div
           role="alert"
-          className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-xs flex items-start justify-between gap-3"
+          className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
         >
           <div className="flex items-start gap-2.5 text-xs leading-relaxed">
             <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-amber-900">Cảnh báo đồng bộ phân quyền từ máy chủ</p>
-              <p className="text-amber-800">{permissionSyncError}</p>
+              <p className="font-bold text-amber-900">
+                {effectiveAlertMessage}
+              </p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Đồng bộ thành công gần nhất:{' '}
+                <span className="font-semibold">{formatSyncTimestamp(effectiveLastSyncedAt)}</span>
+                {quotaState.quotaExceeded && (
+                  <span className="ml-1.5 text-amber-700">
+                    • Dữ liệu hiện tại được giữ nguyên từ bộ nhớ đệm, không mất phiên đăng nhập.
+                  </span>
+                )}
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
             <button
               type="button"
-              onClick={() => refreshPermissions()}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer"
+              disabled={isRetrying}
+              onClick={handleManualRetry}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-[11px] font-bold cursor-pointer transition-colors"
             >
-              <RefreshCw size={12} /> Thử lại
+              <RefreshCw size={12} className={isRetrying ? 'animate-spin' : ''} />
+              {isRetrying ? 'Đang đồng bộ...' : 'Thử đồng bộ lại'}
             </button>
             <button
               type="button"
-              onClick={() => setDismissedSyncError(permissionSyncError)}
+              onClick={() => setDismissedErrorKey(activeErrorKey)}
               aria-label="Đóng cảnh báo"
               className="p-1 rounded-lg text-amber-700 hover:bg-amber-100 cursor-pointer"
             >

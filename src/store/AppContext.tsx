@@ -1,27 +1,42 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 import { Department, DisciplineRecord, DisciplineCriterion, Notification, Report, Task, Teacher, CalendarEvent, LeaveRecord, AttendanceRecord, KpiItem, KpiRecord, KpiGroup, KpiCategory, KpiMonthlySetting, GeneralKpi, WorkAssignment, EvaluationCategory, EvaluationCriterion, SchoolStats, KpiEvaluationForm, KpiEvaluationItem, SystemModule, User } from '../types';
 import { Student, ClassInfo } from '../types/homeroom';
-import { DEFAULT_SYSTEM_MODULES, isAdminUser } from '../lib/moduleData';
+import { DEFAULT_SYSTEM_MODULES } from '../lib/moduleData';
 import { KpiStaffForm, KpiStaffPeriod, KpiStaffCriterion } from '../types/kpiStaff';
-import { DEFAULT_STAFF_PERIODS, DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffData';
+import { DEFAULT_STAFF_CRITERIA } from '../lib/kpiStaffData';
 import {
-  subscribeStaffForms,
+  fetchStaffFormsFromFirestore,
   saveStaffFormsToCache,
   saveStaffFormToFirestore,
   loadStaffFormsFromCache,
-  subscribeStaffPeriods,
+  ensureStaffPeriodsInFirestore,
   loadStaffPeriodsFromCache,
   saveStaffPeriodsToCache
 } from '../services/kpiStaffService';
-import { DEFAULT_TASK_KPIS } from '../lib/kpiTargetAudienceUtils';
 import { OFFICIAL_SCHOOL_TASKS_2026_2027 } from '../utils/sampleSchoolTasks';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDocs, getDoc, query, limit } from 'firebase/firestore';
 import { syncCanonicalVcDataToStorageAndFirestore } from '../services/kpiVcService';
 import { useAuth } from './AuthContext';
 import { safeLocalStorageSet } from '../utils/envUtils';
 import { idbCacheSet } from '../utils/indexedDbCache';
+import {
+  cachedFirestoreFetch,
+  canAttemptFirestoreRead,
+  invalidateFirestoreCache,
+  reportFirestoreError,
+  subscribeQuotaManager
+} from '../utils/firestoreQuotaManager';
+
+export type LazyAppCollectionKey =
+  | 'workAssignments'
+  | 'reports'
+  | 'tasks'
+  | 'calendarEvents'
+  | 'leaveRecords'
+  | 'attendance'
+  | 'kpiStaff';
 
 interface AppState {
   teachers: Teacher[];
@@ -57,6 +72,7 @@ interface AppState {
 
 interface AppContextType extends AppState {
   clearError: () => void;
+  ensureCollectionsLoaded: (keys: LazyAppCollectionKey[], options?: { force?: boolean }) => Promise<void>;
   setKpiStaffForms: (forms: KpiStaffForm[], options?: { skipFirestoreSync?: boolean }) => void;
   setKpiStaffPeriods: (periods: KpiStaffPeriod[]) => void;
   setKpiStaffCriteria: (criteria: KpiStaffCriterion[]) => void;
@@ -156,8 +172,12 @@ const sanitize = <T extends Record<string, any>>(data: T): T => {
 };
 
 const handleDbError = (e: any) => {
+  reportFirestoreError(e, 'AppContext.write');
   console.error("Firebase error:", e);
 };
+
+const APP_CORE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL for core collections
+const APP_LAZY_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL for on-demand module collections
 
 
 const defaultEvalCategories: EvaluationCategory[] = [
@@ -347,34 +367,184 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const lastSyncedClassesCountRef = useRef<number | null>(null);
   const hasSeededSchoolStatsRef = useRef<boolean>(false);
   const hasSyncedGroupIdsRef = useRef<boolean>(false);
+  const loadedLazyKeysRef = useRef<Set<LazyAppCollectionKey>>(new Set());
+  const [quotaEpoch, setQuotaEpoch] = useState<number>(0);
 
-  // Staff KPI subscription & Auto-sync canonical data ONLY after user has authenticated
+  // Sync manual retry epoch from centralized quota manager
+  useEffect(() => {
+    return subscribeQuotaManager((qState) => {
+      setQuotaEpoch(qState.epoch);
+    });
+  }, []);
+
+  // One-time safe background cache sync of canonical VC data (does not open Firestore listeners)
   useEffect(() => {
     if (!user?.id) return;
-
-    // Tự động đồng bộ 51 phiếu KPI vào bộ nhớ đệm RAM + IndexedDB an toàn (không làm đầy localStorage)
+    const vcSyncKey = 'thpt_sl_vc_cache_hydrated_v1';
+    try {
+      if (sessionStorage.getItem(vcSyncKey) === '1') return;
+      sessionStorage.setItem(vcSyncKey, '1');
+    } catch {
+      // ignore
+    }
     syncCanonicalVcDataToStorageAndFirestore(false).catch(err => {
       console.warn('Auto sync VC data notice:', err);
     });
-
-    const unsubForms = subscribeStaffForms((forms) => {
-      setState(prev => ({ ...prev, kpiStaffForms: forms }));
-    });
-    const unsubPeriods = subscribeStaffPeriods((periods) => {
-      setState(prev => ({ ...prev, kpiStaffPeriods: periods }));
-    });
-    return () => {
-      unsubForms();
-      unsubPeriods();
-    };
   }, [user?.id]);
+
+  // Helper to fetch a collection with 5-minute TTL cache & quota circuit breaker protection
+  const fetchCollectionCached = useCallback(
+    async <T,>(
+      colName: string,
+      stateKey: keyof AppState,
+      options?: { force?: boolean; forceManual?: boolean; maxDocs?: number; transform?: (items: any[]) => T; fallback: () => T }
+    ): Promise<T> => {
+      const cacheKey = `appcol:${colName}`;
+      return cachedFirestoreFetch<T>(
+        cacheKey,
+        APP_CORE_TTL_MS,
+        async () => {
+          const ref = options?.maxDocs
+            ? query(collection(db, colName), limit(options.maxDocs))
+            : collection(db, colName);
+          const snap = await getDocs(ref);
+          const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          const transformed = options?.transform ? options.transform(raw) : (raw as unknown as T);
+          if (stateKey === 'teachers') {
+            safeLocalStorageSet('app_cached_teachers', JSON.stringify(transformed));
+          } else if (stateKey === 'departments') {
+            safeLocalStorageSet('app_cached_departments', JSON.stringify(transformed));
+          } else if (stateKey === 'modules') {
+            safeLocalStorageSet('app_system_modules', JSON.stringify(transformed));
+          } else {
+            setLocalCollectionCache(colName, transformed);
+          }
+          setState((prev) => ({ ...prev, [stateKey]: transformed, error: null }));
+          return transformed;
+        },
+        {
+          force: options?.force,
+          forceManual: options?.forceManual,
+          fallback: options?.fallback
+        }
+      );
+    },
+    []
+  );
+
+  // On-demand lazy loader for module-specific collections (0 reads until user actually visits the module!)
+  const ensureCollectionsLoaded = useCallback(
+    async (keys: LazyAppCollectionKey[], options?: { force?: boolean }) => {
+      if (!user?.id || keys.length === 0) return;
+      const force = Boolean(options?.force);
+      const tasks: Promise<any>[] = [];
+
+      for (const k of keys) {
+        loadedLazyKeysRef.current.add(k);
+        if (k === 'workAssignments') {
+          tasks.push(
+            fetchCollectionCached<WorkAssignment[]>('workAssignments', 'workAssignments', {
+              force,
+              forceManual: force,
+              fallback: () => getLocalCollectionCache<WorkAssignment[]>('workAssignments', [])
+            }).catch(() => {})
+          );
+        } else if (k === 'reports') {
+          tasks.push(
+            fetchCollectionCached<Report[]>('reports', 'reports', {
+              force,
+              forceManual: force,
+              maxDocs: 200,
+              fallback: () => getLocalCollectionCache<Report[]>('reports', [])
+            }).catch(() => {})
+          );
+        } else if (k === 'tasks') {
+          tasks.push(
+            fetchCollectionCached<Task[]>('tasks', 'tasks', {
+              force,
+              forceManual: force,
+              maxDocs: 200,
+              fallback: () => getLocalCollectionCache<Task[]>('tasks', [])
+            }).catch(() => {})
+          );
+        } else if (k === 'calendarEvents') {
+          tasks.push(
+            fetchCollectionCached<CalendarEvent[]>('calendarEvents', 'calendarEvents', {
+              force,
+              forceManual: force,
+              maxDocs: 300,
+              fallback: () => getLocalCollectionCache<CalendarEvent[]>('calendarEvents', [])
+            }).catch(() => {})
+          );
+        } else if (k === 'leaveRecords') {
+          tasks.push(
+            fetchCollectionCached<LeaveRecord[]>('leaveRecords', 'leaveRecords', {
+              force,
+              forceManual: force,
+              maxDocs: 300,
+              fallback: () => getLocalCollectionCache<LeaveRecord[]>('leaveRecords', [])
+            }).catch(() => {})
+          );
+        } else if (k === 'attendance') {
+          tasks.push(
+            fetchCollectionCached<AttendanceRecord[]>('attendance', 'attendanceRecords', {
+              force,
+              forceManual: force,
+              maxDocs: 400,
+              fallback: () => getLocalCollectionCache<AttendanceRecord[]>('attendance', [])
+            }).catch(() => {})
+          );
+        } else if (k === 'kpiStaff') {
+          tasks.push(
+            cachedFirestoreFetch<KpiStaffForm[]>(
+              'appcol:kpi_staff_forms',
+              APP_LAZY_TTL_MS,
+              async () => {
+                const forms = await fetchStaffFormsFromFirestore();
+                setState((prev) => ({ ...prev, kpiStaffForms: forms }));
+                return forms;
+              },
+              {
+                force,
+                forceManual: force,
+                fallback: () => loadStaffFormsFromCache()
+              }
+            ).catch(() => {})
+          );
+          tasks.push(
+            cachedFirestoreFetch<KpiStaffPeriod[]>(
+              'appcol:kpi_staff_periods',
+              APP_LAZY_TTL_MS,
+              async () => {
+                const periods = await ensureStaffPeriodsInFirestore();
+                setState((prev) => ({ ...prev, kpiStaffPeriods: periods }));
+                return periods;
+              },
+              {
+                force,
+                forceManual: force,
+                fallback: () => loadStaffPeriodsFromCache()
+              }
+            ).catch(() => {})
+          );
+        }
+      }
+
+      if (tasks.length > 0) {
+        await Promise.allSettled(tasks);
+      }
+    },
+    [user?.id, fetchCollectionCached]
+  );
 
   const setKpiStaffForms = (forms: KpiStaffForm[], options?: { skipFirestoreSync?: boolean }) => {
     setState(prev => ({ ...prev, kpiStaffForms: forms }));
     saveStaffFormsToCache(forms);
+    invalidateFirestoreCache('appcol:kpi_staff_forms');
     if (!options?.skipFirestoreSync) {
       forms.forEach(f => {
         saveStaffFormToFirestore(f).catch(err => {
+          reportFirestoreError(err, 'AppContext.setKpiStaffForms');
           console.error('Error syncing staff form to Firestore:', err);
         });
       });
@@ -384,997 +554,145 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setKpiStaffPeriods = (periods: KpiStaffPeriod[]) => {
     setState(prev => ({ ...prev, kpiStaffPeriods: periods }));
     saveStaffPeriodsToCache(periods);
+    invalidateFirestoreCache('appcol:kpi_staff_periods');
   };
 
   const setKpiStaffCriteria = (criteria: KpiStaffCriterion[]) => {
     setState(prev => ({ ...prev, kpiStaffCriteria: criteria }));
   };
 
+  // Core lightweight data fetch on login (6 essential collections via 5-min TTL cache, ZERO permanent onSnapshot storms!)
   useEffect(() => {
-    // Chỉ mở các Firestore realtime listener khi người dùng đã đăng nhập
-    // Ngăn tạo hàng chục listener và pending mutation thừa trên màn hình đăng nhập
     if (!user?.id) return;
 
     let isCancelled = false;
-    const unsubscribes: (() => void)[] = [];
+    const isManualRetry = quotaEpoch > 0;
 
-    const handleSnapshot = (colName: string, key: keyof AppState) => {
-      const q = collection(db, colName);
-      const unsub = onSnapshot(q, (snapshot) => {
-        if (isCancelled) return;
-        try {
-          let data: any = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          if (key === 'teachers') {
-            if (!data || data.length === 0) {
-              data = DEFAULT_TEACHERS;
-            }
-            safeLocalStorageSet('app_cached_teachers', JSON.stringify(data));
-          }
-          if (key === 'departments') {
-            if (!data || data.length === 0) {
-              data = DEFAULT_DEPARTMENTS;
-            } else {
-              data = data.map((d: any) => {
-                const lower = (d.name || '').toLowerCase();
-                if (lower.includes('toán') || lower.includes('toan')) {
-                  return { ...d, name: 'Tổ Toán-Lý-Tin-CN' };
-                }
-                if (lower.includes('văn') && (lower.includes('sử') || lower.includes('địa') || lower.includes('gdkt'))) {
-                  return { ...d, name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN' };
-                }
-                if (lower.includes('hóa') || lower.includes('sinh') || lower.includes('gdtc') || lower.includes('qpan')) {
-                  return { ...d, name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN' };
-                }
-                return d;
-              });
-            }
-            safeLocalStorageSet('app_cached_departments', JSON.stringify(data));
-          }
-
-          // Lưu vào bộ nhớ đệm an toàn (IndexedDB + giới hạn dung lượng localStorage)
-          if (key !== 'teachers' && key !== 'departments') {
-            setLocalCollectionCache(colName, data);
-          }
-
-          // Khi nhận dữ liệu thành công, cập nhật state và xóa lỗi
-          setState(prev => ({ ...prev, [key]: data, error: null }));
-        } catch (snapErr) {
-          console.warn(`Error processing snapshot for ${colName}:`, snapErr);
-        }
-      }, (error) => {
-        console.warn(`Firestore snapshot notice for ${colName}:`, error);
-
-        // Phân loại mã lỗi Firebase
-        const errorCode = (error as any)?.code || '';
-        const errorMsg = (error as any)?.message || String(error);
-        const isQuota = errorCode === 'resource-exhausted' || errorMsg.includes('Quota exceeded') || errorMsg.includes('RESOURCE_EXHAUSTED');
-        const isPermission = errorCode === 'permission-denied';
-
-        // BẢO TOÀN DỮ LIỆU: Phục hồi dữ liệu từ bộ nhớ đệm an toàn, không để mảng rỗng
-        // Khi gặp lỗi quota hoặc offline, hệ thống tự động chạy trên cache an toàn và KHÔNG hiển thị banner lỗi đỏ gây gián đoạn
-        const fatalError = isPermission ? `Từ chối quyền truy cập dữ liệu "${colName}" (permission-denied).` : null;
-
-        if (key === 'teachers') {
-          setState(prev => ({ ...prev, teachers: getCachedTeachers(), error: fatalError }));
-        } else if (key === 'departments') {
-          setState(prev => ({ ...prev, departments: getCachedDepartments(), error: fatalError }));
-        } else {
-          setState(prev => {
-            const cachedFallback = getLocalCollectionCache(colName, (prev as any)[key] || []);
-            const currentData = (prev as any)[key];
-            return {
-              ...prev,
-              [key]: Array.isArray(currentData) && currentData.length > 0 ? currentData : cachedFallback,
-              error: fatalError
-            };
-          });
-        }
-      });
-      unsubscribes.push(unsub);
-    };
-
-    handleSnapshot('teachers', 'teachers');
-    handleSnapshot('departments', 'departments');
-    handleSnapshot('tasks', 'tasks');
-    handleSnapshot('workAssignments', 'workAssignments');
-    handleSnapshot('reports', 'reports');
-    handleSnapshot('disciplineRecords', 'disciplineRecords');
-    handleSnapshot('disciplineCriteria', 'disciplineCriteria');
-    handleSnapshot('generalKpis', 'generalKpis');
-    handleSnapshot('kpiGroups', 'kpiGroups');
-    handleSnapshot('kpiCategories', 'kpiCategories');
-    handleSnapshot('kpis', 'kpis');
-    handleSnapshot('kpiRecords', 'kpiRecords');
-    handleSnapshot('kpi_evaluation_forms', 'kpiEvaluationForms');
-    handleSnapshot('kpiMonthlySettings', 'kpiMonthlySettings');
-    handleSnapshot('evaluationCategories', 'evaluationCategories');
-    handleSnapshot('evaluationCriteria', 'evaluationCriteria');
-    handleSnapshot('notifications', 'notifications');
-    handleSnapshot('calendarEvents', 'calendarEvents');
-    handleSnapshot('leaveRecords', 'leaveRecords');
-    handleSnapshot('attendance', 'attendanceRecords');
-    handleSnapshot('classes', 'classes');
-
-    // Quản lý System Modules từ Firestore
-    const modulesColRef = collection(db, 'system_modules');
-    const unsubModules = onSnapshot(modulesColRef, (snap) => {
-      if (!snap.empty) {
-        const loadedModules = snap.docs.map(d => ({ id: d.id, ...d.data() })) as SystemModule[];
-        loadedModules.sort((a, b) => (a.order || 0) - (b.order || 0));
-        setState(prev => ({ ...prev, modules: loadedModules }));
-        safeLocalStorageSet('app_system_modules', JSON.stringify(loadedModules));
-      } else {
-        // Khởi tạo từ default modules nếu chưa có document nào
-        setState(prev => {
-          if (!prev.modules || prev.modules.length === 0) {
-            return { ...prev, modules: DEFAULT_SYSTEM_MODULES };
-          }
-          return prev;
-        });
+    const loadCoreData = async () => {
+      if (!canAttemptFirestoreRead({ forceManual: isManualRetry })) {
+        return;
       }
-    }, (err) => {
-      console.warn('Error fetching system_modules from firestore:', err);
-    });
-    unsubscribes.push(unsubModules);
 
-    // Thống kê trường học THPT Sơn Lương từ Database
-    const statsDocRef = doc(db, 'systemSettings', 'schoolStats');
-    const unsubStats = onSnapshot(statsDocRef, (snap) => {
-      if (isCancelled) return;
-      if (snap.exists()) {
-        schoolStatsLoadedFromDbRef.current = true;
-        const d = snap.data() as Partial<SchoolStats>;
-        setState(prev => ({
-          ...prev,
-          schoolStats: {
-            totalTeachers: d.totalTeachers ?? (prev.teachers.length > 0 ? prev.teachers.length : 42),
-            totalStudents: d.totalStudents ?? 1236,
-            totalClasses: d.totalClasses ?? 36,
-            schoolYear: d.schoolYear ?? '2026 - 2027',
-            motto: d.motto ?? 'Nơi chắp cánh những ước mơ',
-            welcomeMessage: d.welcomeMessage ?? 'Chào mừng bạn!'
-          }
-        }));
-      } else if (isAdminOrBghUser && !hasSeededSchoolStatsRef.current && navigator.onLine) {
-        hasSeededSchoolStatsRef.current = true;
-        setDoc(statsDocRef, {
-          totalTeachers: 42,
-          totalStudents: 1236,
-          totalClasses: 36,
-          schoolYear: '2026 - 2027',
-          motto: 'Nơi chắp cánh những ước mơ',
-          welcomeMessage: 'Chào mừng bạn!'
-        }, { merge: true }).catch(e => console.warn('Could not seed schoolStats:', e));
-      }
-    }, (err) => {
-      console.warn('Error fetching schoolStats from firestore:', err);
-    });
-    unsubscribes.push(unsubStats);
-
-    // Khởi tạo & migration cấu trúc phân cấp KPI 3 cấp (Nhóm KPI Cấp 1 -> Nhóm Tiêu chí Cấp 2 -> Tiêu chí Cấp 3)
-    const migrateAndSeedHierarchyIfEmpty = async () => {
-      try {
-        const generalKpiCol = collection(db, 'generalKpis');
-        const genSnap = await getDocs(generalKpiCol);
-        let defaultGenId = 'kpic_thpt';
-
-        if (genSnap.empty) {
-          const defaultGen: GeneralKpi = {
-            id: 'kpic_thpt',
-            code: 'KPIC_THPT',
-            name: 'Đánh giá viên chức CBGVNV',
-            description: 'Khung tiêu chuẩn đánh giá kết quả công tác và hoàn thành nhiệm vụ CBGVNV trường THPT',
-            targetAudience: 'Tất cả CBGVNV',
-            applicableYear: '2025-2026',
-            status: 'active',
-            createdAt: new Date().toISOString(),
-            createdBy: 'Ban Giám Hiệu'
-          };
-          await setDoc(doc(db, 'generalKpis', defaultGen.id), sanitize(defaultGen));
-        } else {
-          defaultGenId = genSnap.docs[0].id;
-        }
-
-        // Nhóm KPI (KPI_GROUP) - Cấp 1
-        const groupCol = collection(db, 'kpiGroups');
-        const snap = await getDocs(groupCol);
-        let n01GroupId = 'kpig_n01';
-
-        if (snap.empty) {
-          const defaultGroups: KpiGroup[] = [
-            { id: 'kpig_n01', generalKpiId: defaultGenId, code: 'N01', name: 'Tư tưởng, đạo đức, lối sống', description: 'Chấp hành chủ trương đường lối, đạo đức nhà giáo, lối sống mẫu mực và tinh thần trách nhiệm', groupScore: 25, order: 1, status: 'active', createdAt: new Date().toISOString() },
-            { id: 'kpig_cm', generalKpiId: defaultGenId, code: 'CM', name: 'Thực hiện nhiệm vụ chuyên môn', description: 'Thực hiện quy chế chuyên môn, giáo án, sổ sách, tiến độ giảng dạy', groupScore: 35, order: 2, status: 'active', createdAt: new Date().toISOString() },
-            { id: 'kpig_nn', generalKpiId: defaultGenId, code: 'NNKL', name: 'Nền nếp, kỷ luật', description: 'Theo dõi chấp hành nền nếp, giờ giấc, nội quy cơ quan, hội họp', groupScore: 20, order: 3, status: 'active', createdAt: new Date().toISOString() },
-            { id: 'kpig_ph', generalKpiId: defaultGenId, code: 'TTPH', name: 'Tinh thần phối hợp', description: 'Phối hợp công tác, sinh hoạt tập thể, tương trợ đồng nghiệp', groupScore: 15, order: 4, status: 'active', createdAt: new Date().toISOString() },
-            { id: 'kpig_kh', generalKpiId: defaultGenId, code: 'NVK', name: 'Thực hiện nhiệm vụ khác', description: 'Các nhiệm vụ đột xuất, phong trào thi đua, công tác kiêm nhiệm khác', groupScore: 15, order: 5, status: 'active', createdAt: new Date().toISOString() },
-            { id: 'kpig_unassigned', generalKpiId: defaultGenId, code: 'CPN', name: 'Chưa phân nhóm', description: 'Các tiêu chí chuyển tiếp cần phân loại', groupScore: 0, order: 99, status: 'active', createdAt: new Date().toISOString() },
-          ];
-          const batch = writeBatch(db);
-          defaultGroups.forEach(g => {
-            batch.set(doc(db, 'kpiGroups', g.id), sanitize(g));
-          });
-          await batch.commit();
-        } else {
-          // Kiểm tra xem nhóm N01 đã có chưa
-          const existingN01 = snap.docs.find(d => {
-            const data = d.data() as KpiGroup;
-            return data.code === 'N01' || (data.name && data.name.includes('Tư tưởng, đạo đức'));
-          });
-          if (existingN01) {
-            n01GroupId = existingN01.id;
-          } else {
-            // Tạo nhóm N01 nếu chưa có
-            const groupN01: KpiGroup = {
-              id: 'kpig_n01',
-              generalKpiId: defaultGenId,
-              code: 'N01',
-              name: 'Tư tưởng, đạo đức, lối sống',
-              description: 'Chấp hành chủ trương đường lối, đạo đức nhà giáo, lối sống mẫu mực và tinh thần trách nhiệm',
-              groupScore: 25,
-              order: 1,
-              status: 'active',
-              createdAt: new Date().toISOString()
-            };
-            await setDoc(doc(db, 'kpiGroups', groupN01.id), sanitize(groupN01));
-          }
-
-          // Kiểm tra và gán generalKpiId cho các nhóm cũ chưa có
-          const groupsNeedingUpdate: { id: string; generalKpiId: string }[] = [];
-          snap.docs.forEach(d => {
-            const data = d.data() as KpiGroup;
-            if (!data.generalKpiId) {
-              groupsNeedingUpdate.push({ id: d.id, generalKpiId: defaultGenId });
-            }
-          });
-          if (groupsNeedingUpdate.length > 0) {
-            const batch = writeBatch(db);
-            groupsNeedingUpdate.forEach(u => {
-              batch.update(doc(db, 'kpiGroups', u.id), { generalKpiId: u.generalKpiId });
-            });
-            await batch.commit();
-          }
-        }
-
-        // Nhóm Tiêu Chí KPI (KPI_CATEGORY) - Cấp 2
-        const catCol = collection(db, 'kpiCategories');
-        const catSnap = await getDocs(catCol);
-        if (catSnap.empty) {
-          const defaultCategories: KpiCategory[] = [
-            {
-              id: 'kpicat_n01_01',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              code: 'N01.01',
-              name: 'Chính trị, tư tưởng',
-              description: 'Lập trường tư tưởng chính trị vững vàng, chấp hành tốt chủ trương chính sách',
-              order: 1,
-              status: 'active',
-              createdAt: new Date().toISOString()
-            },
-            {
-              id: 'kpicat_n01_02',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              code: 'N01.02',
-              name: 'Đạo đức, lối sống',
-              description: 'Giữ gìn phẩm chất đạo đức, lối sống mẫu mực, tinh thần trách nhiệm',
-              order: 2,
-              status: 'active',
-              createdAt: new Date().toISOString()
-            },
-            {
-              id: 'kpicat_n01_03',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              code: 'N01.03',
-              name: 'Tinh thần đoàn kết, phối hợp',
-              description: 'Đoàn kết nội bộ, tích cực phối hợp trong công tác và hoạt động giáo dục',
-              order: 3,
-              status: 'active',
-              createdAt: new Date().toISOString()
-            },
-            {
-              id: 'kpicat_n01_04',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              code: 'N01.04',
-              name: 'Ý thức tổ chức, kỷ luật',
-              description: 'Chấp hành nghiêm túc quy định, phân công công tác và kỷ luật cơ quan',
-              order: 4,
-              status: 'active',
-              createdAt: new Date().toISOString()
-            }
-          ];
-
-          // Tạo nhóm tiêu chí mặc định cho các nhóm khác đang tồn tại
-          if (!snap.empty) {
-            snap.docs.forEach((gDoc) => {
-              const g = gDoc.data() as KpiGroup;
-              if (g.id !== n01GroupId && g.code !== 'N01') {
-                defaultCategories.push({
-                  id: `kpicat_${g.code.toLowerCase().replace(/[^a-z0-9]/g, '') || g.id}_01`,
-                  groupId: g.id,
-                  group_id: g.id,
-                  code: `${g.code}.01`,
-                  name: `Tiêu chuẩn ${g.name}`,
-                  description: `Nhóm tiêu chí chuẩn cho ${g.name}`,
-                  order: 1,
-                  status: 'active',
-                  createdAt: new Date().toISOString()
-                });
+      await Promise.allSettled([
+        // 1. Teachers
+        fetchCollectionCached<Teacher[]>('teachers', 'teachers', {
+          force: isManualRetry,
+          forceManual: isManualRetry,
+          transform: (raw) => (raw.length > 0 ? (raw as Teacher[]) : DEFAULT_TEACHERS),
+          fallback: () => getCachedTeachers()
+        }),
+        // 2. Departments (4 docs)
+        fetchCollectionCached<Department[]>('departments', 'departments', {
+          force: isManualRetry,
+          forceManual: isManualRetry,
+          transform: (raw) => {
+            if (!raw || raw.length === 0) return DEFAULT_DEPARTMENTS;
+            return raw.map((d: any) => {
+              const lower = (d.name || '').toLowerCase();
+              if (lower.includes('toán') || lower.includes('toan')) return { ...d, name: 'Tổ Toán-Lý-Tin-CN' };
+              if (lower.includes('văn') && (lower.includes('sử') || lower.includes('địa') || lower.includes('gdkt'))) {
+                return { ...d, name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN' };
               }
+              if (lower.includes('hóa') || lower.includes('sinh') || lower.includes('gdtc') || lower.includes('qpan')) {
+                return { ...d, name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN' };
+              }
+              return d;
             });
-          }
-
-          const catBatch = writeBatch(db);
-          defaultCategories.forEach(cat => {
-            catBatch.set(doc(db, 'kpiCategories', cat.id), sanitize(cat));
-          });
-          await catBatch.commit();
-
-          // Tạo các tiêu chí KPI thành phần chuẩn cho N01.02 theo đúng yêu cầu đề bài
-          const sampleCriteria: KpiItem[] = [
-            {
-              id: 'kpi_n01_02_01',
-              code: 'N01.02.01',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              categoryId: 'kpicat_n01_02',
-              category_id: 'kpicat_n01_02',
-              group: 'Tư tưởng, đạo đức, lối sống',
-              categoryName: 'Đạo đức, lối sống',
-              name: 'Giữ gìn phẩm chất đạo đức',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 10,
-              standardScore: 10,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_1', name: 'Nhắc nhở về tác phong', deductionScore: 1, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_2', name: 'Vi phạm đạo đức nhà giáo', deductionScore: 5, unit: 'Lần', status: 'active', order: 2 }
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 1,
-              description: 'Thực hiện chuẩn mực đạo đức nghề nghiệp, mô phạm trước học sinh và đồng nghiệp'
-            },
-            {
-              id: 'kpi_n01_02_02',
-              code: 'N01.02.02',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              categoryId: 'kpicat_n01_02',
-              category_id: 'kpicat_n01_02',
-              group: 'Tư tưởng, đạo đức, lối sống',
-              categoryName: 'Đạo đức, lối sống',
-              name: 'Có lối sống lành mạnh',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 10,
-              standardScore: 10,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_3', name: 'Lối sống không chuẩn mực', deductionScore: 2, unit: 'Lần', status: 'active', order: 1 }
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 2,
-              description: 'Lối sống trung thực, giản dị, hòa đồng, văn minh'
-            },
-            {
-              id: 'kpi_n01_02_03',
-              code: 'N01.02.03',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              categoryId: 'kpicat_n01_02',
-              category_id: 'kpicat_n01_02',
-              group: 'Tư tưởng, đạo đức, lối sống',
-              categoryName: 'Đạo đức, lối sống',
-              name: 'Không vi phạm quy định',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 10,
-              standardScore: 10,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_4', name: 'Vi phạm quy định nhà trường mức nhẹ', deductionScore: 2, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_5', name: 'Vi phạm quy định nhà trường mức nghiêm trọng', deductionScore: 5, unit: 'Lần', status: 'active', order: 2 }
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 3,
-              description: 'Chấp hành nghiêm ngặt điều lệ trường phổ thông và quy chế ngành'
-            },
-            {
-              id: 'kpi_n01_02_04',
-              code: 'N01.02.04',
-              groupId: n01GroupId,
-              group_id: n01GroupId,
-              categoryId: 'kpicat_n01_02',
-              category_id: 'kpicat_n01_02',
-              group: 'Tư tưởng, đạo đức, lối sống',
-              categoryName: 'Đạo đức, lối sống',
-              name: 'Có tinh thần trách nhiệm',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 10,
-              standardScore: 10,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_6', name: 'Thiếu tinh thần trách nhiệm trong công việc', deductionScore: 2, unit: 'Lần', status: 'active', order: 1 }
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 4,
-              description: 'Tận tụy với công việc, hoàn thành tốt nhiệm vụ được giao'
-            }
-          ];
-
-          const critBatch = writeBatch(db);
-          sampleCriteria.forEach(sc => {
-            critBatch.set(doc(db, 'kpis', sc.id), sanitize(sc));
-          });
-          await critBatch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not migrate/seed KPI Hierarchy:', e);
-      }
-    };
-
-    // Khởi tạo danh mục KPI chuẩn nếu chưa có
-    const seedKpisIfEmpty = async () => {
-      try {
-        const kpiCol = collection(db, 'kpis');
-        const snap = await getDocs(kpiCol);
-        if (snap.empty) {
-          const defaultKpis: KpiItem[] = [
-            {
-              id: 'kpi_ct01',
-              code: 'CT01',
-              groupId: 'kpig_tt',
-              group: 'Tư tưởng chính trị',
-              name: 'Tư tưởng chính trị',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 10,
-              standardScore: 10,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_ct1', name: 'Vi phạm mức 1', deductionScore: 1, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_ct2', name: 'Vi phạm mức 2', deductionScore: 2, unit: 'Lần', status: 'active', order: 2 },
-                { id: 'r_ct3', name: 'Vi phạm mức 3', deductionScore: 5, unit: 'Lần', status: 'active', order: 3 },
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 1,
-              description: 'Chấp hành chủ trương, đường lối, chính sách của Đảng và pháp luật của Nhà nước'
-            },
-            {
-              id: 'kpi_nn01',
-              code: 'NN01',
-              groupId: 'kpig_nn',
-              group: 'Nền nếp',
-              name: 'Nền nếp, tác phong và giờ giấc làm việc',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 20,
-              standardScore: 20,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_nn1', name: 'Không đeo thẻ công sở', deductionScore: 1, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_nn2', name: 'Đi muộn / vào tiết muộn', deductionScore: 2, unit: 'Lần', status: 'active', order: 2 },
-                { id: 'r_nn3', name: 'Bỏ chấm công / quên chấm công', deductionScore: 3, unit: 'Lần', status: 'active', order: 3 },
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 2,
-              description: 'Chấp hành nghiêm quy định về thời gian làm việc và tác phong'
-            },
-            {
-              id: 'kpi_cm01',
-              code: 'CM01',
-              groupId: 'kpig_cm',
-              group: 'Chuyên môn',
-              name: 'Thực hiện nhiệm vụ chuyên môn và quy chế',
-              targetAudience: 'Giáo viên',
-              pointType: 'minus',
-              pointValue: 30,
-              standardScore: 30,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_cm1', name: 'Không thực hiện đúng quy chế chuyên môn', deductionScore: 5, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_cm2', name: 'Hồ sơ chuyên môn không đầy đủ / chậm nộp', deductionScore: 3, unit: 'Lần', status: 'active', order: 2 },
-                { id: 'r_cm3', name: 'Vi phạm quy định chuyên môn khác', deductionScore: 5, unit: 'Lần', status: 'active', order: 3 },
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 3,
-              description: 'Thực hiện đầy đủ kế hoạch giảng dạy, hồ sơ giáo án, sổ điểm'
-            },
-            {
-              id: 'kpi_vh01',
-              code: 'VH01',
-              groupId: 'kpig_vh',
-              group: 'Văn hóa công sở',
-              name: 'Tác phong, văn hóa công sở và ứng xử',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 15,
-              standardScore: 15,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_vh1', name: 'Vi phạm quy tắc ứng xử mức nhẹ', deductionScore: 1, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_vh2', name: 'Vi phạm quy tắc ứng xử mức vừa', deductionScore: 2, unit: 'Lần', status: 'active', order: 2 },
-                { id: 'r_vh3', name: 'Vi phạm nghiêm trọng', deductionScore: 3, unit: 'Lần', status: 'active', order: 3 },
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 4,
-              description: 'Đoàn kết nội bộ, giao tiếp chuẩn mực, xây dựng môi trường sư phạm'
-            },
-            {
-              id: 'kpi_cn01',
-              code: 'CN01',
-              groupId: 'kpig_cn',
-              group: 'Chủ nhiệm',
-              name: 'Công tác chủ nhiệm lớp / quản lý học sinh',
-              targetAudience: 'Giáo viên chủ nhiệm',
-              pointType: 'minus',
-              pointValue: 15,
-              standardScore: 15,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_cn1', name: 'Để lớp vi phạm nề nếp / trật tự', deductionScore: 2, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_cn2', name: 'Chậm báo cáo công tác chủ nhiệm', deductionScore: 3, unit: 'Lần', status: 'active', order: 2 },
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 5,
-              description: 'Nhiệm vụ quản lý, giáo dục học sinh và phối hợp phụ huynh'
-            },
-            {
-              id: 'kpi_cv01',
-              code: 'CV01',
-              groupId: 'kpig_cv',
-              group: 'Công việc',
-              name: 'Thực hiện các nhiệm vụ được giao khác',
-              targetAudience: 'Tất cả CBGVNV',
-              pointType: 'minus',
-              pointValue: 10,
-              standardScore: 10,
-              hasDeduction: true,
-              deductionRules: [
-                { id: 'r_cv1', name: 'Chậm tiến độ thực hiện nhiệm vụ', deductionScore: 2, unit: 'Lần', status: 'active', order: 1 },
-                { id: 'r_cv2', name: 'Không hoàn thành nhiệm vụ được phân công', deductionScore: 5, unit: 'Lần', status: 'active', order: 2 },
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 6,
-              description: 'Thực hiện các nhiệm vụ đột xuất hoặc theo phân công của BGH'
-            }
-          ];
-          const batch = writeBatch(db);
-          defaultKpis.forEach(k => {
-            batch.set(doc(db, 'kpis', k.id), sanitize(k));
-          });
-          await batch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not seed KPIs:', e);
-      }
-    };
-
-    // Khởi tạo các tiêu chí KPI đặc thù theo công việc cho 4 nhóm đối tượng: CNQL; TTCM, TPCM, TTVP; Giáo viên; Nhân viên
-    const seedTaskKpisForTargetGroups = async () => {
-      try {
-        const kpiCol = collection(db, 'kpis');
-        const snap = await getDocs(kpiCol);
-        const existingCodes = new Set(snap.docs.map(d => (d.data().code || '').toUpperCase()));
-        const existingIds = new Set(snap.docs.map(d => d.id));
-
-        const missingKpis = DEFAULT_TASK_KPIS.filter(tk => 
-          !existingIds.has(tk.id) && !existingCodes.has(tk.code.toUpperCase())
-        );
-
-        if (missingKpis.length > 0) {
-          const batch = writeBatch(db);
-          missingKpis.forEach((tk, idx) => {
-            const kpiDoc: KpiItem = {
-              id: tk.id,
-              code: tk.code,
-              groupId: tk.groupId,
-              group_id: tk.groupId,
-              group: tk.group,
-              categoryId: 'kpicat_task',
-              category_id: 'kpicat_task',
-              categoryName: 'Thực hiện nhiệm vụ được giao',
-              name: tk.name,
-              targetAudiences: [tk.targetGroup],
-              targetAudience: tk.targetAudience,
-              pointType: tk.pointType,
-              pointValue: tk.pointValue,
-              standardScore: tk.standardScore,
-              evidenceRequirement: 'Báo cáo công việc / Biên bản kiểm tra / Sổ theo dõi',
-              evaluatorRole: tk.targetGroup === 'CBQL' ? 'BGH / Cấp trên' : (tk.targetGroup === 'TTCM_TPCM' ? 'BGH' : 'BGH / Tổ trưởng'),
-              hasDeduction: true,
-              deductionRules: [
-                {
-                  id: `rule_${tk.id}_1`,
-                  name: tk.deductionName,
-                  deductionScore: tk.deductionScore,
-                  unit: 'Lần',
-                  status: 'active',
-                  order: 1
+          },
+          fallback: () => getCachedDepartments()
+        }),
+        // 3. Classes (36 docs)
+        fetchCollectionCached<ClassInfo[]>('classes', 'classes', {
+          force: isManualRetry,
+          forceManual: isManualRetry,
+          fallback: () => getLocalCollectionCache<ClassInfo[]>('classes', [])
+        }),
+        // 4. Notifications (bounded to 50 most recent docs)
+        fetchCollectionCached<Notification[]>('notifications', 'notifications', {
+          force: isManualRetry,
+          forceManual: isManualRetry,
+          maxDocs: 50,
+          fallback: () => getLocalCollectionCache<Notification[]>('notifications', [])
+        }),
+        // 5. System modules
+        fetchCollectionCached<SystemModule[]>('system_modules', 'modules', {
+          force: isManualRetry,
+          forceManual: isManualRetry,
+          transform: (raw) => {
+            if (!raw || raw.length === 0) return DEFAULT_SYSTEM_MODULES;
+            const list = raw as SystemModule[];
+            list.sort((a, b) => (a.order || 0) - (b.order || 0));
+            return list;
+          },
+          fallback: () => DEFAULT_SYSTEM_MODULES
+        }),
+        // 6. School stats (1 single document)
+        cachedFirestoreFetch<SchoolStats | null>(
+          'appcol:schoolStats',
+          APP_CORE_TTL_MS,
+          async () => {
+            const statsDocRef = doc(db, 'systemSettings', 'schoolStats');
+            const snap = await getDoc(statsDocRef);
+            if (isCancelled) return null;
+            if (snap.exists()) {
+              schoolStatsLoadedFromDbRef.current = true;
+              const d = snap.data() as Partial<SchoolStats>;
+              const merged: SchoolStats = {
+                totalTeachers: d.totalTeachers ?? 42,
+                totalStudents: d.totalStudents ?? 1236,
+                totalClasses: d.totalClasses ?? 36,
+                schoolYear: d.schoolYear ?? '2026 - 2027',
+                motto: d.motto ?? 'Nơi chắp cánh những ước mơ',
+                welcomeMessage: d.welcomeMessage ?? 'Chào mừng bạn!'
+              };
+              setLocalCollectionCache('schoolStats', merged);
+              setState((prev) => ({
+                ...prev,
+                schoolStats: {
+                  ...merged,
+                  totalTeachers: d.totalTeachers ?? (prev.teachers.length > 0 ? prev.teachers.length : 42)
                 }
-              ],
-              unit: 'Lần',
-              status: 'active',
-              order: 10 + idx,
-              description: tk.description,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-            batch.set(doc(db, 'kpis', kpiDoc.id), sanitize(kpiDoc));
-          });
-          await batch.commit();
-        }
-
-        // Tự động chuẩn hóa dữ liệu cũ của TTCM / TPCM thành TTCM_TPCM chung nếu chưa có targetAudiences
-        const legacyDocsToUpdate = snap.docs.filter(d => {
-          const data = d.data();
-          const aud = (data.targetAudience || '').toLowerCase();
-          const hasLegacyAud = aud.includes('ttcm') || aud.includes('tpcm') || aud.includes('tổ trưởng') || aud.includes('tổ phó');
-          return hasLegacyAud && (!data.targetAudiences || !data.targetAudiences.includes('TTCM_TPCM'));
-        });
-
-        if (legacyDocsToUpdate.length > 0) {
-          const legacyBatch = writeBatch(db);
-          legacyDocsToUpdate.forEach(d => {
-            legacyBatch.update(doc(db, 'kpis', d.id), {
-              targetAudiences: ['TTCM_TPCM'],
-              targetAudience: 'TTCM/TPCM (Tổ trưởng & Tổ phó)',
-              updatedAt: new Date().toISOString()
-            });
-          });
-          await legacyBatch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not seed task KPIs for target groups:', e);
-      }
-    };
-
-    // Khởi tạo 5 tiêu chí mặc định nếu chưa có trong Firestore
-    const seedCriteriaIfEmpty = async () => {
-      try {
-        const critCol = collection(db, 'disciplineCriteria');
-        const snap = await getDocs(critCol);
-        if (snap.empty) {
-          const defaultCriteria: DisciplineCriterion[] = [
-            { id: 'crit_1', name: 'Thực hiện Nội quy nhà trường', description: 'Chấp hành giờ giấc, tác phong, văn hóa học đường', order: 1, status: 'active' },
-            { id: 'crit_2', name: 'Thực hiện Quy chế chuyên môn', description: 'Hồ sơ giáo án, lịch báo giảng, sổ điểm, tiến độ chương trình', order: 2, status: 'active' },
-            { id: 'crit_3', name: 'Thực hiện Văn hóa công sở', description: 'Giao tiếp chuẩn mực, đoàn kết nội bộ, tinh thần hợp tác', order: 3, status: 'active' },
-            { id: 'crit_4', name: 'Thực hiện Chế độ hội họp', description: 'Tham gia họp hội đồng, sinh hoạt chuyên môn đầy đủ, đúng giờ', order: 4, status: 'active' },
-            { id: 'crit_5', name: 'Tham gia sinh hoạt tập thể', description: 'Tham gia các hoạt động chung, phong trào thi đua của trường', order: 5, status: 'active' },
-          ];
-          const batch = writeBatch(db);
-          defaultCriteria.forEach(c => {
-            batch.set(doc(db, 'disciplineCriteria', c.id), sanitize(c));
-          });
-          await batch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not check or seed disciplineCriteria:', e);
-      }
-    };
-
-    const seedWorkAssignmentsIfEmpty = async () => {
-      try {
-        const waCol = collection(db, 'workAssignments');
-        const snap = await getDocs(waCol);
-        if (snap.empty) {
-          const batch = writeBatch(db);
-          OFFICIAL_SCHOOL_TASKS_2026_2027.forEach(wa => {
-            batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
-          });
-          await batch.commit();
-          console.log('Seeded official school work assignments for THPT Sơn Lương successfully.');
-        }
-      } catch (e) {
-        console.warn('Could not seed work assignments:', e);
-      }
-    };
-
-    const seedReportsIfEmpty = async () => {
-      try {
-        const reportCol = collection(db, 'reports');
-        const snap = await getDocs(reportCol);
-        if (snap.empty) {
-          const defaultReports: Report[] = [
-            {
-              id: 'rep_01',
-              title: 'Báo cáo kế hoạch chuyên môn Tháng 09/2026',
-              authorId: 't1',
-              departmentId: 'd1',
-              date: '2026-09-05',
-              type: 'Báo cáo chuyên môn',
-              content: 'Báo cáo chi tiết kế hoạch thực hiện giảng dạy, hội giảng và thao giảng cấp trường Tháng 9.',
-              status: 'Đã duyệt',
-              reviewDate: '2026-09-06',
-              feedback: 'Kế hoạch đầy đủ, đồng ý triển khai.'
-            },
-            {
-              id: 'rep_02',
-              title: 'Báo cáo kiểm tra nền nếp tuần 1 Tháng 09',
-              authorId: 't2',
-              departmentId: 'd2',
-              date: '2026-09-10',
-              type: 'Báo cáo tuần',
-              content: 'Tình hình nề nếp thi đua các lớp khối 10, 11, 12 tuần 1. Đã ghi nhận các trường hợp đi muộn và vi phạm đồng phục.',
-              status: 'Chờ duyệt'
-            },
-            {
-              id: 'rep_03',
-              title: 'Báo cáo tổng hợp đánh giá KPI CBGVNV Tháng 08',
-              authorId: 't3',
-              departmentId: 'd3',
-              date: '2026-08-31',
-              type: 'Báo cáo KPI',
-              content: 'Tổng hợp xếp loại thi đua CBGVNV toàn trường tháng 8 năm học 2026-2027.',
-              status: 'Đã duyệt'
+              }));
+              return merged;
+            } else if (isAdminOrBghUser && !hasSeededSchoolStatsRef.current && navigator.onLine) {
+              hasSeededSchoolStatsRef.current = true;
+              const defaults: SchoolStats = {
+                totalTeachers: 42,
+                totalStudents: 1236,
+                totalClasses: 36,
+                schoolYear: '2026 - 2027',
+                motto: 'Nơi chắp cánh những ước mơ',
+                welcomeMessage: 'Chào mừng bạn!'
+              };
+              setDoc(statsDocRef, defaults, { merge: true }).catch(() => {});
+              return defaults;
             }
-          ];
-          const batch = writeBatch(db);
-          defaultReports.forEach(r => batch.set(doc(db, 'reports', r.id), sanitize(r)));
-          await batch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not seed reports:', e);
-      }
-    };
-
-    const rename16MemberDepartmentToVanSuDia = async () => {
-      try {
-        const deptCol = collection(db, 'departments');
-        const teacherCol = collection(db, 'teachers');
-
-        const [deptSnap, teacherSnap] = await Promise.all([
-          getDocs(deptCol),
-          getDocs(teacherCol)
-        ]);
-
-        const teachersList = teacherSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-
-        const batch = writeBatch(db);
-        let neededUpdate = false;
-
-        deptSnap.docs.forEach(docSnap => {
-          const deptData = docSnap.data();
-          const deptId = docSnap.id;
-          const currentName = deptData.name || '';
-
-          // Count members belonging to this department ID
-          const membersCount = teachersList.filter(t => t.departmentId === deptId).length;
-
-          // Rule: If department name is "Tổ Văn phòng" AND member count is 16 (or > 10) OR if doc.id is 'd_van_su_dia_gdkt_pl_an'
-          // ABSOLUTELY DO NOT rename the "Tổ Văn phòng" record that has 5 members!
-          if ((currentName === 'Tổ Văn phòng' && membersCount === 16) ||
-              (currentName === 'Tổ Văn phòng' && membersCount > 10) ||
-              (deptId === 'd_van_su_dia_gdkt_pl_an' && currentName !== 'Tổ Văn-Sử-Địa-GDKT&PL-AN')) {
-            batch.update(docSnap.ref, {
-              name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN',
-              updatedAt: new Date().toISOString()
-            });
-            neededUpdate = true;
+            return null;
+          },
+          {
+            force: isManualRetry,
+            forceManual: isManualRetry,
+            fallback: () => getLocalCollectionCache<SchoolStats | null>('schoolStats', null)
           }
-        });
+        )
+      ]);
 
-        if (neededUpdate) {
-          await batch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not execute department rename migration:', e);
+      // If this was a manual retry ("Thử đồng bộ lại"), also refresh any lazy collections the user already visited
+      if (isManualRetry && loadedLazyKeysRef.current.size > 0 && !isCancelled) {
+        await ensureCollectionsLoaded(Array.from(loadedLazyKeysRef.current), { force: true });
       }
-    };
 
-    const seedDepartmentsIfEmpty = async () => {
-      try {
-        const deptCol = collection(db, 'departments');
-        const snap = await getDocs(deptCol);
-        
-        const requestedDepts = [
-          { id: 'd_toan_ly_tin_cn', name: 'Tổ Toán-Lý-Tin-CN', headId: 't1' },
-          { id: 'd_hoa_sinh_gdtc_qpan_nn', name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', headId: 't3' },
-          { id: 'd_van_su_dia_gdkt_pl_an', name: 'Tổ Văn-Sử-Địa-GDKT&PL-AN', headId: 't2' },
-          { id: 'd_van_phong', name: 'Tổ Văn phòng', headId: 't4' }
-        ];
-
-        const batch = writeBatch(db);
-        let neededToSeed = false;
-
-        // Auto rename any existing department that matches Hóa-Sinh to Tổ Hóa-Sinh-GDTC-QPAN-NN
-        snap.docs.forEach(docSnap => {
-          const dData = docSnap.data();
-          const dId = docSnap.id;
-          const name = dData.name || '';
-          if (
-            (dId.includes('hoa') || name.toLowerCase().includes('hóa') || name.toLowerCase().includes('sinh')) &&
-            name !== 'Tổ Hóa-Sinh-GDTC-QPAN-NN'
-          ) {
-            batch.update(docSnap.ref, { name: 'Tổ Hóa-Sinh-GDTC-QPAN-NN', updatedAt: new Date().toISOString() });
-            neededToSeed = true;
-          }
-        });
-
-        // Sync missing default departments without overwriting existing ones
-        for (const d of requestedDepts) {
-          const existingDoc = snap.docs.find(docSnap => docSnap.id === d.id || docSnap.data().name === d.name);
-          if (!existingDoc) {
-            batch.set(doc(db, 'departments', d.id), d);
-            neededToSeed = true;
-          }
-        }
-
-        if (neededToSeed) {
-          await batch.commit();
-        }
-      } catch (e) {
-        console.warn('Could not seed departments:', e);
-      }
-    };
-
-    const seedAndRepairTeachers = async () => {
-      try {
-        const stateDocRef = doc(db, 'systemSettings', 'teachersState');
-        const stateSnap = await getDoc(stateDocRef);
-        const isInitialized = stateSnap.exists() && stateSnap.data()?.initialized;
-
-        const teacherCol = collection(db, 'teachers');
-        const snap = await getDocs(teacherCol);
-
-        if (snap.empty && !isInitialized) {
-          const defaultTeachers: Teacher[] = [
-            {
-              id: 't_ht',
-              username: 'hieutruong',
-              code: 'BGH001',
-              name: 'Nguyễn Quang Sáng',
-              role: 'BGH',
-              position: 'Hiệu trưởng',
-              departmentId: 'd_bgh',
-              departmentName: 'Ban Giám hiệu',
-              status: 'Đang công tác',
-              email: 'nguyenquangsang@sonluong.edu.vn',
-              phone: '0988888888',
-              subject: 'Quản lý giáo dục',
-              joinDate: '2015-09-01',
-              degree: 'Thạc sĩ'
-            },
-            {
-              id: 't_pht1',
-              username: 'phohieutruong1',
-              code: 'BGH002',
-              name: 'Phạm Kim Hùng',
-              role: 'BGH',
-              position: 'Phó Hiệu trưởng',
-              departmentId: 'd_bgh',
-              departmentName: 'Ban Giám hiệu',
-              status: 'Đang công tác',
-              email: 'phamkimhung@sonluong.edu.vn',
-              phone: '0977777777',
-              subject: 'Quản lý chuyên môn',
-              joinDate: '2017-09-01',
-              degree: 'Thạc sĩ'
-            },
-            {
-              id: 't_pht2',
-              username: 'phohieutruong2',
-              code: 'BGH003',
-              name: 'Nguyễn Anh Hòa',
-              role: 'BGH',
-              position: 'Phó Hiệu trưởng',
-              departmentId: 'd_bgh',
-              departmentName: 'Ban Giám hiệu',
-              status: 'Đang công tác',
-              email: 'nguyenanhhoa@sonluong.edu.vn',
-              phone: '0966666666',
-              subject: 'Quản lý cơ sở vật chất',
-              joinDate: '2018-09-01',
-              degree: 'Thạc sĩ'
-            }
-          ];
-
-          const batch = writeBatch(db);
-          defaultTeachers.forEach(t => {
-            batch.set(doc(db, 'teachers', t.id), sanitize(t));
-          });
-          await batch.commit();
-          await setDoc(stateDocRef, { initialized: true }, { merge: true });
-          console.log('Seeded essential BGH teachers successfully.');
-        } else if (!snap.empty) {
-          // Repair existing teachers only if code/name is corrupt
-          let hasCorrupted = false;
-          const batch = writeBatch(db);
-
-          snap.docs.forEach((d, idx) => {
-            const t = d.data() as Teacher;
-            let changed = false;
-            let newCode = t.code;
-            let newName = t.name;
-
-            const isCodeCorrupt = !t.code || t.code.includes('${') || t.code.includes('random') || t.code.includes('undefined') || t.code.includes('GVS');
-            const isNameCorrupt = !t.name || t.name.includes('${') || t.name.includes('random') || t.name.includes('undefined') || t.name.includes('GVS') || t.name.trim() === '';
-
-            if (isCodeCorrupt) {
-              newCode = `GV${100 + (idx % 900)}`;
-              changed = true;
-            }
-            if (isNameCorrupt && t.id.startsWith('t_')) {
-              newName = 'Chưa cập nhật';
-              changed = true;
-            }
-
-            if (changed) {
-              hasCorrupted = true;
-              batch.update(doc(db, 'teachers', d.id), {
-                code: newCode,
-                name: newName,
-                username: t.username || newCode.toLowerCase(),
-                updatedAt: new Date().toISOString()
-              });
-            }
-          });
-
-          if (hasCorrupted) {
-            await batch.commit();
-          }
-        }
-      } catch (e) {
-        console.warn('Could not seed or repair teachers:', e);
-      }
-    };
-
-    const initData = async () => {
-      // Chỉ chạy kiểm tra khởi tạo/di chuyển dữ liệu MỘT LẦN mỗi phiên, chỉ cho tài khoản Admin/BGH khi đang trực tuyến
-      // Ngăn triệt để tình trạng hàng chục Pending Mutations tích tụ vào hàng đợi ghi trên máy giáo viên/mạng yếu
-      const migrationFlagKey = 'thpt_sl_startup_migrations_checked_v1';
-      let alreadyChecked = false;
-      try {
-        alreadyChecked = sessionStorage.getItem(migrationFlagKey) === '1';
-      } catch {}
-
-      if (isAdminOrBghUser && !alreadyChecked && typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
-          sessionStorage.setItem(migrationFlagKey, '1');
-        } catch {}
-        await migrateAndSeedHierarchyIfEmpty();
-        if (isCancelled) return;
-        await seedKpisIfEmpty();
-        if (isCancelled) return;
-        await seedTaskKpisForTargetGroups();
-        if (isCancelled) return;
-        await seedCriteriaIfEmpty();
-        if (isCancelled) return;
-        await seedWorkAssignmentsIfEmpty();
-        if (isCancelled) return;
-        await seedReportsIfEmpty();
-        if (isCancelled) return;
-        await rename16MemberDepartmentToVanSuDia();
-        if (isCancelled) return;
-        await seedDepartmentsIfEmpty();
-        if (isCancelled) return;
-        await seedAndRepairTeachers();
-      }
       if (!isCancelled) {
-        setState(prev => ({ ...prev, loading: false }));
+        setState((prev) => ({ ...prev, loading: false }));
       }
     };
-    initData();
+
+    loadCoreData();
 
     return () => {
       isCancelled = true;
-      unsubscribes.forEach(unsub => unsub());
     };
-  }, [user?.id, isAdminOrBghUser]);
+  }, [user?.id, isAdminOrBghUser, quotaEpoch, fetchCollectionCached, ensureCollectionsLoaded]);
 
   // Auto-sync totalClasses from active classes collection (strictly outside setState updater, Admin/BGH only)
   useEffect(() => {
@@ -1464,13 +782,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data: any = { status };
       if (progress !== undefined) data.progress = progress;
+      setState(prev => {
+        const updated = prev.tasks.map(t => t.id === taskId ? { ...t, ...data } : t);
+        setLocalCollectionCache('tasks', updated);
+        return { ...prev, tasks: updated };
+      });
       await updateDoc(doc(db, 'tasks', taskId), data);
+      invalidateFirestoreCache('appcol:tasks');
     } catch (e) { handleDbError(e); }
   };
 
   const markNotificationRead = async (id: string) => {
     try {
+      setState(prev => {
+        const updated = prev.notifications.map(n => n.id === id ? { ...n, isRead: true } : n);
+        setLocalCollectionCache('notifications', updated);
+        return { ...prev, notifications: updated };
+      });
       await updateDoc(doc(db, 'notifications', id), { isRead: true });
+      invalidateFirestoreCache('appcol:notifications');
     } catch (e) { handleDbError(e); }
   };
 
@@ -1483,6 +813,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await deleteDoc(doc(db, 'teachers', id));
       await setDoc(doc(db, 'systemSettings', 'teachersState'), { initialized: true }, { merge: true });
+      invalidateFirestoreCache('appcol:teachers');
     } catch (e) {
       handleDbError(e);
       throw e;
@@ -1504,6 +835,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ...prev, teachers: [] };
       });
       await setDoc(doc(db, 'systemSettings', 'teachersState'), { initialized: true, isEmpty: true }, { merge: true });
+      invalidateFirestoreCache('appcol:teachers');
     } catch (e) {
       handleDbError(e);
       throw e;
@@ -1566,6 +898,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         await batch.commit();
       }
+      invalidateFirestoreCache('appcol:teachers');
     } catch (e: any) {
       console.warn("Could not write teachers chunk to Firestore:", e);
       if (e?.code === 'resource-exhausted' || (e?.message && e.message.toLowerCase().includes('quota'))) {
@@ -1591,7 +924,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       safeLocalStorageSet('app_cached_teachers', JSON.stringify(updated));
       return { ...prev, teachers: updated };
     });
-    try { await updateDoc(doc(db, 'teachers', id), sanitize(data)); } catch (e) { handleDbError(e); }
+    try {
+      await updateDoc(doc(db, 'teachers', id), sanitize(data));
+      invalidateFirestoreCache('appcol:teachers');
+    } catch (e) { handleDbError(e); }
   };
 
   const addTeacher = async (teacher: Teacher) => {
@@ -1603,6 +939,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     try {
       await setDoc(doc(db, 'teachers', teacher.id), sanitize(teacher));
+      invalidateFirestoreCache('appcol:teachers');
     } catch (e) { handleDbError(e); }
   };
 
@@ -1614,8 +951,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     try {
       await updateDoc(doc(db, 'departments', id), sanitize(data));
+      invalidateFirestoreCache('appcol:departments');
       if (data.headId) {
         await updateDoc(doc(db, 'teachers', data.headId), { departmentId: id });
+        invalidateFirestoreCache('appcol:teachers');
       }
     } catch (e) { handleDbError(e); }
   };
@@ -1626,7 +965,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       safeLocalStorageSet('app_cached_departments', JSON.stringify(updated));
       return { ...prev, departments: updated };
     });
-    try { await deleteDoc(doc(db, 'departments', id)); } catch (e) { handleDbError(e); }
+    try {
+      await deleteDoc(doc(db, 'departments', id));
+      invalidateFirestoreCache('appcol:departments');
+    } catch (e) { handleDbError(e); }
   };
 
   const addDepartment = async (dept: Department) => {
@@ -1639,6 +981,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     try {
       await setDoc(doc(db, 'departments', dept.id), sanitize(dept));
+      invalidateFirestoreCache('appcol:departments');
     } catch (e) { handleDbError(e); }
   };
 
@@ -1664,8 +1007,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attendanceRecords: [...prev.attendanceRecords.filter(a => !(a.teacherId === newRecord.teacherId && a.date === newRecord.date)), newRecord]
       }));
       await setDoc(doc(db, 'attendance', id), newRecord);
+      invalidateFirestoreCache('appcol:attendance');
     } catch (err) {
-      console.error(err);
+      handleDbError(err);
       throw err;
     }
   };
@@ -1678,8 +1022,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attendanceRecords: prev.attendanceRecords.map(a => a.id === id ? { ...a, ...sanitizedUpdates } : a)
       }));
       await setDoc(doc(db, 'attendance', id), sanitizedUpdates, { merge: true });
+      invalidateFirestoreCache('appcol:attendance');
     } catch (err) {
-      console.error(err);
+      handleDbError(err);
       throw err;
     }
   };
@@ -1691,8 +1036,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attendanceRecords: prev.attendanceRecords.filter(a => a.id !== id)
       }));
       await deleteDoc(doc(db, 'attendance', id));
+      invalidateFirestoreCache('appcol:attendance');
     } catch (err) {
-      console.error(err);
+      handleDbError(err);
       throw err;
     }
   };
@@ -1706,6 +1052,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         leaveRecords: [newRecord, ...prev.leaveRecords]
       }));
       await setDoc(doc(db, 'leaveRecords', id), newRecord);
+      invalidateFirestoreCache('appcol:leaveRecords');
     } catch (e) { handleDbError(e); }
   };
 
@@ -1717,6 +1064,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         leaveRecords: prev.leaveRecords.map(r => r.id === id ? { ...r, ...sanitizedUpdates } : r)
       }));
       await setDoc(doc(db, 'leaveRecords', id), sanitizedUpdates, { merge: true });
+      invalidateFirestoreCache('appcol:leaveRecords');
     } catch (e) { handleDbError(e); }
   };
 
@@ -1727,6 +1075,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         leaveRecords: prev.leaveRecords.filter(r => r.id !== id)
       }));
       await deleteDoc(doc(db, 'leaveRecords', id));
+      invalidateFirestoreCache('appcol:leaveRecords');
     } catch (e) { handleDbError(e); }
   };
 
@@ -2184,41 +1533,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addTask = async (task: Task) => {
     try {
       if (!task.id) task.id = `task${Date.now()}_${Math.random()}`;
+      setState(prev => {
+        const updated = [task, ...prev.tasks.filter(t => t.id !== task.id)];
+        setLocalCollectionCache('tasks', updated);
+        return { ...prev, tasks: updated };
+      });
       await setDoc(doc(db, 'tasks', task.id), sanitize(task));
+      invalidateFirestoreCache('appcol:tasks');
     } catch (e) { handleDbError(e); }
   };
 
   const updateTask = async (id: string, data: Partial<Task>) => {
-    try { await updateDoc(doc(db, 'tasks', id), sanitize(data)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.tasks.map(t => t.id === id ? { ...t, ...data } : t);
+        setLocalCollectionCache('tasks', updated);
+        return { ...prev, tasks: updated };
+      });
+      await updateDoc(doc(db, 'tasks', id), sanitize(data));
+      invalidateFirestoreCache('appcol:tasks');
+    } catch (e) { handleDbError(e); }
   };
 
   const deleteTask = async (id: string) => {
-    try { await deleteDoc(doc(db, 'tasks', id)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.tasks.filter(t => t.id !== id);
+        setLocalCollectionCache('tasks', updated);
+        return { ...prev, tasks: updated };
+      });
+      await deleteDoc(doc(db, 'tasks', id));
+      invalidateFirestoreCache('appcol:tasks');
+    } catch (e) { handleDbError(e); }
   };
 
   const addWorkAssignment = async (assignment: WorkAssignment) => {
     try {
       if (!assignment.id) assignment.id = `wa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      setState(prev => ({
-        ...prev,
-        workAssignments: [assignment, ...prev.workAssignments]
-      }));
+      setState(prev => {
+        const updated = [assignment, ...prev.workAssignments];
+        setLocalCollectionCache('workAssignments', updated);
+        return { ...prev, workAssignments: updated };
+      });
       await setDoc(doc(db, 'workAssignments', assignment.id), sanitize(assignment));
+      invalidateFirestoreCache('appcol:workAssignments');
     } catch (e) { handleDbError(e); }
   };
 
   const updateWorkAssignment = async (id: string, data: Partial<WorkAssignment>) => {
     try {
-      setState(prev => ({
-        ...prev,
-        workAssignments: prev.workAssignments.map(w => w.id === id ? { ...w, ...data, updatedAt: new Date().toISOString() } : w)
-      }));
+      setState(prev => {
+        const updated = prev.workAssignments.map(w => w.id === id ? { ...w, ...data, updatedAt: new Date().toISOString() } : w);
+        setLocalCollectionCache('workAssignments', updated);
+        return { ...prev, workAssignments: updated };
+      });
       await updateDoc(doc(db, 'workAssignments', id), sanitize(data));
+      invalidateFirestoreCache('appcol:workAssignments');
     } catch (e) { handleDbError(e); }
   };
 
   const deleteWorkAssignment = async (id: string) => {
-    try { await deleteDoc(doc(db, 'workAssignments', id)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.workAssignments.filter(w => w.id !== id);
+        setLocalCollectionCache('workAssignments', updated);
+        return { ...prev, workAssignments: updated };
+      });
+      await deleteDoc(doc(db, 'workAssignments', id));
+      invalidateFirestoreCache('appcol:workAssignments');
+    } catch (e) { handleDbError(e); }
   };
 
   const importWorkAssignments = async (assignments: WorkAssignment[]) => {
@@ -2229,10 +1612,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
       });
       await batch.commit();
-      setState(prev => ({
-        ...prev,
-        workAssignments: [...assignments, ...prev.workAssignments.filter(w => !assignments.some(a => a.id === w.id))]
-      }));
+      setState(prev => {
+        const updated = [...assignments, ...prev.workAssignments.filter(w => !assignments.some(a => a.id === w.id))];
+        setLocalCollectionCache('workAssignments', updated);
+        return { ...prev, workAssignments: updated };
+      });
+      invalidateFirestoreCache('appcol:workAssignments');
     } catch (e) {
       handleDbError(e);
       throw e;
@@ -2246,10 +1631,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batch.set(doc(db, 'workAssignments', wa.id), sanitize(wa));
       });
       await batch.commit();
-      setState(prev => ({
-        ...prev,
-        workAssignments: [...OFFICIAL_SCHOOL_TASKS_2026_2027, ...prev.workAssignments.filter(w => !OFFICIAL_SCHOOL_TASKS_2026_2027.some(o => o.id === w.id))]
-      }));
+      setState(prev => {
+        const updated = [...OFFICIAL_SCHOOL_TASKS_2026_2027, ...prev.workAssignments.filter(w => !OFFICIAL_SCHOOL_TASKS_2026_2027.some(o => o.id === w.id))];
+        setLocalCollectionCache('workAssignments', updated);
+        return { ...prev, workAssignments: updated };
+      });
+      invalidateFirestoreCache('appcol:workAssignments');
     } catch (e) {
       handleDbError(e);
       throw e;
@@ -2259,46 +1646,112 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addCalendarEvent = async (event: CalendarEvent) => {
     try {
       if (!event.id) event.id = `ev${Date.now()}_${Math.random()}`;
+      setState(prev => {
+        const updated = [event, ...prev.calendarEvents.filter(ev => ev.id !== event.id)];
+        setLocalCollectionCache('calendarEvents', updated);
+        return { ...prev, calendarEvents: updated };
+      });
       await setDoc(doc(db, 'calendarEvents', event.id), sanitize(event));
+      invalidateFirestoreCache('appcol:calendarEvents');
     } catch (e) { handleDbError(e); }
   };
 
   const updateCalendarEvent = async (id: string, data: Partial<CalendarEvent>) => {
-    try { await updateDoc(doc(db, 'calendarEvents', id), sanitize(data)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.calendarEvents.map(ev => ev.id === id ? { ...ev, ...data } : ev);
+        setLocalCollectionCache('calendarEvents', updated);
+        return { ...prev, calendarEvents: updated };
+      });
+      await updateDoc(doc(db, 'calendarEvents', id), sanitize(data));
+      invalidateFirestoreCache('appcol:calendarEvents');
+    } catch (e) { handleDbError(e); }
   };
 
   const deleteCalendarEvent = async (id: string) => {
-    try { await deleteDoc(doc(db, 'calendarEvents', id)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.calendarEvents.filter(ev => ev.id !== id);
+        setLocalCollectionCache('calendarEvents', updated);
+        return { ...prev, calendarEvents: updated };
+      });
+      await deleteDoc(doc(db, 'calendarEvents', id));
+      invalidateFirestoreCache('appcol:calendarEvents');
+    } catch (e) { handleDbError(e); }
   };
 
   const addNotification = async (notification: Notification) => {
     try {
       if (!notification.id) notification.id = `notif${Date.now()}_${Math.random()}`;
+      setState(prev => {
+        const updated = [notification, ...prev.notifications.filter(n => n.id !== notification.id)];
+        setLocalCollectionCache('notifications', updated);
+        return { ...prev, notifications: updated };
+      });
       await setDoc(doc(db, 'notifications', notification.id), sanitize(notification));
+      invalidateFirestoreCache('appcol:notifications');
     } catch (e) { handleDbError(e); }
   };
 
   const updateNotification = async (id: string, data: Partial<Notification>) => {
-    try { await updateDoc(doc(db, 'notifications', id), sanitize(data)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.notifications.map(n => n.id === id ? { ...n, ...data } : n);
+        setLocalCollectionCache('notifications', updated);
+        return { ...prev, notifications: updated };
+      });
+      await updateDoc(doc(db, 'notifications', id), sanitize(data));
+      invalidateFirestoreCache('appcol:notifications');
+    } catch (e) { handleDbError(e); }
   };
 
   const deleteNotification = async (id: string) => {
-    try { await deleteDoc(doc(db, 'notifications', id)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.notifications.filter(n => n.id !== id);
+        setLocalCollectionCache('notifications', updated);
+        return { ...prev, notifications: updated };
+      });
+      await deleteDoc(doc(db, 'notifications', id));
+      invalidateFirestoreCache('appcol:notifications');
+    } catch (e) { handleDbError(e); }
   };
 
   const addReport = async (report: Report) => {
     try {
       if (!report.id) report.id = `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      setState(prev => {
+        const updated = [report, ...prev.reports.filter(r => r.id !== report.id)];
+        setLocalCollectionCache('reports', updated);
+        return { ...prev, reports: updated };
+      });
       await setDoc(doc(db, 'reports', report.id), sanitize(report));
+      invalidateFirestoreCache('appcol:reports');
     } catch (e) { handleDbError(e); }
   };
 
   const updateReport = async (id: string, data: Partial<Report>) => {
-    try { await updateDoc(doc(db, 'reports', id), sanitize(data)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.reports.map(r => r.id === id ? { ...r, ...data } : r);
+        setLocalCollectionCache('reports', updated);
+        return { ...prev, reports: updated };
+      });
+      await updateDoc(doc(db, 'reports', id), sanitize(data));
+      invalidateFirestoreCache('appcol:reports');
+    } catch (e) { handleDbError(e); }
   };
 
   const deleteReport = async (id: string) => {
-    try { await deleteDoc(doc(db, 'reports', id)); } catch (e) { handleDbError(e); }
+    try {
+      setState(prev => {
+        const updated = prev.reports.filter(r => r.id !== id);
+        setLocalCollectionCache('reports', updated);
+        return { ...prev, reports: updated };
+      });
+      await deleteDoc(doc(db, 'reports', id));
+      invalidateFirestoreCache('appcol:reports');
+    } catch (e) { handleDbError(e); }
   };
 
   const checkAndRepairKpiData = async () => {
@@ -2391,6 +1844,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const id = module.id || `mod_${Date.now()}`;
       await setDoc(doc(db, 'system_modules', id), sanitize({ ...module, id }));
+      invalidateFirestoreCache('appcol:system_modules');
       setState(prev => ({ ...prev, modules: [...prev.modules.filter(m => m.id !== id), { ...module, id }] }));
     } catch (e) {
       handleDbError(e);
@@ -2400,6 +1854,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateModule = async (id: string, data: Partial<SystemModule>, _currentUser?: User | null) => {
     try {
       await updateDoc(doc(db, 'system_modules', id), sanitize(data));
+      invalidateFirestoreCache('appcol:system_modules');
       setState(prev => ({
         ...prev,
         modules: prev.modules.map(m => m.id === id ? { ...m, ...data } : m)
@@ -2412,6 +1867,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteModule = async (id: string, _currentUser?: User | null) => {
     try {
       await deleteDoc(doc(db, 'system_modules', id));
+      invalidateFirestoreCache('appcol:system_modules');
       setState(prev => ({
         ...prev,
         modules: prev.modules.filter(m => m.id !== id)
@@ -2435,6 +1891,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batch.set(doc(db, 'system_modules', m.id), sanitize({ ...m, order: idx + 1 }), { merge: true });
       });
       await batch.commit();
+      invalidateFirestoreCache('appcol:system_modules');
     } catch (e) {
       handleDbError(e);
     }
@@ -2448,6 +1905,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batch.set(doc(db, 'system_modules', m.id), sanitize({ ...m, order: idx + 1 }), { merge: true });
       });
       await batch.commit();
+      invalidateFirestoreCache('appcol:system_modules');
     } catch (e) {
       handleDbError(e);
     }
@@ -2457,6 +1915,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const statsDocRef = doc(db, 'systemSettings', 'schoolStats');
       await setDoc(statsDocRef, sanitize(data), { merge: true });
+      invalidateFirestoreCache('appcol:schoolStats');
       setState(prev => ({
         ...prev,
         schoolStats: { ...prev.schoolStats, ...data }
@@ -2470,6 +1929,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider value={{
       ...state,
       clearError,
+      ensureCollectionsLoaded,
       addModule,
       updateModule,
       deleteModule,
@@ -2541,12 +2001,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setKpiStaffPeriods,
       setKpiStaffCriteria
     }}>
-      {state.error && user && (
-        <div className={`fixed top-0 left-0 right-0 z-50 shadow-md py-2 px-4 transition-all duration-300 ${
-          state.error.includes('resource-exhausted') || state.error.includes('Hạn ngạch')
-            ? 'bg-amber-600/95 text-white backdrop-blur-sm border-b border-amber-500'
-            : 'bg-rose-600/95 text-white backdrop-blur-sm border-b border-rose-500'
-        }`}>
+      {state.error && user && !state.error.includes('resource-exhausted') && !state.error.includes('Hạn ngạch') && (
+        <div className="fixed top-0 left-0 right-0 z-50 shadow-md py-2 px-4 transition-all duration-300 bg-rose-600/95 text-white backdrop-blur-sm border-b border-rose-500">
           <div className="max-w-7xl mx-auto flex items-center justify-between text-xs sm:text-sm font-medium">
             <div className="flex items-center space-x-2">
               <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/20 uppercase tracking-wider">

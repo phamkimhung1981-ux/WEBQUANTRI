@@ -24,6 +24,16 @@ import {
 } from '../types/academicEmulation';
 import { ClassInfo } from '../types/homeroom';
 import { getWeekInfoByNumber, getWeeksForMonth } from '../utils/schoolWeekUtils';
+import {
+  cachedFirestoreFetch,
+  invalidateFirestoreCache,
+  isQuotaExceededError,
+  reportFirestoreError,
+  reportFirestoreSuccess
+} from '../utils/firestoreQuotaManager';
+
+const ACADEMIC_CONFIG_TTL_MS = 5 * 60 * 1000;
+const ACADEMIC_RECORDS_TTL_MS = 3 * 60 * 1000;
 
 const COLLECTIONS = {
   RECORDS: 'academic_emulation_records',
@@ -429,7 +439,7 @@ export const academicEmulationService = {
    * Read emulation config directly from Firestore (single source of truth).
    * Never merges stale local lockedWeeks over remote lockedWeeks so unlock always persists.
    */
-  async getConfig(schoolYear: string = '2026–2027'): Promise<AcademicEmulationConfig> {
+  async getConfig(schoolYear: string = '2026–2027', options?: { force?: boolean }): Promise<AcademicEmulationConfig> {
     const normYear = normalizeAcademicYear(schoolYear);
     const docId = buildEmulationConfigDocId(normYear);
     const docRef = doc(db, COLLECTIONS.CONFIG, docId);
@@ -441,37 +451,46 @@ export const academicEmulationService = {
     };
 
     try {
-      let snap;
-      try {
-        snap = await withStrictTimeout(
-          getDocFromServer(docRef),
-          FIRESTORE_READ_TIMEOUT_MS,
-          'Hết thời gian tải cấu hình thi đua từ Firestore.'
-        );
-      } catch {
-        snap = await withStrictTimeout(
-          getDoc(docRef),
-          FIRESTORE_READ_TIMEOUT_MS,
-          'Hết thời gian tải cấu hình thi đua.'
-        );
-      }
+      return await cachedFirestoreFetch<AcademicEmulationConfig>(
+        `academic:config:${docId}`,
+        ACADEMIC_CONFIG_TTL_MS,
+        async () => {
+          let snap;
+          try {
+            snap = await withStrictTimeout(
+              getDocFromServer(docRef),
+              FIRESTORE_READ_TIMEOUT_MS,
+              'Hết thời gian tải cấu hình thi đua từ Firestore.'
+            );
+          } catch (serverErr) {
+            if (isQuotaExceededError(serverErr)) throw serverErr;
+            snap = await withStrictTimeout(
+              getDoc(docRef),
+              FIRESTORE_READ_TIMEOUT_MS,
+              'Hết thời gian tải cấu hình thi đua.'
+            );
+          }
 
-      if (snap.exists()) {
-        const remoteCfg = snap.data() as AcademicEmulationConfig;
-        return {
-          ...fallbackCfg,
-          ...remoteCfg,
-          id: docId,
-          schoolYear: normYear,
-          lockedWeeks: Array.isArray(remoteCfg.lockedWeeks)
-            ? Array.from(new Set(remoteCfg.lockedWeeks.map(w => Number(w)).filter(w => !isNaN(w))))
-            : []
-        };
-      }
-      return fallbackCfg;
+          if (snap.exists()) {
+            const remoteCfg = snap.data() as AcademicEmulationConfig;
+            return {
+              ...fallbackCfg,
+              ...remoteCfg,
+              id: docId,
+              schoolYear: normYear,
+              lockedWeeks: Array.isArray(remoteCfg.lockedWeeks)
+                ? Array.from(new Set(remoteCfg.lockedWeeks.map(w => Number(w)).filter(w => !isNaN(w))))
+                : []
+            };
+          }
+          return fallbackCfg;
+        },
+        { fallback: () => fallbackCfg, force: options?.force }
+      );
     } catch (e) {
+      reportFirestoreError(e);
       logStructuredFirestoreError(e, OperationType.GET, `${COLLECTIONS.CONFIG}/${docId}`);
-      throw e;
+      return fallbackCfg;
     }
   },
 
@@ -506,51 +525,68 @@ export const academicEmulationService = {
         'Hết thời gian chờ lưu cấu hình thi đua lên Firestore.'
       );
       await confirmDocumentOnServer(COLLECTIONS.CONFIG, docId, updatedCfg.updatedAt);
+      reportFirestoreSuccess();
+      invalidateFirestoreCache(`academic:config:${docId}`);
       return updatedCfg;
     } catch (e) {
+      reportFirestoreError(e);
       logStructuredFirestoreError(e, OperationType.WRITE, `${COLLECTIONS.CONFIG}/${docId}`);
       throw e;
     }
   },
 
   /**
-   * Read emulation records directly from Firestore (single source of truth).
+   * Read emulation records directly from Firestore with TTL caching & quota circuit breaker.
    * Supports both hyphen ("2026-2027") and legacy en-dash ("2026–2027") year formats.
    */
-  async getRecords(schoolYear: string, weekNumber: number): Promise<ClassAcademicEmulationRecord[]> {
+  async getRecords(
+    schoolYear: string,
+    weekNumber: number,
+    options?: { force?: boolean }
+  ): Promise<ClassAcademicEmulationRecord[]> {
     const normYear = normalizeAcademicYear(schoolYear);
     const enDashYear = normYear.replace('-', '–');
     const colRef = collection(db, COLLECTIONS.RECORDS);
+    const cacheKey = `academic:records:${normYear}:w${Number(weekNumber)}`;
 
     try {
-      const targetQuery =
-        weekNumber > 0
-          ? query(colRef, where('weekNumber', '==', Number(weekNumber)))
-          : query(colRef, where('schoolYear', 'in', Array.from(new Set([normYear, enDashYear]))));
+      return await cachedFirestoreFetch<ClassAcademicEmulationRecord[]>(
+        cacheKey,
+        ACADEMIC_RECORDS_TTL_MS,
+        async () => {
+          const targetQuery =
+            weekNumber > 0
+              ? query(colRef, where('weekNumber', '==', Number(weekNumber)))
+              : query(colRef, where('schoolYear', 'in', Array.from(new Set([normYear, enDashYear]))));
 
-      let snap;
-      try {
-        snap = await withStrictTimeout(
-          getDocsFromServer(targetQuery),
-          FIRESTORE_READ_TIMEOUT_MS,
-          'Hết thời gian tải dữ liệu thi đua từ máy chủ Firestore.'
-        );
-      } catch {
-        snap = await withStrictTimeout(
-          getDocs(targetQuery),
-          FIRESTORE_READ_TIMEOUT_MS,
-          'Hết thời gian tải dữ liệu thi đua.'
-        );
-      }
+          let snap;
+          try {
+            snap = await withStrictTimeout(
+              getDocsFromServer(targetQuery),
+              FIRESTORE_READ_TIMEOUT_MS,
+              'Hết thời gian tải dữ liệu thi đua từ máy chủ Firestore.'
+            );
+          } catch (serverErr) {
+            if (isQuotaExceededError(serverErr)) throw serverErr;
+            snap = await withStrictTimeout(
+              getDocs(targetQuery),
+              FIRESTORE_READ_TIMEOUT_MS,
+              'Hết thời gian tải dữ liệu thi đua.'
+            );
+          }
 
-      const rawList = snap.docs.map(d => normalizeRemoteRecord(d.id, d.data()));
-      const filtered = rawList.filter(r => {
-        const rYear = normalizeAcademicYear(r.schoolYear);
-        return rYear === normYear && (weekNumber === 0 || Number(r.weekNumber) === Number(weekNumber));
-      });
+          const rawList = snap.docs.map(d => normalizeRemoteRecord(d.id, d.data()));
+          const filtered = rawList.filter(r => {
+            const rYear = normalizeAcademicYear(r.schoolYear);
+            return rYear === normYear && (weekNumber === 0 || Number(r.weekNumber) === Number(weekNumber));
+          });
 
-      return deduplicateRecords(filtered);
+          return deduplicateRecords(filtered);
+        },
+        { fallback: () => [], force: options?.force }
+      );
     } catch (e) {
+      reportFirestoreError(e);
       logStructuredFirestoreError(e, OperationType.LIST, COLLECTIONS.RECORDS);
       throw e;
     }
@@ -666,8 +702,12 @@ export const academicEmulationService = {
         `Hết thời gian chờ lưu dữ liệu lớp ${payload.className}.`
       );
       await confirmDocumentOnServer(COLLECTIONS.RECORDS, payload.id, payload.updatedAt);
+      reportFirestoreSuccess();
+      invalidateFirestoreCache(`academic:records:${payload.schoolYear}:w${payload.weekNumber}`);
+      invalidateFirestoreCache(`academic:records:${payload.schoolYear}:w0`);
       return payload;
     } catch (e) {
+      reportFirestoreError(e);
       logStructuredFirestoreError(e, OperationType.WRITE, `${COLLECTIONS.RECORDS}/${payload.id}`);
       throw e;
     }
@@ -741,7 +781,9 @@ export const academicEmulationService = {
         await confirmDocumentOnServer(COLLECTIONS.RECORDS, verifyItem.id, verifyItem.updatedAt);
 
         savedRecords.push(...chunk);
+        reportFirestoreSuccess();
       } catch (batchErr) {
+        reportFirestoreError(batchErr);
         logStructuredFirestoreError(batchErr, OperationType.WRITE, COLLECTIONS.RECORDS);
         const errDetail = classifyAcademicFirestoreError(batchErr);
 
@@ -810,6 +852,17 @@ export const academicEmulationService = {
           }
         }
       }
+    }
+
+    if (savedRecords.length > 0) {
+      const years = new Set<string>();
+      const yearWeeks = new Set<string>();
+      savedRecords.forEach(r => {
+        years.add(r.schoolYear);
+        yearWeeks.add(`${r.schoolYear}:w${r.weekNumber}`);
+      });
+      years.forEach(y => invalidateFirestoreCache(`academic:records:${y}:w0`));
+      yearWeeks.forEach(yw => invalidateFirestoreCache(`academic:records:${yw}`));
     }
 
     return {

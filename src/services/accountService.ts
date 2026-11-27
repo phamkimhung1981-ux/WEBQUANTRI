@@ -31,6 +31,14 @@ import {
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { Teacher } from '../types';
 import * as XLSX from 'xlsx';
+import {
+  cachedFirestoreFetch,
+  canAttemptFirestoreRead,
+  invalidateFirestoreCache,
+  isQuotaExceededError,
+  reportFirestoreError,
+  reportFirestoreSuccess
+} from '../utils/firestoreQuotaManager';
 
 const ACCOUNTS_COLLECTION = 'user_accounts';
 const AUDIT_COLLECTION = 'account_audit_logs';
@@ -101,21 +109,55 @@ function formatFirestoreWriteError(err: unknown, contextLabel: string): Error {
   return new Error(`Lỗi lưu ${contextLabel} lên Firebase Firestore: ${msg}`);
 }
 
+const ROLE_GROUPS_CACHE_KEY = 'account:role_group_configs';
+const ROLE_GROUPS_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const ACCOUNTS_LIST_CACHE_KEY = 'account:all_accounts';
+const ACCOUNTS_LIST_TTL_MS = 3 * 60 * 1000; // 3 minutes
+const ROLE_GROUPS_SESSION_KEY = 'thpt_sl_role_groups_cache_v1';
+
+// Hydrate role groups from sessionStorage once so reloads don't have to re-read role_group_configs immediately
+try {
+  if (typeof window !== 'undefined') {
+    const raw = window.sessionStorage.getItem(ROLE_GROUPS_SESSION_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { savedAt?: number; data?: Record<string, ModulePermissionsMap> };
+      if (parsed?.data && parsed.savedAt && Date.now() - parsed.savedAt < ROLE_GROUPS_TTL_MS) {
+        Object.entries(parsed.data).forEach(([code, perms]) => {
+          const rg = code as RoleGroupCode;
+          if (DEFAULT_ROLE_GROUPS[rg] && perms) {
+            DEFAULT_ROLE_GROUPS[rg].permissions = {
+              ...DEFAULT_ROLE_GROUPS[rg].permissions,
+              ...perms
+            };
+          }
+        });
+        roleGroupConfigsLoaded = true;
+      }
+    }
+  }
+} catch {
+  // ignore storage errors
+}
+
+// In-flight deduplication map for getLiveUserPermissionsFromFirestore
+const livePermInFlight = new Map<string, Promise<LivePermissionsResult>>();
+
 /**
  * Helper to fetch a Firestore doc preferring fresh server state (bypassing stale local cache),
- * falling back cleanly to cache only when offline/network-unavailable.
+ * falling back cleanly to cache only when offline/network-unavailable, and reporting quota errors.
  */
 async function getDocPreferServer(ref: ReturnType<typeof doc>, forceServer = true) {
   if (forceServer && typeof navigator !== 'undefined' && navigator.onLine !== false) {
     try {
-      return await getDocFromServer(ref);
+      const snap = await getDocFromServer(ref);
+      reportFirestoreSuccess();
+      return snap;
     } catch (serverErr) {
+      reportFirestoreError(serverErr, 'accountService.getDocPreferServer');
       const code = extractFirestoreErrorCode(serverErr);
-      // Do NOT hide quota or permission errors as silent empty reads — still attempt cache fallback for read continuity
       if (code === 'unavailable' || code === 'failed-precondition') {
         return await getDoc(ref);
       }
-      // If quota exceeded or other server error, try cache if available, otherwise rethrow so caller knows
       try {
         const cached = await getDoc(ref);
         if (cached.exists()) return cached;
@@ -125,7 +167,8 @@ async function getDocPreferServer(ref: ReturnType<typeof doc>, forceServer = tru
       throw serverErr;
     }
   }
-  return await getDoc(ref);
+  const snap = await getDoc(ref);
+  return snap;
 }
 
 /**
@@ -241,17 +284,18 @@ export interface LivePermissionsResult {
 }
 
 /**
- * Authoritative real-time fetch of user permissions directly from Firebase Firestore.
- * - Never relies on localStorage or static custom_permissions.json.
- * - Evaluates all canonical doc keys in parallel and selects the newest record by `updatedAt`
- *   (so an outdated alias doc can NEVER shadow a newer canonical permission grant/revoke).
- * - Preserves exact case for Firebase UID / Firestore doc IDs and normalizes username/email/code.
+ * Authoritative fetch of user permissions directly from Firebase Firestore.
+ * Optimized to minimize Firestore reads:
+ * - Deduplicates concurrent calls for the same user in-flight.
+ * - Respects the centralized quota circuit breaker (stops retry storms on `resource-exhausted`).
+ * - Queries ONLY the primary canonical docs (`user_custom_permissions/{primaryId}` + `user_accounts/{primaryId}`) first (2 reads total!),
+ *   and ONLY falls back to alias/username/email lookups if neither canonical document was found.
  */
 export async function getLiveUserPermissionsFromFirestore(
   userId: string,
   username?: string,
   teacherCode?: string,
-  options?: { firebaseUid?: string; email?: string; forceServer?: boolean }
+  options?: { firebaseUid?: string; email?: string; forceServer?: boolean; forceManual?: boolean }
 ): Promise<LivePermissionsResult> {
   const cleanId = String(userId || '').trim();
   const cleanUid = String(options?.firebaseUid || '').trim();
@@ -259,131 +303,240 @@ export async function getLiveUserPermissionsFromFirestore(
   const cleanCode = normalizeIdentifier(teacherCode);
   const cleanEmail = normalizeEmail(options?.email);
   const forceServer = options?.forceServer !== false;
+  const forceManual = Boolean(options?.forceManual);
 
-  const docIds = resolvePermissionDocIds({
-    userId: cleanId,
-    firebaseUid: cleanUid,
-    username: cleanUser,
-    teacherCode: cleanCode,
-    email: cleanEmail
-  });
+  // Respect centralized quota circuit breaker unless user explicitly clicked "Thử đồng bộ lại"
+  if (!canAttemptFirestoreRead({ forceManual })) {
+    return {
+      hasCustom: false,
+      permissions: null,
+      accountData: null,
+      source: 'none',
+      errorCode: 'resource-exhausted'
+    };
+  }
 
-  let lastErrorCode: string | null = null;
-  let accountData: Partial<AccountRecord> | null = null;
+  const dedupeKey = `${cleanId}|${cleanUid}|${cleanUser}|${cleanCode}|${forceServer ? 'S' : 'C'}`;
+  const inflight = livePermInFlight.get(dedupeKey);
+  if (inflight) {
+    return inflight;
+  }
 
-  // 1. Fetch candidate docs from `user_custom_permissions` in parallel (typically 2-3 reads max)
-  const permCandidates: Array<{
-    docId: string;
-    data: any;
-    updatedMs: number;
-    priority: number;
-  }> = [];
+  const task = (async (): Promise<LivePermissionsResult> => {
+    const docIds = resolvePermissionDocIds({
+      userId: cleanId,
+      firebaseUid: cleanUid,
+      username: cleanUser,
+      teacherCode: cleanCode,
+      email: cleanEmail
+    });
 
-  if (docIds.length > 0) {
-    const settledPerms = await Promise.allSettled(
-      docIds.map(async (k, idx) => {
-        const snap = await getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, k), forceServer);
-        return { k, idx, snap };
-      })
-    );
+    let lastErrorCode: string | null = null;
+    let accountData: Partial<AccountRecord> | null = null;
 
-    for (const r of settledPerms) {
-      if (r.status === 'fulfilled') {
-        const { k, idx, snap } = r.value;
-        if (snap.exists()) {
-          const data = snap.data();
-          if (data) {
-            permCandidates.push({
-              docId: k,
-              data,
-              updatedMs: parseTimestampMs(data.updatedAt),
-              priority: idx
-            });
+    const permCandidates: Array<{
+      docId: string;
+      data: any;
+      updatedMs: number;
+      priority: number;
+    }> = [];
+
+    // 1. Canonical-first fast path: read primary custom_permissions doc + primary user_accounts doc in parallel (max 2 reads!)
+    const primaryPermId = docIds[0] || cleanId || cleanUid;
+    const primaryAccId = cleanId || cleanUid || docIds[0];
+
+    const [primaryPermRes, primaryAccRes] = await Promise.allSettled([
+      primaryPermId
+        ? getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, primaryPermId), forceServer)
+        : Promise.resolve(null),
+      primaryAccId
+        ? getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, primaryAccId), forceServer)
+        : Promise.resolve(null)
+    ]);
+
+    if (primaryPermRes.status === 'fulfilled' && primaryPermRes.value?.exists()) {
+      const data = primaryPermRes.value.data();
+      if (data) {
+        permCandidates.push({
+          docId: primaryPermId,
+          data,
+          updatedMs: parseTimestampMs(data.updatedAt),
+          priority: 0
+        });
+      }
+    } else if (primaryPermRes.status === 'rejected') {
+      const code = extractFirestoreErrorCode(primaryPermRes.reason);
+      if (code) lastErrorCode = code;
+      if (isQuotaExceededError(primaryPermRes.reason)) {
+        return {
+          hasCustom: false,
+          permissions: null,
+          accountData: null,
+          source: 'none',
+          errorCode: 'resource-exhausted'
+        };
+      }
+    }
+
+    if (primaryAccRes.status === 'fulfilled' && primaryAccRes.value?.exists()) {
+      accountData = { id: primaryAccRes.value.id, ...(primaryAccRes.value.data() as any) };
+    } else if (primaryAccRes.status === 'rejected') {
+      const code = extractFirestoreErrorCode(primaryAccRes.reason);
+      if (code) lastErrorCode = code;
+      if (isQuotaExceededError(primaryAccRes.reason)) {
+        return {
+          hasCustom: false,
+          permissions: null,
+          accountData: null,
+          source: 'none',
+          errorCode: 'resource-exhausted'
+        };
+      }
+    }
+
+    // 2. Fallback alias reads ONLY if canonical custom_permissions doc did NOT exist (prevents 4-6 extra reads on every sync)
+    if (permCandidates.length === 0 && docIds.length > 1 && lastErrorCode !== 'resource-exhausted') {
+      const fallbackIds = docIds.slice(1, 3); // cap at 2 fallback alias checks
+      const settledFallback = await Promise.allSettled(
+        fallbackIds.map(async (k, idx) => {
+          const snap = await getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, k), forceServer);
+          return { k, idx: idx + 1, snap };
+        })
+      );
+      for (const r of settledFallback) {
+        if (r.status === 'fulfilled') {
+          const { k, idx, snap } = r.value;
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data) {
+              permCandidates.push({
+                docId: k,
+                data,
+                updatedMs: parseTimestampMs(data.updatedAt),
+                priority: idx
+              });
+            }
+          }
+        } else {
+          const code = extractFirestoreErrorCode(r.reason);
+          if (code) lastErrorCode = code;
+        }
+      }
+    }
+
+    // 3. Fallback account lookup ONLY if primary account doc did NOT exist
+    if (!accountData && lastErrorCode !== 'resource-exhausted') {
+      try {
+        if (cleanUser) {
+          const qUser = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', cleanUser), limit(1));
+          const snapUser = await getDocs(qUser);
+          if (!snapUser.empty) {
+            accountData = { id: snapUser.docs[0].id, ...(snapUser.docs[0].data() as any) };
           }
         }
-      } else {
-        const code = extractFirestoreErrorCode(r.reason);
+        if (!accountData && cleanUid && cleanUid !== primaryAccId) {
+          const qUid = query(collection(db, ACCOUNTS_COLLECTION), where('firebaseUid', '==', cleanUid), limit(1));
+          const snapUid = await getDocs(qUid);
+          if (!snapUid.empty) {
+            accountData = { id: snapUid.docs[0].id, ...(snapUid.docs[0].data() as any) };
+          }
+        }
+        if (!accountData && cleanEmail) {
+          const qEmail = query(collection(db, ACCOUNTS_COLLECTION), where('normalizedEmail', '==', cleanEmail), limit(1));
+          const snapEmail = await getDocs(qEmail);
+          if (!snapEmail.empty) {
+            accountData = { id: snapEmail.docs[0].id, ...(snapEmail.docs[0].data() as any) };
+          }
+        }
+      } catch (accErr) {
+        reportFirestoreError(accErr, 'accountService.fallbackAccountLookup');
+        const code = extractFirestoreErrorCode(accErr);
         if (code) lastErrorCode = code;
       }
     }
-  }
 
-  // 2. Also fetch primary account doc (`user_accounts/{cleanId}` or by username/email) for authoritative status & roleGroup
-  try {
-    const primaryAccId = cleanId || cleanUid;
-    if (primaryAccId) {
-      const accSnap = await getDocPreferServer(doc(db, ACCOUNTS_COLLECTION, primaryAccId), forceServer);
-      if (accSnap.exists()) {
-        accountData = { id: accSnap.id, ...(accSnap.data() as any) };
-      }
-    }
-    if (!accountData && cleanUid && cleanUid !== cleanId) {
-      const qUid = query(collection(db, ACCOUNTS_COLLECTION), where('firebaseUid', '==', cleanUid), limit(1));
-      const snapUid = await getDocs(qUid);
-      if (!snapUid.empty) {
-        accountData = { id: snapUid.docs[0].id, ...(snapUid.docs[0].data() as any) };
-      }
-    }
-    if (!accountData && cleanUser) {
-      const qUser = query(collection(db, ACCOUNTS_COLLECTION), where('username', '==', cleanUser), limit(1));
-      const snapUser = await getDocs(qUser);
-      if (!snapUser.empty) {
-        accountData = { id: snapUser.docs[0].id, ...(snapUser.docs[0].data() as any) };
-      }
-    }
-    if (!accountData && cleanEmail) {
-      const qEmail = query(collection(db, ACCOUNTS_COLLECTION), where('normalizedEmail', '==', cleanEmail), limit(1));
-      const snapEmail = await getDocs(qEmail);
-      if (!snapEmail.empty) {
-        accountData = { id: snapEmail.docs[0].id, ...(snapEmail.docs[0].data() as any) };
-      }
-    }
-  } catch (accErr) {
-    const code = extractFirestoreErrorCode(accErr);
-    if (code) lastErrorCode = code;
-  }
-
-  // If accountData was discovered under a different canonical ID than we queried, check its custom_permissions doc too
-  if (accountData?.id && !docIds.includes(accountData.id)) {
-    try {
-      const extraSnap = await getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, accountData.id), forceServer);
-      if (extraSnap.exists()) {
-        const data = extraSnap.data();
-        if (data) {
-          permCandidates.push({
-            docId: accountData.id,
-            data,
-            updatedMs: parseTimestampMs(data.updatedAt),
-            priority: -1
-          });
+    // If accountData was discovered under a different canonical ID than we queried, check its custom_permissions doc once
+    if (
+      accountData?.id &&
+      accountData.id !== primaryPermId &&
+      permCandidates.length === 0 &&
+      lastErrorCode !== 'resource-exhausted'
+    ) {
+      try {
+        const extraSnap = await getDocPreferServer(doc(db, CUSTOM_PERMISSIONS_COLLECTION, accountData.id), forceServer);
+        if (extraSnap.exists()) {
+          const data = extraSnap.data();
+          if (data) {
+            permCandidates.push({
+              docId: accountData.id,
+              data,
+              updatedMs: parseTimestampMs(data.updatedAt),
+              priority: -1
+            });
+          }
         }
+      } catch (extraErr) {
+        const code = extractFirestoreErrorCode(extraErr);
+        if (code) lastErrorCode = code;
       }
-    } catch (extraErr) {
-      const code = extractFirestoreErrorCode(extraErr);
-      if (code) lastErrorCode = code;
     }
-  }
 
-  // Evaluate newest authoritative record across `user_custom_permissions` & `user_accounts`
-  if (permCandidates.length > 0) {
-    permCandidates.sort((a, b) => {
-      if (b.updatedMs !== a.updatedMs) return b.updatedMs - a.updatedMs;
-      // Tie-break: prefer explicit canonical doc (`priority` lower) and prefer valid permissions if timestamps identical
-      const aHas = a.data?.hasCustomPermissions === true && a.data?.permissions && Object.keys(a.data.permissions).length > 0 ? 1 : 0;
-      const bHas = b.data?.hasCustomPermissions === true && b.data?.permissions && Object.keys(b.data.permissions).length > 0 ? 1 : 0;
-      if (bHas !== aHas) return bHas - aHas;
-      return a.priority - b.priority;
-    });
+    // Evaluate newest authoritative record across `user_custom_permissions` & `user_accounts`
+    if (permCandidates.length > 0) {
+      permCandidates.sort((a, b) => {
+        if (b.updatedMs !== a.updatedMs) return b.updatedMs - a.updatedMs;
+        const aHas = a.data?.hasCustomPermissions === true && a.data?.permissions && Object.keys(a.data.permissions).length > 0 ? 1 : 0;
+        const bHas = b.data?.hasCustomPermissions === true && b.data?.permissions && Object.keys(b.data.permissions).length > 0 ? 1 : 0;
+        if (bHas !== aHas) return bHas - aHas;
+        return a.priority - b.priority;
+      });
 
-    const winner = permCandidates[0];
-    const accUpdatedMs = parseTimestampMs(accountData?.updatedAt);
-    const accHasValidCustom =
-      Boolean(accountData?.hasCustomPermissions) &&
-      Boolean(accountData?.customPermissions) &&
-      Object.keys(accountData?.customPermissions || {}).length > 0;
+      const winner = permCandidates[0];
+      const accUpdatedMs = parseTimestampMs(accountData?.updatedAt);
+      const accHasValidCustom =
+        Boolean(accountData?.hasCustomPermissions) &&
+        Boolean(accountData?.customPermissions) &&
+        Object.keys(accountData?.customPermissions || {}).length > 0;
 
-    // If user_accounts was updated strictly MORE RECENTLY than user_custom_permissions, respect user_accounts
-    if (accountData && accUpdatedMs > winner.updatedMs && accountData.hasCustomPermissions !== undefined) {
+      if (accountData && accUpdatedMs > winner.updatedMs && accountData.hasCustomPermissions !== undefined) {
+        reportFirestoreSuccess();
+        return {
+          hasCustom: accHasValidCustom,
+          permissions: accHasValidCustom ? (accountData.customPermissions as Partial<ModulePermissionsMap>) : null,
+          roleGroup: accountData.roleGroup,
+          accountStatus: accountData.status,
+          accountData,
+          updatedAt: accountData.updatedAt,
+          source: 'user_accounts',
+          errorCode: null
+        };
+      }
+
+      const winnerHasValidCustom =
+        winner.data.hasCustomPermissions !== false &&
+        Boolean(winner.data.permissions) &&
+        Object.keys(winner.data.permissions).length > 0;
+
+      reportFirestoreSuccess();
+      return {
+        hasCustom: winnerHasValidCustom,
+        permissions: winnerHasValidCustom ? (winner.data.permissions as Partial<ModulePermissionsMap>) : null,
+        roleGroup: accountData?.roleGroup || winner.data.roleGroup,
+        accountStatus: accountData?.status,
+        accountData,
+        updatedAt: winner.data.updatedAt,
+        source: 'user_custom_permissions',
+        errorCode: null
+      };
+    }
+
+    // 4. Fallback to `user_accounts` customPermissions if no `user_custom_permissions` doc exists yet
+    if (accountData) {
+      const accHasValidCustom =
+        Boolean(accountData.hasCustomPermissions) &&
+        Boolean(accountData.customPermissions) &&
+        Object.keys(accountData.customPermissions || {}).length > 0;
+      reportFirestoreSuccess();
       return {
         hasCustom: accHasValidCustom,
         permissions: accHasValidCustom ? (accountData.customPermissions as Partial<ModulePermissionsMap>) : null,
@@ -396,78 +549,57 @@ export async function getLiveUserPermissionsFromFirestore(
       };
     }
 
-    const winnerHasValidCustom =
-      winner.data.hasCustomPermissions !== false &&
-      Boolean(winner.data.permissions) &&
-      Object.keys(winner.data.permissions).length > 0;
-
-    return {
-      hasCustom: winnerHasValidCustom,
-      permissions: winnerHasValidCustom ? (winner.data.permissions as Partial<ModulePermissionsMap>) : null,
-      roleGroup: accountData?.roleGroup || winner.data.roleGroup,
-      accountStatus: accountData?.status,
-      accountData,
-      updatedAt: winner.data.updatedAt,
-      source: 'user_custom_permissions',
-      errorCode: null
-    };
-  }
-
-  // 3. Fallback to `user_accounts` customPermissions if no `user_custom_permissions` doc exists yet
-  if (accountData) {
-    const accHasValidCustom =
-      Boolean(accountData.hasCustomPermissions) &&
-      Boolean(accountData.customPermissions) &&
-      Object.keys(accountData.customPermissions || {}).length > 0;
-    return {
-      hasCustom: accHasValidCustom,
-      permissions: accHasValidCustom ? (accountData.customPermissions as Partial<ModulePermissionsMap>) : null,
-      roleGroup: accountData.roleGroup,
-      accountStatus: accountData.status,
-      accountData,
-      updatedAt: accountData.updatedAt,
-      source: 'user_accounts',
-      errorCode: null
-    };
-  }
-
-  // 4. Final Firestore fallback: check `teachers/{cleanId}` once (for legacy records only saved on teachers)
-  if (cleanId) {
-    try {
-      const tDoc = await getDocPreferServer(doc(db, 'teachers', cleanId), forceServer);
-      if (tDoc.exists()) {
-        const data = tDoc.data();
-        const tHasValidCustom =
-          Boolean(data?.hasCustomPermissions) &&
-          Boolean(data?.customPermissions) &&
-          Object.keys(data?.customPermissions || {}).length > 0;
-        return {
-          hasCustom: tHasValidCustom,
-          permissions: tHasValidCustom ? (data.customPermissions as Partial<ModulePermissionsMap>) : null,
-          updatedAt: data?.accountUpdatedAt,
-          source: 'teachers',
-          errorCode: null
-        };
+    // 5. Final Firestore fallback: check `teachers/{cleanId}` once ONLY if no user_accounts doc was found
+    if (cleanId && lastErrorCode !== 'resource-exhausted') {
+      try {
+        const tDoc = await getDocPreferServer(doc(db, 'teachers', cleanId), forceServer);
+        if (tDoc.exists()) {
+          const data = tDoc.data();
+          const tHasValidCustom =
+            Boolean(data?.hasCustomPermissions) &&
+            Boolean(data?.customPermissions) &&
+            Object.keys(data?.customPermissions || {}).length > 0;
+          reportFirestoreSuccess();
+          return {
+            hasCustom: tHasValidCustom,
+            permissions: tHasValidCustom ? (data.customPermissions as Partial<ModulePermissionsMap>) : null,
+            updatedAt: data?.accountUpdatedAt,
+            source: 'teachers',
+            errorCode: null
+          };
+        }
+      } catch (tErr) {
+        const code = extractFirestoreErrorCode(tErr);
+        if (code) lastErrorCode = code;
       }
-    } catch (tErr) {
-      const code = extractFirestoreErrorCode(tErr);
-      if (code) lastErrorCode = code;
     }
-  }
 
-  return {
-    hasCustom: false,
-    permissions: null,
-    accountData: null,
-    source: 'none',
-    errorCode: lastErrorCode
-  };
+    if (!lastErrorCode) {
+      reportFirestoreSuccess();
+    }
+
+    return {
+      hasCustom: false,
+      permissions: null,
+      accountData: null,
+      source: 'none',
+      errorCode: lastErrorCode
+    };
+  })();
+
+  livePermInFlight.set(dedupeKey, task);
+  try {
+    return await task;
+  } finally {
+    livePermInFlight.delete(dedupeKey);
+  }
 }
 
 /**
  * Subscribe in real time to Firestore permission & account changes for the currently logged-in user.
- * Ensures that whenever an Admin grants/revokes KPI permissions or changes roleGroup/status,
- * active web sessions update immediately without stale caches.
+ * Optimized to open at most 2 targeted single-doc listeners (`user_custom_permissions/{canonicalId}`
+ * and `user_accounts/{canonicalId}`), skip subscribing while the quota circuit breaker is active,
+ * and detach immediately on `resource-exhausted` to prevent reconnect retry storms.
  */
 export function subscribeUserLivePermissions(
   identity: AccountIdentityInput & { roleGroup?: RoleGroupCode },
@@ -485,12 +617,45 @@ export function subscribeUserLivePermissions(
 ): Unsubscribe {
   const unsubs: Unsubscribe[] = [];
   const canonicalId = String(identity.userId || identity.firebaseUid || '').trim();
-  const cleanUser = normalizeIdentifier(identity.username);
+
+  if (!canonicalId || canonicalId === 'admin') {
+    return () => {};
+  }
+
+  // Do not attach realtime listeners while Firestore quota circuit breaker is open
+  if (!canAttemptFirestoreRead()) {
+    return () => {};
+  }
 
   let latestPermUpdatedMs = 0;
+  let detached = false;
+
+  const detachAll = () => {
+    if (detached) return;
+    detached = true;
+    unsubs.forEach((u) => {
+      try {
+        u();
+      } catch {
+        // ignore unsubscribe errors
+      }
+    });
+    unsubs.length = 0;
+  };
+
+  const handleListenerError = (err: unknown, ctx: string) => {
+    const isQuota = reportFirestoreError(err, ctx);
+    const code = extractFirestoreErrorCode(err);
+    if (isQuota) {
+      // Stop reconnect storms immediately; user can click "Thử đồng bộ lại" to re-subscribe
+      detachAll();
+    }
+    if (code && onError) onError(code);
+  };
 
   const handlePermSnapshot = (data: any) => {
     if (!data) return;
+    reportFirestoreSuccess();
     const tsMs = parseTimestampMs(data.updatedAt);
     if (tsMs > 0 && tsMs < latestPermUpdatedMs) return;
     if (tsMs > 0) latestPermUpdatedMs = tsMs;
@@ -507,109 +672,53 @@ export function subscribeUserLivePermissions(
     });
   };
 
-  if (canonicalId && canonicalId !== 'admin') {
-    unsubs.push(
-      onSnapshot(
-        doc(db, CUSTOM_PERMISSIONS_COLLECTION, canonicalId),
-        (snap) => {
-          if (snap.exists()) {
-            handlePermSnapshot(snap.data());
-          }
-        },
-        (err) => {
-          const code = extractFirestoreErrorCode(err);
-          if (code && onError) onError(code);
+  // Listener 1: Canonical user_custom_permissions doc (1 single doc)
+  unsubs.push(
+    onSnapshot(
+      doc(db, CUSTOM_PERMISSIONS_COLLECTION, canonicalId),
+      (snap) => {
+        if (snap.exists()) {
+          handlePermSnapshot(snap.data());
         }
-      )
-    );
+      },
+      (err) => handleListenerError(err, 'subscribeUserLivePermissions.customPerms')
+    )
+  );
 
-    if (cleanUser && cleanUser !== canonicalId) {
-      unsubs.push(
-        onSnapshot(
-          doc(db, CUSTOM_PERMISSIONS_COLLECTION, cleanUser),
-          (snap) => {
-            if (snap.exists()) {
-              handlePermSnapshot(snap.data());
-            }
-          },
-          (err) => {
-            const code = extractFirestoreErrorCode(err);
-            if (code && onError) onError(code);
-          }
-        )
-      );
-    }
-
-    unsubs.push(
-      onSnapshot(
-        doc(db, ACCOUNTS_COLLECTION, canonicalId),
-        (snap) => {
-          if (!snap.exists()) return;
-          const d = snap.data();
-          if (!d) return;
-          const accTsMs = parseTimestampMs(d.updatedAt);
-          const payload: any = {
-            roleGroup: d.roleGroup,
-            accountStatus: d.status,
-            fullName: d.fullName,
-            position: d.position,
-            departmentName: d.departmentName,
-            updatedAt: d.updatedAt
-          };
-          if (d.hasCustomPermissions !== undefined && accTsMs >= latestPermUpdatedMs) {
-            if (accTsMs > 0) latestPermUpdatedMs = accTsMs;
-            const hasValid =
-              Boolean(d.hasCustomPermissions) &&
-              Boolean(d.customPermissions) &&
-              Object.keys(d.customPermissions || {}).length > 0;
-            payload.hasCustom = hasValid;
-            payload.permissions = hasValid ? d.customPermissions : null;
-          }
-          onUpdate(payload);
-        },
-        (err) => {
-          const code = extractFirestoreErrorCode(err);
-          if (code && onError) onError(code);
+  // Listener 2: Canonical user_accounts doc (1 single doc for status / roleGroup / embedded customPerms)
+  unsubs.push(
+    onSnapshot(
+      doc(db, ACCOUNTS_COLLECTION, canonicalId),
+      (snap) => {
+        if (!snap.exists()) return;
+        reportFirestoreSuccess();
+        const d = snap.data();
+        if (!d) return;
+        const accTsMs = parseTimestampMs(d.updatedAt);
+        const payload: any = {
+          roleGroup: d.roleGroup,
+          accountStatus: d.status,
+          fullName: d.fullName,
+          position: d.position,
+          departmentName: d.departmentName,
+          updatedAt: d.updatedAt
+        };
+        if (d.hasCustomPermissions !== undefined && accTsMs >= latestPermUpdatedMs) {
+          if (accTsMs > 0) latestPermUpdatedMs = accTsMs;
+          const hasValid =
+            Boolean(d.hasCustomPermissions) &&
+            Boolean(d.customPermissions) &&
+            Object.keys(d.customPermissions || {}).length > 0;
+          payload.hasCustom = hasValid;
+          payload.permissions = hasValid ? d.customPermissions : null;
         }
-      )
-    );
-  }
+        onUpdate(payload);
+      },
+      (err) => handleListenerError(err, 'subscribeUserLivePermissions.account')
+    )
+  );
 
-  // Subscribe to the user's role group template doc (1 doc only)
-  const rg = identity.roleGroup;
-  if (rg && rg !== 'ADMIN' && DEFAULT_ROLE_GROUPS[rg]) {
-    unsubs.push(
-      onSnapshot(
-        doc(db, ROLE_GROUPS_COLLECTION, rg),
-        (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data?.permissions && DEFAULT_ROLE_GROUPS[rg]) {
-              DEFAULT_ROLE_GROUPS[rg].permissions = {
-                ...DEFAULT_ROLE_GROUPS[rg].permissions,
-                ...data.permissions
-              };
-              roleGroupConfigsLoaded = true;
-              notifyRoleGroupVersionChange();
-            }
-          }
-        },
-        () => {
-          // ignore non-critical role template watch errors
-        }
-      )
-    );
-  }
-
-  return () => {
-    unsubs.forEach((u) => {
-      try {
-        u();
-      } catch {
-        // ignore unsubscribe errors
-      }
-    });
-  };
+  return detachAll;
 }
 
 // Determine initial role group based on teacher's position
@@ -726,16 +835,20 @@ export async function syncPermissionsFromServer(): Promise<{ roleGroups: any; us
 export const accountService = {
   /**
    * Fetch all accounts directly from Firebase Firestore and merge live `user_custom_permissions`.
+   * Uses a 3-minute TTL cache & in-flight deduplication to avoid redundant full-collection reads.
    * Never seeds default accounts over Firestore on read error; only seeds if collection is genuinely empty.
    */
-  async getAccounts(): Promise<AccountRecord[]> {
-    try {
-      // Load Firestore role group configs first
-      await this.loadRoleGroupConfigs();
+  async getAccounts(forceRefresh = false): Promise<AccountRecord[]> {
+    return cachedFirestoreFetch<AccountRecord[]>(
+      ACCOUNTS_LIST_CACHE_KEY,
+      ACCOUNTS_LIST_TTL_MS,
+      async () => {
+        // Load Firestore role group configs first (cached with 10-min TTL)
+        await this.loadRoleGroupConfigs(false);
 
-      let accSnap: any = null;
-      let permSnap: any = null;
-      let firestoreReadError: unknown = null;
+        let accSnap: any = null;
+        let permSnap: any = null;
+        let firestoreReadError: unknown = null;
 
       try {
         const [aRes, pRes] = await Promise.all([
@@ -935,41 +1048,44 @@ export const accountService = {
       } catch (err) {}
 
       return initialAccounts;
-    } catch (e) {
-      console.error('Error in getAccounts:', e);
-      return [
-        {
-          id: 'admin',
-          teacherCode: 'ADMIN',
-          fullName: 'Quản trị viên Hệ thống',
-          username: 'admin',
-          password: 'admin',
-          position: 'Quản trị viên',
-          departmentName: 'Ban Quản trị',
-          roleGroup: 'ADMIN',
-          status: 'Đang hoạt động',
-          hasCustomPermissions: false,
-          createdAt: '2026-09-01T00:00:00.000Z',
-          updatedAt: '2026-09-01T00:00:00.000Z'
-        },
-        ...DEFAULT_TEACHERS.map(t => ({
-          id: t.id,
-          teacherId: t.id,
-          teacherCode: t.code,
-          fullName: t.name,
-          username: (t.username || t.code?.toLowerCase() || `gv_${t.id.slice(0, 5)}`).toLowerCase(),
-          password: '123456',
-          position: t.position || 'Giáo viên',
-          departmentId: t.departmentId,
-          departmentName: t.departmentName,
-          roleGroup: detectRoleGroupByPosition(t.position, t.departmentId),
-          status: 'Đang hoạt động' as AccountStatus,
-          hasCustomPermissions: false,
-          createdAt: t.joinDate || '2026-10-16T00:00:00.000Z',
-          updatedAt: '2026-10-16T00:00:00.000Z'
-        }))
-      ];
-    }
+      },
+      {
+        force: forceRefresh,
+        forceManual: forceRefresh,
+        fallback: () => [
+          {
+            id: 'admin',
+            teacherCode: 'ADMIN',
+            fullName: 'Quản trị viên Hệ thống',
+            username: 'admin',
+            password: 'admin',
+            position: 'Quản trị viên',
+            departmentName: 'Ban Quản trị',
+            roleGroup: 'ADMIN',
+            status: 'Đang hoạt động',
+            hasCustomPermissions: false,
+            createdAt: '2026-09-01T00:00:00.000Z',
+            updatedAt: '2026-09-01T00:00:00.000Z'
+          },
+          ...DEFAULT_TEACHERS.map(t => ({
+            id: t.id,
+            teacherId: t.id,
+            teacherCode: t.code,
+            fullName: t.name,
+            username: (t.username || t.code?.toLowerCase() || `gv_${t.id.slice(0, 5)}`).toLowerCase(),
+            password: '123456',
+            position: t.position || 'Giáo viên',
+            departmentId: t.departmentId,
+            departmentName: t.departmentName,
+            roleGroup: detectRoleGroupByPosition(t.position, t.departmentId),
+            status: 'Đang hoạt động' as AccountStatus,
+            hasCustomPermissions: false,
+            createdAt: t.joinDate || '2026-10-16T00:00:00.000Z',
+            updatedAt: '2026-10-16T00:00:00.000Z'
+          }))
+        ]
+      }
+    );
   },
 
   /**
@@ -1593,6 +1709,7 @@ export const accountService = {
 
     await Promise.allSettled(secondaryTasks);
 
+    invalidateFirestoreCache(ACCOUNTS_LIST_CACHE_KEY);
     // Clean any legacy localStorage map & refresh current tab sessionStorage only if editing self
     setStoredUserCustomPermissions(canonicalId, null);
     try {
@@ -1717,6 +1834,7 @@ export const accountService = {
       }).catch(() => {})
     ]);
 
+    invalidateFirestoreCache(ACCOUNTS_LIST_CACHE_KEY);
     setStoredUserCustomPermissions(canonicalId, null);
     try {
       const stored = sessionStorage.getItem('authUser');
@@ -1763,6 +1881,21 @@ export const accountService = {
     if (DEFAULT_ROLE_GROUPS[roleGroup]) {
       DEFAULT_ROLE_GROUPS[roleGroup].permissions = permissions;
     }
+    invalidateFirestoreCache(ROLE_GROUPS_CACHE_KEY);
+    try {
+      if (typeof window !== 'undefined') {
+        const snapshot: Record<string, ModulePermissionsMap> = {};
+        (Object.keys(DEFAULT_ROLE_GROUPS) as RoleGroupCode[]).forEach((code) => {
+          snapshot[code] = DEFAULT_ROLE_GROUPS[code].permissions;
+        });
+        window.sessionStorage.setItem(
+          ROLE_GROUPS_SESSION_KEY,
+          JSON.stringify({ savedAt: Date.now(), data: snapshot })
+        );
+      }
+    } catch {
+      // ignore storage errors
+    }
     roleGroupConfigsLoaded = true;
     notifyRoleGroupVersionChange();
 
@@ -1777,31 +1910,62 @@ export const accountService = {
 
   /**
    * Load customized role group configurations directly from Firebase Firestore.
-   * Never reads stale localStorage or static JSON; notifies reactive subscribers on completion.
+   * Uses a 10-minute TTL cache, in-flight deduplication, and sessionStorage snapshot
+   * so switching pages or reloading within TTL costs 0 Firestore reads.
    */
   async loadRoleGroupConfigs(forceServer = false): Promise<void> {
     try {
-      const colRef = collection(db, ROLE_GROUPS_COLLECTION);
-      const snap =
-        forceServer && typeof navigator !== 'undefined' && navigator.onLine !== false
-          ? await getDocsFromServer(colRef).catch(() => getDocs(colRef))
-          : await getDocs(colRef);
+      await cachedFirestoreFetch<boolean>(
+        ROLE_GROUPS_CACHE_KEY,
+        ROLE_GROUPS_TTL_MS,
+        async () => {
+          const colRef = collection(db, ROLE_GROUPS_COLLECTION);
+          const snap =
+            forceServer && typeof navigator !== 'undefined' && navigator.onLine !== false
+              ? await getDocsFromServer(colRef).catch((err) => {
+                  if (isQuotaExceededError(err)) throw err;
+                  return getDocs(colRef);
+                })
+              : await getDocs(colRef);
 
-      if (snap && !snap.empty) {
-        snap.docs.forEach((d) => {
-          const data = d.data();
-          const code = (data.code || d.id) as RoleGroupCode;
-          if (DEFAULT_ROLE_GROUPS[code] && data.permissions) {
-            DEFAULT_ROLE_GROUPS[code].permissions = {
-              ...DEFAULT_ROLE_GROUPS[code].permissions,
-              ...data.permissions
-            };
+          const snapshot: Record<string, ModulePermissionsMap> = {};
+          if (snap && !snap.empty) {
+            snap.docs.forEach((d) => {
+              const data = d.data();
+              const code = (data.code || d.id) as RoleGroupCode;
+              if (DEFAULT_ROLE_GROUPS[code] && data.permissions) {
+                DEFAULT_ROLE_GROUPS[code].permissions = {
+                  ...DEFAULT_ROLE_GROUPS[code].permissions,
+                  ...data.permissions
+                };
+              }
+            });
           }
-        });
-      }
-      roleGroupConfigsLoaded = true;
-      notifyRoleGroupVersionChange();
+          (Object.keys(DEFAULT_ROLE_GROUPS) as RoleGroupCode[]).forEach((code) => {
+            snapshot[code] = DEFAULT_ROLE_GROUPS[code].permissions;
+          });
+          try {
+            if (typeof window !== 'undefined') {
+              window.sessionStorage.setItem(
+                ROLE_GROUPS_SESSION_KEY,
+                JSON.stringify({ savedAt: Date.now(), data: snapshot })
+              );
+            }
+          } catch {
+            // ignore
+          }
+          roleGroupConfigsLoaded = true;
+          notifyRoleGroupVersionChange();
+          return true;
+        },
+        {
+          force: forceServer,
+          forceManual: forceServer,
+          fallback: () => true
+        }
+      );
     } catch (e) {
+      reportFirestoreError(e, 'accountService.loadRoleGroupConfigs');
       console.warn('Could not load role group configs from Firestore:', e);
     }
   },

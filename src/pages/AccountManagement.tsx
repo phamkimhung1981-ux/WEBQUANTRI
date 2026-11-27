@@ -46,8 +46,7 @@ import {
   createEmptyModulePermissions
 } from '../types/permission';
 import { accountService } from '../services/accountService';
-import { db } from '../lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useAppContext } from '../store/AppContext';
 import { DEFAULT_TEACHERS } from '../data/defaultTeachersData';
 import { Teacher } from '../types';
 
@@ -56,10 +55,13 @@ const VISIBLE_SYSTEM_MODULES = SYSTEM_MODULES_LIST.filter(m => m.code !== 'kpi_c
 export default function AccountManagement() {
   const { user } = useAuth();
   const { isAdmin, isBGH } = usePermission();
+  const { teachers: contextTeachers } = useAppContext();
 
   const [activeTab, setActiveTab] = useState<'accounts' | 'matrix' | 'audit'>('accounts');
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>(() =>
+    contextTeachers && contextTeachers.length > 0 ? contextTeachers : DEFAULT_TEACHERS
+  );
   const [auditLogs, setAuditLogs] = useState<AccountAuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -115,20 +117,19 @@ export default function AccountManagement() {
     setTimeout(() => setToastMessage(null), type === 'error' ? 6000 : 4000);
   };
 
-  // Load accounts and teachers strictly from Firestore (no stale localStorage account cache)
-  const loadData = async () => {
+  // Keep teachers synced with shared AppContext (0 extra Firestore reads!)
+  useEffect(() => {
+    if (contextTeachers && contextTeachers.length > 0) {
+      setTeachers(contextTeachers);
+    }
+  }, [contextTeachers]);
+
+  // Load accounts and audit logs with TTL caching (reuses AppContext teachers)
+  const loadData = async (forceRefresh = false) => {
     setLoading(true);
     try {
-      localStorage.removeItem('cached_user_accounts');
-      localStorage.removeItem('custom_user_permissions_map');
-    } catch {
-      // ignore storage errors
-    }
-
-    try {
-      const [accList, teachersSnap, logs] = await Promise.all([
-        accountService.getAccounts(),
-        getDocs(collection(db, 'teachers')).catch(() => null),
+      const [accList, logs] = await Promise.all([
+        accountService.getAccounts(forceRefresh),
         accountService.getAuditLogs(30).catch(() => [])
       ]);
 
@@ -141,12 +142,6 @@ export default function AccountManagement() {
         });
       }
 
-      if (teachersSnap && !teachersSnap.empty) {
-        setTeachers(teachersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Teacher)));
-      } else {
-        setTeachers(DEFAULT_TEACHERS);
-      }
-
       if (logs) setAuditLogs(logs);
     } catch (e: any) {
       console.error('Error loading account data:', e);
@@ -157,7 +152,7 @@ export default function AccountManagement() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
   }, []);
 
   // Update matrix permissions when matrix target selection changes

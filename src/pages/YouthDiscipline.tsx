@@ -394,10 +394,22 @@ export default function YouthDisciplinePage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Load all foundational data
+  // Load foundational data ONCE per school year (changing week/month filters purely in memory = 0 Firestore reads!)
   useEffect(() => {
     loadAllData();
-  }, [selectedYear, selectedWeek, selectedMonth]);
+  }, [selectedYear]);
+
+  // Update active weeklyLock in memory when selectedWeek changes (0 Firestore reads)
+  useEffect(() => {
+    const activeWeekForLock = selectedWeek > 0 ? selectedWeek : 1;
+    const found = allWeeklyLocks[activeWeekForLock];
+    if (found) {
+      setWeeklyLock(found);
+    } else {
+      const lockId = `lock_${selectedYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${activeWeekForLock}`;
+      setWeeklyLock({ id: lockId, schoolYear: selectedYear, weekNumber: activeWeekForLock, isLocked: false });
+    }
+  }, [selectedWeek, selectedYear, allWeeklyLocks]);
 
   const loadAllData = async () => {
     try {
@@ -406,48 +418,47 @@ export default function YouthDisciplinePage() {
       await homeroomService.seedIfEmpty();
       await classificationService.seedIfEmpty(selectedYear);
 
-      // Load classifications
-      const classifList = await classificationService.getClassifications(selectedYear, true);
+      // Parallel TTL-cached loads (replaces sequential 1,400+ reads & 37 weeklyLock loop!)
+      const [
+        classifList,
+        clsList,
+        assignList,
+        stuList,
+        critList,
+        st,
+        vioList,
+        locksMap,
+        logs
+      ] = await Promise.all([
+        classificationService.getClassifications(selectedYear, true),
+        homeroomService.getClasses(),
+        homeroomService.getAssignments(),
+        homeroomService.getStudents(),
+        youthDisciplineService.getCriteria(),
+        youthDisciplineService.getSettings(selectedYear),
+        youthDisciplineService.getViolations({ schoolYear: selectedYear }),
+        youthDisciplineService.getAllWeeklyLocks(selectedYear),
+        youthDisciplineService.getAuditLogs(30)
+      ]);
+
       setClassifications(classifList);
-
-      // Load classes and students
-      const clsList = await homeroomService.getClasses();
       setClasses(clsList);
-
-      const assignList = await homeroomService.getAssignments();
       setAssignments(assignList);
-
-      const stuList = await homeroomService.getStudents();
       setStudents(stuList);
-
-      // Load criteria
-      const critList = await youthDisciplineService.getCriteria();
       setCriteria(critList);
-
-      // Load settings
-      const st = await youthDisciplineService.getSettings(selectedYear);
       setSettings(st);
-
-      // Load violations for current scope
-      const vioList = await youthDisciplineService.getViolations({
-        schoolYear: selectedYear
-      });
       setViolations(vioList);
-
-      // Load weekly lock record for active week
-      const activeWeekForLock = selectedWeek > 0 ? selectedWeek : 1;
-      const lk = await youthDisciplineService.getWeeklyLock(selectedYear, activeWeekForLock);
-      setWeeklyLock(lk);
-
-      // Load locks map for all 37 weeks
-      const locksMap: Record<number, YouthWeeklyLockRecord> = {};
-      for (let w = 1; w <= 37; w++) {
-        locksMap[w] = await youthDisciplineService.getWeeklyLock(selectedYear, w);
-      }
       setAllWeeklyLocks(locksMap);
 
-      // Load audit logs
-      const logs = await youthDisciplineService.getAuditLogs(30);
+      const activeWeekForLock = selectedWeek > 0 ? selectedWeek : 1;
+      setWeeklyLock(
+        locksMap[activeWeekForLock] || {
+          id: `lock_${selectedYear.replace(/[^a-zA-Z0-9]/g, '_')}_w${activeWeekForLock}`,
+          schoolYear: selectedYear,
+          weekNumber: activeWeekForLock,
+          isLocked: false
+        }
+      );
       setAuditLogs(logs);
 
       // Set default form class if none selected

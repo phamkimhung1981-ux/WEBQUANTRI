@@ -2,13 +2,10 @@ import {
   collection, 
   doc, 
   setDoc, 
-  getDoc, 
   getDocs, 
   deleteDoc, 
-  onSnapshot, 
   query, 
-  where,
-  orderBy
+  where
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { 
@@ -18,10 +15,34 @@ import {
   MAX_EVIDENCE_FILE_SIZE 
 } from '../types/kpiEvidence';
 import { cleanFirestoreData } from './kpiVcService';
+import {
+  cachedFirestoreFetch,
+  canAttemptFirestoreRead,
+  invalidateFirestoreCache,
+  reportFirestoreError,
+  reportFirestoreSuccess,
+  subscribeQuotaManager,
+  getQuotaManagerState
+} from '../utils/firestoreQuotaManager';
 
 const COLLECTION_NAME = 'kpi_evidence_files';
 const DB_NAME = 'SonLuong_KPI_Evidence_DB';
 const STORE_NAME = 'evidence_files';
+const EVIDENCE_CACHE_TTL_MS = 3 * 60 * 1000;
+
+function getAliasFormId(formId: string): string {
+  if (!formId) return '';
+  if (formId.startsWith('draft_')) return formId.replace('draft_', 'kpif_');
+  if (formId.startsWith('kpif_')) return `draft_${formId.replace('kpif_', '')}`;
+  return '';
+}
+
+function invalidateEvidenceFormCache(formId?: string): void {
+  if (!formId) return;
+  invalidateFirestoreCache(`evidence:${formId}`);
+  const alias = getAliasFormId(formId);
+  if (alias) invalidateFirestoreCache(`evidence:${alias}`);
+}
 
 // IndexedDB Helper for robust local storage of heavy files
 function openIndexedDB(): Promise<IDBDatabase> {
@@ -192,13 +213,16 @@ export async function saveEvidenceFile(fileItem: KpiEvidenceFile): Promise<void>
     if (dataStr.length < 900000) {
       const docRef = doc(db, COLLECTION_NAME, fileItem.id);
       await setDoc(docRef, cleanData, { merge: true });
+      reportFirestoreSuccess();
     }
   } catch (err) {
+    reportFirestoreError(err);
     console.error('Lỗi khi lưu minh chứng vào Firestore:', err);
   }
 
-  // 3. Notify listeners
+  // 3. Invalidate cached Firestore list and notify listeners
   if (fileItem.formId) {
+    invalidateEvidenceFormCache(fileItem.formId);
     notifyEvidenceChanged(fileItem.formId);
   }
 }
@@ -217,20 +241,26 @@ export async function reassignEvidenceFilesFormId(oldFormId: string, newFormId: 
       await saveToIndexedDB(updated);
     }
 
-    // 2. Reassign in Firestore
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where('formId', '==', oldFormId)
-    );
-    const snap = await getDocs(q);
-    for (const dSnap of snap.docs) {
-      const docRef = doc(db, COLLECTION_NAME, dSnap.id);
-      await setDoc(docRef, { formId: newFormId }, { merge: true });
+    // 2. Reassign in Firestore (respect circuit breaker)
+    if (canAttemptFirestoreRead()) {
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where('formId', '==', oldFormId)
+      );
+      const snap = await getDocs(q);
+      reportFirestoreSuccess();
+      for (const dSnap of snap.docs) {
+        const docRef = doc(db, COLLECTION_NAME, dSnap.id);
+        await setDoc(docRef, { formId: newFormId }, { merge: true });
+      }
     }
 
+    invalidateEvidenceFormCache(oldFormId);
+    invalidateEvidenceFormCache(newFormId);
     notifyEvidenceChanged(newFormId);
     notifyEvidenceChanged(oldFormId);
   } catch (err) {
+    reportFirestoreError(err);
     console.warn('Lỗi khi chuyển mã phiếu cho minh chứng:', err);
   }
 }
@@ -249,21 +279,17 @@ export async function deleteEvidenceFile(
 ): Promise<{ success: boolean; error?: string }> {
   if (!id) return { success: false, error: 'Mã tệp không hợp lệ.' };
   const cleanId = id.trim();
-  console.log(`[KPI Evidence Service] Bắt đầu quy trình xóa tệp minh chứng: ID=${cleanId}, FormID=${formId || 'N/A'}`);
 
   if (options?.isLocked) {
-    console.warn(`[KPI Evidence Service] Từ chối xóa minh chứng ID=${cleanId}: Phiếu KPI đã bị khóa.`);
     return { success: false, error: 'Phiếu KPI đã bị khóa. Không thể xóa minh chứng.' };
   }
 
   // 1. Synchronously mark as deleted locally
   markFileAsDeleted(cleanId);
-  console.log(`[KPI Evidence Service] Đã đánh dấu ID=${cleanId} vào danh sách đã xóa trong localStorage.`);
 
   // 2. Remove from IndexedDB
   try {
     await removeFromIndexedDB(cleanId);
-    console.log(`[KPI Evidence Service] Đã xóa tệp ID=${cleanId} khỏi IndexedDB thành công.`);
   } catch (err) {
     console.warn(`[KPI Evidence Service] Cảnh báo khi xóa từ IndexedDB (ID=${cleanId}):`, err);
   }
@@ -272,8 +298,9 @@ export async function deleteEvidenceFile(
   try {
     const docRef = doc(db, COLLECTION_NAME, cleanId);
     await deleteDoc(docRef);
-    console.log(`[KPI Evidence Service] Đã xóa bản ghi document ID=${cleanId} khỏi Firestore collection '${COLLECTION_NAME}'.`);
+    reportFirestoreSuccess();
   } catch (err: any) {
+    reportFirestoreError(err);
     console.warn(`[KPI Evidence Service] Lỗi/Cảnh báo khi xóa document ID=${cleanId} khỏi Firestore:`, err);
   }
 
@@ -288,52 +315,49 @@ export async function deleteEvidenceFile(
       deletedByName: options?.currentUserName || 'Người dùng',
       deletedAt: new Date().toISOString()
     });
-    console.log(`[KPI Evidence Service] Đã lưu nhật ký xóa (audit log) cho ID=${cleanId}.`);
   } catch (e) {
     console.warn(`[KPI Evidence Service] Bỏ qua lỗi ghi audit log cho ID=${cleanId}:`, e);
   }
 
-  // 5. Notify all listeners to refresh their state immediately
+  // 5. Invalidate cache and notify all listeners immediately
   if (formId) {
+    invalidateEvidenceFormCache(formId);
     notifyEvidenceChanged(formId);
-    console.log(`[KPI Evidence Service] Đã phát thông báo thay đổi dữ liệu (event notify) cho FormID=${formId}.`);
   }
 
   return { success: true };
 }
 
 /**
- * Get evidence files for a KPI form
+ * Get evidence files for a KPI form (TTL-cached Firestore read + live IndexedDB merge)
  */
-export async function getEvidenceFilesForForm(formId: string): Promise<KpiEvidenceFile[]> {
+export async function getEvidenceFilesForForm(formId: string, forceRefresh: boolean = false): Promise<KpiEvidenceFile[]> {
   if (!formId) return [];
 
   const deletedIds = getDeletedFileIds();
-
-  // Alias formId check (e.g. draft vs kpif)
-  const aliasFormId = formId.startsWith('draft_') 
-    ? formId.replace('draft_', 'kpif_') 
-    : (formId.startsWith('kpif_') ? `draft_${formId.replace('kpif_', '')}` : '');
-
+  const aliasFormId = getAliasFormId(formId);
   const formIdsToQuery = Array.from(new Set([formId, aliasFormId])).filter(Boolean);
 
-  let firestoreFiles: KpiEvidenceFile[] = [];
-  try {
-    for (const fid of formIdsToQuery) {
-      const q = query(
-        collection(db, COLLECTION_NAME),
-        where('formId', '==', fid)
-      );
-      const snap = await getDocs(q);
-      const docs = snap.docs.map(d => d.data() as KpiEvidenceFile);
-      firestoreFiles.push(...docs);
-    }
-  } catch (err) {
-    console.warn('Lỗi khi đọc danh sách minh chứng từ Firestore:', err);
-  }
+  const firestoreFiles = await cachedFirestoreFetch<KpiEvidenceFile[]>(
+    `evidence:${formId}`,
+    EVIDENCE_CACHE_TTL_MS,
+    async () => {
+      const results: KpiEvidenceFile[] = [];
+      for (const fid of formIdsToQuery) {
+        const q = query(
+          collection(db, COLLECTION_NAME),
+          where('formId', '==', fid)
+        );
+        const snap = await getDocs(q);
+        results.push(...snap.docs.map(d => d.data() as KpiEvidenceFile));
+      }
+      return results;
+    },
+    { fallback: () => [], force: forceRefresh }
+  );
 
   // Merge with IndexedDB
-  let idbFiles: KpiEvidenceFile[] = [];
+  const idbFiles: KpiEvidenceFile[] = [];
   for (const fid of formIdsToQuery) {
     const files = await getFromIndexedDBForForm(fid);
     idbFiles.push(...files);
@@ -357,7 +381,8 @@ export async function getEvidenceFilesForForm(formId: string): Promise<KpiEviden
 }
 
 /**
- * Subscribe to evidence files for a form in real-time
+ * Subscribe to evidence files for a form using TTL-cached fetches + local change events
+ * (eliminates redundant onSnapshot + getDocs read amplification).
  */
 export function subscribeEvidenceFilesForForm(
   formId: string,
@@ -369,10 +394,11 @@ export function subscribeEvidenceFilesForForm(
   }
 
   let isDisposed = false;
+  let lastEpoch = getQuotaManagerState().epoch;
 
-  const sync = async () => {
+  const sync = async (force: boolean = false) => {
     try {
-      const files = await getEvidenceFilesForForm(formId);
+      const files = await getEvidenceFilesForForm(formId, force);
       if (!isDisposed) {
         onUpdate(files);
       }
@@ -384,33 +410,29 @@ export function subscribeEvidenceFilesForForm(
     }
   };
 
-  // Initial load
-  void sync();
+  // Initial load (served from 3-min TTL cache if revisited)
+  void sync(false);
 
-  // Firestore listener
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where('formId', '==', formId)
-  );
-
-  const unsubFirestore = onSnapshot(q, () => {
-    void sync();
-  }, (err) => {
-    console.warn('Lỗi listener Firestore cho minh chứng:', err);
-    void sync();
+  // Local upload/delete event listener (instant UI update)
+  const unsubLocal = onEvidenceChanged((changedFormId) => {
+    if (!changedFormId || changedFormId === formId || changedFormId === getAliasFormId(formId)) {
+      void sync(false);
+    }
   });
 
-  // Local event listener
-  const unsubLocal = onEvidenceChanged((changedFormId) => {
-    if (!changedFormId || changedFormId === formId) {
-      void sync();
+  // Manual "Thử đồng bộ lại" listener
+  const unsubQuota = subscribeQuotaManager((state) => {
+    if (state.epoch !== lastEpoch) {
+      lastEpoch = state.epoch;
+      invalidateEvidenceFormCache(formId);
+      void sync(true);
     }
   });
 
   return () => {
     isDisposed = true;
-    unsubFirestore();
     unsubLocal();
+    unsubQuota();
   };
 }
 
